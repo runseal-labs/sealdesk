@@ -1470,6 +1470,12 @@ jobs:
           prefix-key: rustdesk-lib-cache-android # TODO: drop '-android' part after caches are invalidated
           key: ${{ matrix.job.target }}
 
+      - name: Install Go for Android tunnel
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00
+        with:
+          go-version-file: libs/tailcat-ffi/go.mod
+          cache-dependency-path: libs/tailcat-ffi/go.sum
+
       - name: Build rustdesk lib
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
@@ -1482,21 +1488,25 @@ jobs:
               ./flutter/ndk_arm64.sh
               mkdir -p ./flutter/android/app/src/main/jniLibs/arm64-v8a
               cp ./target/${{ matrix.job.target }}/release/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/librustdesk.so
+              cp ./target/${{ matrix.job.target }}/release/libtailcat.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/
             ;;
             armv7-linux-androideabi)
               ./flutter/ndk_arm.sh
               mkdir -p ./flutter/android/app/src/main/jniLibs/armeabi-v7a
               cp ./target/${{ matrix.job.target }}/release/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/armeabi-v7a/librustdesk.so
+              cp ./target/${{ matrix.job.target }}/release/libtailcat.so ./flutter/android/app/src/main/jniLibs/armeabi-v7a/
             ;;
             x86_64-linux-android)
               ./flutter/ndk_x64.sh
               mkdir -p ./flutter/android/app/src/main/jniLibs/x86_64
               cp ./target/${{ matrix.job.target }}/release/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/x86_64/librustdesk.so
+              cp ./target/${{ matrix.job.target }}/release/libtailcat.so ./flutter/android/app/src/main/jniLibs/x86_64/
             ;;
             i686-linux-android)
               ./flutter/ndk_x86.sh
               mkdir -p ./flutter/android/app/src/main/jniLibs/x86
               cp ./target/${{ matrix.job.target }}/release/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/x86/librustdesk.so
+              cp ./target/${{ matrix.job.target }}/release/libtailcat.so ./flutter/android/app/src/main/jniLibs/x86/
             ;;
           esac
 
@@ -1504,7 +1514,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: librustdesk.so.${{ matrix.job.target }}
-          path: ./target/${{ matrix.job.target }}/release/liblibrustdesk.so
+          path: |
+            ./target/${{ matrix.job.target }}/release/liblibrustdesk.so
+            ./target/${{ matrix.job.target }}/release/libtailcat.so
 
       - name: Build rustdesk
         shell: bash
@@ -1524,6 +1536,7 @@ jobs:
               # build flutter
               pushd flutter
               flutter build apk "--${{ matrix.job.reltype }}" --target-platform android-arm64 --split-per-abi
+              python3 ../tests/check_taildesk_android_package.py build/app/outputs/flutter-apk/app-arm64-v8a-${{ matrix.job.reltype }}.apk --abi arm64-v8a
               mv build/app/outputs/flutter-apk/app-arm64-v8a-${{ matrix.job.reltype }}.apk ../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk
             ;;
             armv7-linux-androideabi)
@@ -1533,6 +1546,7 @@ jobs:
               # build flutter
               pushd flutter
               flutter build apk "--${{ matrix.job.reltype }}" --target-platform android-arm --split-per-abi
+              python3 ../tests/check_taildesk_android_package.py build/app/outputs/flutter-apk/app-armeabi-v7a-${{ matrix.job.reltype }}.apk --abi armeabi-v7a
               mv build/app/outputs/flutter-apk/app-armeabi-v7a-${{ matrix.job.reltype }}.apk ../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk
             ;;
             x86_64-linux-android)
@@ -1542,6 +1556,7 @@ jobs:
               # build flutter
               pushd flutter
               flutter build apk "--${{ matrix.job.reltype }}" --target-platform android-x64 --split-per-abi
+              python3 ../tests/check_taildesk_android_package.py build/app/outputs/flutter-apk/app-x86_64-${{ matrix.job.reltype }}.apk --abi x86_64
               mv build/app/outputs/flutter-apk/app-x86_64-${{ matrix.job.reltype }}.apk ../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk
             ;;
             i686-linux-android)
@@ -1551,6 +1566,7 @@ jobs:
               # build flutter
               pushd flutter
               flutter build apk "--${{ matrix.job.reltype }}" --target-platform android-x86 --split-per-abi
+              python3 ../tests/check_taildesk_android_package.py build/app/outputs/flutter-apk/app-x86-${{ matrix.job.reltype }}.apk --abi x86
               mv build/app/outputs/flutter-apk/app-x86-${{ matrix.job.reltype }}.apk ../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk
             ;;
           esac
@@ -1739,6 +1755,11 @@ jobs:
           # build flutter
           pushd flutter
           flutter build apk "--${{ env.reltype }}" --target-platform android-arm64,android-arm,android-x64${{ env.x86_target }}
+          package_abis=(--abi arm64-v8a --abi armeabi-v7a --abi x86_64)
+          if [ "${{ env.reltype }}" = "debug" ]; then
+            package_abis+=(--abi x86)
+          fi
+          python3 ../tests/check_taildesk_android_package.py build/app/outputs/flutter-apk/app-${{ env.reltype }}.apk "${package_abis[@]}"
           popd
           mkdir -p signed-apk
           mv ./flutter/build/app/outputs/flutter-apk/app-${{ env.reltype }}.apk signed-apk/rustdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk

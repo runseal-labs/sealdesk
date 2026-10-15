@@ -5,6 +5,11 @@
 
 pub use hbb_common::config::keys::*;
 
+pub const OPTION_TAILDESK_MODE: &str = "taildesk-mode";
+pub const OPTION_TAILDESK_HOST_MODE: &str = "taildesk-host-mode";
+pub const OPTION_TAILDESK_RESET_ADDRESS: &str = "taildesk-reset-address";
+pub const OPTION_STOP_SERVICE: &str = "stop-service";
+
 pub const OPTION_VIEW_ONLY: &str = "view_only";
 pub const OPTION_SHOW_MONITORS_TOOLBAR: &str = "show_monitors_toolbar";
 pub const OPTION_SHOW_REMOTE_CURSOR: &str = "show_remote_cursor";

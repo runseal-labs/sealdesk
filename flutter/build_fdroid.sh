@@ -468,6 +468,8 @@ build)
 
 	cp "target/${RUST_TARGET}/release/liblibrustdesk.so" \
 		"flutter/android/app/src/main/jniLibs/${ANDROID_ABI}/librustdesk.so"
+	cp "target/${RUST_TARGET}/release/libtailcat.so" \
+		"flutter/android/app/src/main/jniLibs/${ANDROID_ABI}/libtailcat.so" || exit 1
 
 	cp "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/${NDK_TARGET}/libc++_shared.so" \
 		"flutter/android/app/src/main/jniLibs/${ANDROID_ABI}/"
@@ -603,12 +605,14 @@ build)
 			--build-number="${VERCODE}" \
 			--build-name="${VERNAME}" \
 			--target-platform "${FLUTTER_TARGET}"
+		python3 ../tests/check_taildesk_android_package.py build/app/outputs/flutter-apk/app-debug.apk --abi "${ANDROID_ABI}" || exit 1
 	else
 		flutter build apk \
 			--release \
 			--build-number="${VERCODE}" \
 			--build-name="${VERNAME}" \
 			--target-platform "${FLUTTER_TARGET}"
+		python3 ../tests/check_taildesk_android_package.py build/app/outputs/flutter-apk/app-release.apk --abi "${ANDROID_ABI}" || exit 1
 	fi
 
 	popd # flutter

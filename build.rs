@@ -1,3 +1,6 @@
+#[path = "src/tailcat/build_target.rs"]
+mod tailcat_build_target;
+
 #[cfg(windows)]
 fn build_windows() {
     let file = "src/platform/windows.cc";
@@ -85,8 +88,90 @@ fn install_android_deps() {
     println!("cargo:rustc-link-lib=OpenSLES");
 }
 
+// Builds libs/tailcat-ffi (Go) as a native library and links it in. The tunnel
+// replaces the rendezvous and relay servers. Needs `go` on PATH (or $GO).
+fn build_tailcat() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = std::path::Path::new("libs/tailcat-ffi");
+    let out = std::path::PathBuf::from(std::env::var("OUT_DIR")?);
+    let target = std::env::var("TARGET")?;
+    let host = std::env::var("HOST")?;
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS")?;
+    let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH")?;
+    let compiler_keys = tailcat_build_target::compiler_keys(&target);
+    for key in compiler_keys.iter().map(String::as_str).chain([
+        "GO",
+        "GOFLAGS",
+        "GOEXPERIMENT",
+        "GOROOT",
+        "GOTOOLCHAIN",
+        "CGO_CFLAGS",
+        "CGO_CPPFLAGS",
+        "CGO_CXXFLAGS",
+        "CGO_LDFLAGS",
+        "SDKROOT",
+    ]) {
+        println!("cargo:rerun-if-env-changed={key}");
+    }
+    let compiler = compiler_keys
+        .iter()
+        .filter_map(std::env::var_os)
+        .find(|value| !value.is_empty());
+    let go = std::env::var("GO").unwrap_or_else(|_| "go".to_owned());
+    let mut command = std::process::Command::new(go);
+    let (build_mode, library_name, link_kind) = tailcat_build_target::library_format(&target_os);
+    tailcat_build_target::configure(
+        &mut command,
+        &host,
+        &target,
+        &target_os,
+        &target_arch,
+        compiler.as_deref(),
+    )?;
+    let status = command
+        .current_dir(dir)
+        .arg("build")
+        .arg(format!("-buildmode={build_mode}"))
+        .args(["-trimpath", "-o"])
+        .arg(out.join(library_name))
+        .arg(".")
+        .status()
+        .map_err(|error| format!("Failed to run Go for {target}; install Go or set GO: {error}"))?;
+    if !status.success() {
+        return Err(format!("Building libs/tailcat-ffi for {target} failed ({status}); check the target cgo compiler and SDK").into());
+    }
+    println!("cargo:rustc-link-search=native={}", out.display());
+    println!("cargo:rustc-link-lib={link_kind}=tailcat");
+    if target_os == "android" {
+        let profile_dir = out
+            .ancestors()
+            .nth(3)
+            .ok_or("Unexpected Cargo OUT_DIR layout")?;
+        std::fs::copy(out.join(library_name), profile_dir.join(library_name))?;
+    }
+    if target_os == "macos" {
+        println!("cargo:rustc-link-lib=framework=CoreFoundation");
+        println!("cargo:rustc-link-lib=framework=Security");
+        println!("cargo:rustc-link-lib=resolv");
+    }
+    for f in [
+        "main.go",
+        "transport.go",
+        "client_cache.go",
+        "go.mod",
+        "go.sum",
+    ] {
+        println!("cargo:rerun-if-changed=libs/tailcat-ffi/{f}");
+    }
+    println!("cargo:rerun-if-changed=src/tailcat/build_target.rs");
+    Ok(())
+}
+
 fn main() {
     hbb_common::gen_version();
+    if let Err(error) = build_tailcat() {
+        eprintln!("tailcat build failed: {error}");
+        std::process::exit(1);
+    }
     install_android_deps();
     #[cfg(all(windows, feature = "inline"))]
     build_manifest();

@@ -1,0 +1,145 @@
+name: TailDesk transport libraries
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/taildesk-transport.yml'
+      - 'libs/tailcat-ffi/**'
+      - 'build.rs'
+      - 'src/tailcat/build_target.rs'
+      - 'tests/build_tailcat_archive.sh'
+      - 'tests/tailcat_archive_smoke.c'
+      - 'tests/build_tailcat_android.sh'
+      - 'tests/tailcat_android_link.rs'
+      - 'tests/check_taildesk_android_package.py'
+      - 'tests/test_taildesk_android_package.py'
+  pull_request:
+    paths:
+      - '.github/workflows/taildesk-transport.yml'
+      - 'libs/tailcat-ffi/**'
+      - 'build.rs'
+      - 'src/tailcat/build_target.rs'
+      - 'tests/build_tailcat_archive.sh'
+      - 'tests/tailcat_archive_smoke.c'
+      - 'tests/build_tailcat_android.sh'
+      - 'tests/tailcat_android_link.rs'
+      - 'tests/check_taildesk_android_package.py'
+      - 'tests/test_taildesk_android_package.py'
+
+permissions:
+  contents: read
+
+jobs:
+  native-archive:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {target: x86_64-unknown-linux-gnu, os: ubuntu-24.04}
+          - {target: x86_64-apple-darwin, os: macos-15-intel}
+          - {target: aarch64-apple-darwin, os: macos-14}
+          - {target: x86_64-pc-windows-gnu, os: windows-2022}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+
+      - name: Install Go
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00
+        with:
+          go-version-file: libs/tailcat-ffi/go.mod
+          cache-dependency-path: libs/tailcat-ffi/go.sum
+
+      - name: Install Rust for target mapping tests
+        if: runner.os == 'Linux'
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: '1.75'
+
+      - name: Test Cargo to Go target mapping
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          rustc --edition 2021 --test src/tailcat/build_target.rs -o "$RUNNER_TEMP/tailcat-build-target-tests"
+          "$RUNNER_TEMP/tailcat-build-target-tests"
+
+      - name: Install Windows cgo compiler
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e
+        with:
+          msystem: UCRT64
+          update: true
+          install: mingw-w64-ucrt-x86_64-gcc
+
+      - name: Select Windows cgo compiler
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          compiler_path=$(cygpath -m /ucrt64/bin/gcc.exe)
+          printf 'CC=%s\nTAILCAT_SMOKE_CC=%s\n' "$compiler_path" "$compiler_path" >> "$GITHUB_ENV"
+          cygpath -m /ucrt64/bin >> "$GITHUB_PATH"
+
+      - name: Build archive and execute C ABI probe
+        shell: bash
+        run: bash tests/build_tailcat_archive.sh artifacts
+
+      - name: Upload validated archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: tailcat-${{ matrix.target }}
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            artifacts/libtailcat.a
+            artifacts/libtailcat.h
+            artifacts/toolchain.txt
+
+  android-shared:
+    name: Android ${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [aarch64-linux-android, armv7-linux-androideabi, x86_64-linux-android, i686-linux-android]
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+
+      - name: Install Go
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00
+        with:
+          go-version-file: libs/tailcat-ffi/go.mod
+          cache-dependency-path: libs/tailcat-ffi/go.sum
+
+      - name: Install Rust Android target
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: '1.75'
+          targets: ${{ matrix.target }}
+
+      - name: Install Android NDK
+        id: ndk
+        uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779
+        with:
+          ndk-version: r28c
+
+      - name: Build Go library and verify Rust dynamic linking
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: bash tests/build_tailcat_android.sh "${{ matrix.target }}" "artifacts/${{ matrix.target }}"
+
+      - name: Upload Android link artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: tailcat-${{ matrix.target }}
+          retention-days: 14
+          if-no-files-found: error
+          path: artifacts/${{ matrix.target }}/
