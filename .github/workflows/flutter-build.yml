@@ -21,12 +21,8 @@ on:
 # in this file!
 
 env:
-  SCITER_RUST_VERSION: "1.75" # https://github.com/rustdesk/rustdesk/discussions/7503, also 1.78 has ABI change which causes our sciter version not working, https://blog.rust-lang.org/2024/03/30/i128-layout-update.html
-  RUST_VERSION: "1.75" # sciter failed on m1 with 1.78 because of https://blog.rust-lang.org/2024/03/30/i128-layout-update.html
   MAC_RUST_VERSION: "1.81" # 1.81 is requred for macos, because of https://github.com/yury/cidre requires 1.81
   CARGO_NDK_VERSION: "3.1.2"
-  SCITER_ARMV7_CMAKE_VERSION: "3.29.7"
-  SCITER_NASM_DEBVERSION: "2.15.05-1"
   LLVM_VERSION: "15.0.6"
   FLUTTER_VERSION: "3.24.5"
   ANDROID_FLUTTER_VERSION: "3.24.5"
@@ -283,7 +279,6 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
-          toolchain: ${{ env.SCITER_RUST_VERSION }}
           targets: ${{ matrix.job.target }}
           components: "rustfmt"
 
@@ -540,188 +535,6 @@ jobs:
           tag_name: ${{ env.TAG_NAME }}
           files: |
             ./SignOutput/rustdesk-*.msi
-            ./SignOutput/rustdesk-*.exe
-
-  # The fallback for the flutter version, we use Sciter for 32bit Windows.
-  build-for-windows-sciter:
-    name: ${{ matrix.job.target }} (${{ matrix.job.os }})
-    needs: [validate-update-metadata-keys]
-    runs-on: ${{ matrix.job.os }}
-    # Temporarily disable this action due to additional test is needed.
-    # if: false
-    strategy:
-      fail-fast: false
-      matrix:
-        job:
-          # - { target: i686-pc-windows-msvc        , os: windows-2022                  }
-          # - { target: x86_64-pc-windows-gnu       , os: windows-2022                  }
-          - {
-              target: i686-pc-windows-msvc,
-              os: windows-2022,
-              arch: x86,
-              vcpkg-triplet: x86-windows-static,
-            }
-          # - { target: aarch64-pc-windows-msvc, os: windows-2022 }
-    steps:
-      - name: Export GitHub Actions cache environment variables
-        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
-        with:
-          script: |
-            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
-
-      - name: Checkout source code
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          submodules: recursive
-
-      - name: Install LLVM and Clang
-        uses: rustdesk-org/install-llvm-action-32bit@6aa7d9ad3df84dff01cd4596dd0fc880a7f47fce # no release tag; commit 2026-05-26
-        with:
-          version: ${{ env.LLVM_VERSION }}
-
-      - name: Install Rust toolchain
-        shell: bash
-        run: |
-          # Sciter's abi_thiscall feature requires nightly Rust.
-          # Use an i686 host toolchain so build scripts can load the 32-bit LLVM installed above.
-          # Since rustup 1.29.1, i686 toolchains on x64 Windows require --force-non-host
-          # for both installation and default selection, even though WOW64 can run them.
-          # See https://github.com/rust-lang/rustup/pull/4935.
-          # Alternatively, an x64 compiler could use cargo build --target i686-pc-windows-msvc.
-          # This requires 64-bit LLVM for host build scripts and updated packaging paths,
-          # and has not been manually verified for RustDesk.
-          rustup toolchain install nightly-2023-10-13-${{ matrix.job.target }} \
-            --target ${{ matrix.job.target }} --component rustfmt \
-            --profile minimal --no-self-update --force-non-host
-          rustup default nightly-2023-10-13-${{ matrix.job.target }} --force-non-host
-
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-        with:
-          prefix-key: ${{ matrix.job.os }}-sciter
-
-      - name: Setup vcpkg with Github Actions binary cache
-        uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2 # v11
-        with:
-          vcpkgDirectory: C:\vcpkg
-          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
-          doNotCache: false
-
-      - name: Install vcpkg dependencies
-        env:
-          VCPKG_DEFAULT_HOST_TRIPLET: ${{ matrix.job.vcpkg-triplet }}
-        run: |
-          if ! $VCPKG_ROOT/vcpkg \
-            install \
-            --triplet ${{ matrix.job.vcpkg-triplet }} \
-            --x-install-root="$VCPKG_ROOT/installed"; then
-            find "${VCPKG_ROOT}/" -name "*.log" | while read -r _1; do
-              echo "$_1:"
-              echo "======"
-              cat "$_1"
-              echo "======"
-              echo ""
-            done
-            exit 1
-          fi
-          head -n 100 "${VCPKG_ROOT}/buildtrees/ffmpeg/build-${{ matrix.job.vcpkg-triplet }}-rel-out.log" || true
-        shell: bash
-
-      - name: Build rustdesk
-        id: build
-        shell: bash
-        run: |
-          python3 res/inline-sciter.py
-          # Patch sciter x86
-          sed -i 's/branch = "dyn"/branch = "dyn_x86"/g' ./Cargo.toml
-          cargo update -p sciter-rs --precise 674e07d3066ca9a92ced3816203ab6b652629d1e
-          cargo build --locked --features inline,vram,hwcodec --release --bins
-          mkdir -p ./Release
-          mv ./target/release/rustdesk.exe ./Release/rustdesk.exe
-          curl -LJ -o ./Release/sciter.dll https://github.com/c-smile/sciter-sdk/raw/master/bin.win/x32/sciter.dll
-          echo "output_folder=./Release" >> $GITHUB_OUTPUT
-          curl -LJ -o ./usbmmidd_v2.zip https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip
-          unzip usbmmidd_v2.zip
-          # Do not remove x64 files, because the user may run the 32bit version on a 64bit system.
-          # Do not remove ./usbmmidd_v2/deviceinstaller64.exe, as x86 exe cannot install and uninstall drivers when running on x64,
-          # we need the x64 exe to install and uninstall the driver.
-          rm -rf ./usbmmidd_v2/deviceinstaller.exe ./usbmmidd_v2/usbmmidd.bat
-          mv ./usbmmidd_v2 ./Release || true
-
-      - name: find Runner.res
-        # Windows: find Runner.res (compiled from ./flutter/windows/runner/Runner.rc), copy to ./Runner.res
-        # Runner.rc does not contain actual version, but Runner.res does
-        continue-on-error: true
-        shell: bash
-        run: |
-          runner_res=$(find . -name "Runner.res");
-          if [ "$runner_res" == "" ]; then
-            echo "Runner.res: not found";
-          else
-            echo "Runner.res: $runner_res";
-            cp $runner_res ./libs/portable/Runner.res;
-            echo "list ./libs/portable/Runner.res";
-            ls -l ./libs/portable/Runner.res;
-          fi
-
-      - name: Upload unsigned
-        if: env.UPLOAD_ARTIFACT == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: rustdesk-unsigned-windows-${{ matrix.job.arch }}
-          path: Release
-
-      - name: Sign rustdesk files
-        if: env.UPLOAD_ARTIFACT == 'true' && env.SIGN_BASE_URL != '-2'
-        shell: bash
-        run: |
-          pip3 install requests argparse
-          BASE_URL=${{ env.SIGN_BASE_URL }} SECRET_KEY=${{ secrets.SIGN_SECRET_KEY }} python3 res/job.py sign_files ./Release/
-
-      - name: Verify Windows Sciter version
-        if: env.UPLOAD_ARTIFACT == 'true' && env.PUBLISH_UPDATE_METADATA == 'true'
-        shell: powershell
-        run: |
-          $reportedVersion = (& ".\Release\rustdesk.exe" --version | Out-String).Trim()
-          if ($LASTEXITCODE -ne 0) {
-            throw "rustdesk --version exited with $LASTEXITCODE"
-          }
-          if ($reportedVersion -cne $env:VERSION) {
-            throw "RustDesk reports version '$reportedVersion', expected '$env:VERSION'"
-          }
-
-      - name: Build self-extracted executable
-        shell: bash
-        run: |
-          sed -i '/dpiAware/d' res/manifest.xml
-          pushd ./libs/portable
-          pip3 install -r requirements.txt
-          python3 ./generate.py -f ../../Release/ -o . -e ../../Release/rustdesk.exe
-          popd
-          mkdir -p ./SignOutput
-          mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-sciter.exe
-
-      - name: Sign rustdesk self-extracted file
-        if: env.UPLOAD_ARTIFACT == 'true' && env.SIGN_BASE_URL != '-2'
-        shell: bash
-        run: |
-          BASE_URL=${{ env.SIGN_BASE_URL }} SECRET_KEY=${{ secrets.SIGN_SECRET_KEY }} python3 res/job.py sign_files ./SignOutput/
-
-      - name: Upload signed Windows Sciter EXE
-        if: env.UPLOAD_ARTIFACT == 'true' && env.PUBLISH_UPDATE_METADATA == 'true' && env.SIGN_BASE_URL != '-2'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: windows-sciter-x86-exe
-          path: ./SignOutput/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-sciter.exe
-          if-no-files-found: error
-
-      - name: Publish Release
-        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
-        if: env.UPLOAD_ARTIFACT == 'true' && env.PUBLISH_UPDATE_METADATA != 'true'
-        with:
-          prerelease: true
-          tag_name: ${{ env.TAG_NAME }}
-          files: |
             ./SignOutput/rustdesk-*.exe
 
   build-rustdesk-ios:
@@ -1117,7 +930,6 @@ jobs:
             rustdesk*-${{ matrix.job.arch }}.dmg
 
   publish-signed-update-metadata:
-    needs: [build-for-windows-flutter, build-for-windows-sciter, build-for-macOS]
     runs-on: ubuntu-22.04
     if: ${{ inputs.upload-artifact && inputs.publish-update-metadata && github.repository == 'rustdesk/rustdesk' }}
     concurrency:
@@ -1189,7 +1001,6 @@ jobs:
             --artifact windows x86_64 msi "./artifacts/rustdesk-${VERSION}-x86_64.msi" \
             --artifact windows aarch64 exe "./artifacts/rustdesk-${VERSION}-aarch64.exe" \
             --artifact windows aarch64 msi "./artifacts/rustdesk-${VERSION}-aarch64.msi" \
-            --artifact windows x86 exe "./artifacts/rustdesk-${VERSION}-x86-sciter.exe" \
             --artifact macos aarch64 dmg "./artifacts/rustdesk-${VERSION}-aarch64.dmg" \
             --artifact macos x86_64 dmg "./artifacts/rustdesk-${VERSION}-x86_64.dmg" \
             --version "$VERSION" --release-id "$TAG_NAME" \
@@ -1210,7 +1021,6 @@ jobs:
             --artifact "./artifacts/rustdesk-${VERSION}-x86_64.msi" \
             --artifact "./artifacts/rustdesk-${VERSION}-aarch64.exe" \
             --artifact "./artifacts/rustdesk-${VERSION}-aarch64.msi" \
-            --artifact "./artifacts/rustdesk-${VERSION}-x86-sciter.exe" \
             --artifact "./artifacts/rustdesk-${VERSION}-aarch64.dmg" \
             --artifact "./artifacts/rustdesk-${VERSION}-x86_64.dmg" \
             --version "$VERSION" --release-id "$TAG_NAME" \
@@ -1228,7 +1038,6 @@ jobs:
             ./artifacts/rustdesk-${{ env.VERSION }}-x86_64.msi
             ./artifacts/rustdesk-${{ env.VERSION }}-aarch64.exe
             ./artifacts/rustdesk-${{ env.VERSION }}-aarch64.msi
-            ./artifacts/rustdesk-${{ env.VERSION }}-x86-sciter.exe
             ./artifacts/rustdesk-${{ env.VERSION }}-aarch64.dmg
             ./artifacts/rustdesk-${{ env.VERSION }}-x86_64.dmg
 
@@ -1255,7 +1064,6 @@ jobs:
     needs:
       - build-for-macOS
       - build-for-windows-flutter
-      - build-for-windows-sciter
     runs-on: ubuntu-latest
     if: ${{ inputs.upload-artifact }}
     steps:
@@ -2479,249 +2287,6 @@ jobs:
           name: ${{ env.DRM_DEB }}
           path: ${{ env.DRM_DEB }}
 
-  build-rustdesk-linux-sciter:
-    if: ${{ inputs.upload-artifact }}
-    needs: [validate-update-metadata-keys]
-    runs-on: ${{ matrix.job.on }}
-    name: build-rustdesk-linux-sciter ${{ matrix.job.target }}
-    strategy:
-      fail-fast: false
-      matrix:
-        # use a high level qemu-user-static
-        job:
-          - {
-              arch: x86_64,
-              target: x86_64-unknown-linux-gnu,
-              on: ubuntu-22.04,
-              distro: ubuntu18.04,
-              deb_arch: amd64,
-              sciter_arch: x64,
-              vcpkg-triplet: x64-linux,
-              extra_features: ",hwcodec,unix-file-copy-paste",
-            }
-          - {
-              arch: armv7,
-              target: armv7-unknown-linux-gnueabihf,
-              on: ubuntu-22.04-arm,
-              distro: ubuntu18.04-rustdesk,
-              deb_arch: armhf,
-              sciter_arch: arm32,
-              vcpkg-triplet: arm-linux,
-              extra_features: ",unix-file-copy-paste",
-            }
-    steps:
-      - name: Export GitHub Actions cache environment variables
-        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
-        with:
-          script: |
-            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
-
-      - name: Checkout source code
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          submodules: recursive
-
-      - name: Modify vcpkg.json for armv7
-        if: matrix.job.vcpkg-triplet == 'arm-linux'
-        run: |
-          # Replace the baseline in vcpkg.json with ARMV7_VCPKG_COMMIT_ID for armv7 builds
-          sed -i 's/"baseline": ".*"/"baseline": "${{ env.ARMV7_VCPKG_COMMIT_ID }}"/' vcpkg.json
-          echo "Modified vcpkg.json for armv7 build:"
-          grep -A 2 -B 2 '"baseline"' vcpkg.json
-
-      - name: Set Swap Space
-        if: matrix.job.arch == 'armv7'
-        uses: pierotofy/set-swap-space@49819abfb41bd9b44fb781159c033dba90353a7c # v1.0
-        with:
-          swap-size-gb: 12
-
-      - name: Free Space
-        run: |
-          df -h
-          free -m
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        with:
-          toolchain: ${{ env.SCITER_RUST_VERSION }}
-          targets: ${{ matrix.job.target }}
-          components: "rustfmt"
-
-      - name: Save Rust toolchain version
-        run: |
-          RUST_TOOLCHAIN_VERSION=$(cargo --version | awk '{print $2}')
-          echo "RUST_TOOLCHAIN_VERSION=$RUST_TOOLCHAIN_VERSION" >> $GITHUB_ENV
-
-      - uses: rustdesk-org/run-on-arch-action@d3fcfbb632b84cf7f6bc772bfaaa2c2f4f8789a8 # no release tag; commit 2026-05-26
-        name: Build rustdesk sciter binary for ${{ matrix.job.arch }}
-        id: vcpkg
-        with:
-          arch: ${{ matrix.job.arch }}
-          distro: ${{ matrix.job.distro }}
-          githubToken: ${{ github.token }}
-          setup: |
-            ls -l "${PWD}"
-          dockerRunArgs: |
-            --volume "${PWD}:/workspace"
-          shell: /bin/bash
-          install: |
-            apt-get update
-            apt-get install -y \
-               build-essential \
-               clang \
-               curl \
-               gcc \
-               git \
-               g++ \
-               libayatana-appindicator3-dev \
-               libasound2-dev \
-               libclang-dev \
-               libdbus-1-dev \
-               libglib2.0-dev \
-               libgstreamer1.0-dev \
-               libgstreamer-plugins-base1.0-dev \
-               libgtk-3-dev \
-               liblzma-dev \
-               libpulse-dev \
-               libva-dev \
-               libxcb-randr0-dev \
-               libxcb-shape0-dev \
-               libxcb-xfixes0-dev \
-               libxdo-dev \
-               libxfixes-dev \
-               ninja-build \
-               pkg-config \
-               python3 \
-               python3.7 \
-               rpm \
-               unzip \
-               wget \
-               xz-utils \
-               zip \
-               libssl-dev
-            # arm-linux needs CMake and vcokg built from source as there
-            # are no prebuilts available from Kitware and Microsoft
-            if [ "${{ matrix.job.vcpkg-triplet }}" = "arm-linux" ]; then
-              # install gcc/g++ 8 for vcpkg and OpenSSL headers for CMake
-              apt-get install -y gcc-8 g++-8
-              # bootstrap CMake amd add it to PATH
-              git clone --depth 1 https://github.com/kitware/cmake -b "v${{ env.SCITER_ARMV7_CMAKE_VERSION }}" /tmp/cmake
-              pushd /tmp/cmake
-              ./bootstrap --generator='Unix Makefiles' "--prefix=/opt/cmake-${{ env.SCITER_ARMV7_CMAKE_VERSION }}-linux-armhf"
-              make -j1 install
-              popd
-              rm -rf /tmp/cmake
-              export PATH="/opt/cmake-${{ env.SCITER_ARMV7_CMAKE_VERSION }}-linux-armhf/bin:$PATH"
-            fi
-            # bootstrap vcpkg and set VCPKG_ROOT
-            export VCPKG_ROOT=/opt/artifacts/vcpkg
-            mkdir -p /opt/artifacts
-            pushd /opt/artifacts
-            rm -rf vcpkg
-            git clone https://github.com/microsoft/vcpkg
-            pushd vcpkg
-            # build vcpkg helper executable with gcc-8 for arm-linux but use prebuilt one on x64-linux
-            if [ "${{ matrix.job.vcpkg-triplet }}" = "arm-linux" ]; then
-              git reset --hard ${{ env.ARMV7_VCPKG_COMMIT_ID }}
-              CC=/usr/bin/gcc-8 CXX=/usr/bin/g++-8 sh bootstrap-vcpkg.sh -disableMetrics
-            else
-              git reset --hard ${{ env.VCPKG_COMMIT_ID }}
-              sh bootstrap-vcpkg.sh -disableMetrics
-            fi
-            popd
-            popd
-            # rust
-            pushd /opt
-            # do not use rustup, because memory overflow in qemu
-            wget --output-document rust.tar.gz https://static.rust-lang.org/dist/rust-${{env.RUST_TOOLCHAIN_VERSION}}-${{ matrix.job.target }}.tar.gz
-            tar -zxvf rust.tar.gz > /dev/null && rm rust.tar.gz
-            pushd rust-${{env.RUST_TOOLCHAIN_VERSION}}-${{ matrix.job.target }}
-            ./install.sh
-            popd
-            rm -rf rust-${{env.RUST_TOOLCHAIN_VERSION}}-${{ matrix.job.target }}
-            popd
-            # install newer nasm for aom
-            wget --output-document nasm.deb "http://ftp.us.debian.org/debian/pool/main/n/nasm/nasm_${{ env.SCITER_NASM_DEBVERSION }}_${{ matrix.job.deb_arch }}.deb"
-            dpkg -i nasm.deb
-            rm -f nasm.deb
-          run: |
-            # disable git safe.directory
-            git config --global --add safe.directory "*"
-            # set python3.7 as default python3
-            update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.7 1
-            # add built CMake to PATH and set VCPKG_FORCE_SYSTEM_BINARIES Afor arm-linux
-            if [ "${{ matrix.job.vcpkg-triplet }}" = "arm-linux" ]; then
-              export PATH="/opt/cmake-${{ env.SCITER_ARMV7_CMAKE_VERSION }}-linux-armhf/bin:$PATH"
-              export VCPKG_FORCE_SYSTEM_BINARIES=1
-            fi
-            # edit cargo config
-            mkdir -p ~/.cargo/
-            echo """
-              [source.crates-io]
-              registry = 'sparse+https://index.crates.io/'
-            """ > ~/.cargo/config
-            cat ~/.cargo/config
-            # install dependencies from vcpkg
-            export VCPKG_ROOT=/opt/artifacts/vcpkg
-            # remove this when support higher version
-            export USE_AOM_391=1
-            if ! $VCPKG_ROOT/vcpkg install --triplet ${{ matrix.job.vcpkg-triplet }} --x-install-root="$VCPKG_ROOT/installed"; then
-              find "${VCPKG_ROOT}/" -name "*.log" | while read -r _1; do
-                echo "$_1:"
-                echo "======"
-                cat "$_1"
-                echo "======"
-                echo ""
-              done
-              exit 1
-            fi
-            head -n 100 "${VCPKG_ROOT}/buildtrees/ffmpeg/build-${{ matrix.job.vcpkg-triplet }}-rel-out.log" || true
-            # build rustdesk
-            python3 ./res/inline-sciter.py
-            export CARGO_INCREMENTAL=0
-            # armv7 is the only 32-bit target in this job that links the whole binary, and the
-            # release profile uses fat LTO with codegen-units=1. LLVM then merges every module
-            # into a single unit and runs past the ~3GB address space a 32-bit process gets,
-            # aborting rustc with "Rust cannot catch foreign exceptions" (a C++ bad_alloc from
-            # LLVM unwinding into rustc's Rust frames). Thin LTO keeps peak memory bounded and
-            # still allows cross-crate inlining; 64-bit targets keep fat LTO untouched.
-            if [ "${{ matrix.job.arch }}" = "armv7" ]; then
-              export CARGO_PROFILE_RELEASE_LTO=thin
-              export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
-            fi
-            cargo build --locked --features inline${{ matrix.job.extra_features }} --release --bins --jobs 1
-            # make debian package
-            mkdir -p ./Release
-            mv ./target/release/rustdesk ./Release/rustdesk
-            wget -O ./Release/libsciter-gtk.so https://github.com/c-smile/sciter-sdk/raw/master/bin.lnx/${{ matrix.job.sciter_arch }}/libsciter-gtk.so
-            export DEB_ARCH=${{ matrix.job.deb_arch }}
-            ./build.py --package ./Release
-
-      - name: Rename rustdesk
-        shell: bash
-        run: |
-          for name in rustdesk*??.deb; do
-              # use cp to duplicate deb files to fit other packages.
-              cp "$name" "${name%%.deb}-${{ matrix.job.arch }}-sciter.deb"
-          done
-
-      - name: Publish debian package
-        if: env.UPLOAD_ARTIFACT == 'true'
-        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
-        with:
-          prerelease: true
-          tag_name: ${{ env.TAG_NAME }}
-          files: |
-            rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-sciter.deb
-
-      - name: Upload deb
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: env.UPLOAD_ARTIFACT == 'true'
-        with:
-          name: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-sciter.deb
-          path: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-sciter.deb
-
   build-appimage:
     name: Build appimage ${{ matrix.job.target }}
     needs: [build-rustdesk-linux]
@@ -2779,7 +2344,6 @@ jobs:
     name: Build flatpak ${{ matrix.job.target }}${{ matrix.job.suffix }}
     needs:
       - build-rustdesk-linux
-      - build-rustdesk-linux-sciter
     runs-on: ${{ matrix.job.on }}
     if: ${{ inputs.upload-artifact }}
     strategy:
@@ -2799,7 +2363,6 @@ jobs:
               distro: ubuntu22.04,
               on: ubuntu-22.04,
               arch: x86_64,
-              suffix: "-sciter",
             }
           - {
               target: aarch64-unknown-linux-gnu,

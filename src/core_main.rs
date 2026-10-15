@@ -36,7 +36,7 @@ fn finish_macos_update(result: hbb_common::ResultType<()>) -> Option<CoreMainAct
     }
 }
 
-/// shared by flutter and sciter main function
+/// Shared by the Flutter main function and command-line startup.
 ///
 /// [Note]
 /// If it returns [`None`], then the process will terminate, and flutter gui will not be started.
@@ -586,7 +586,7 @@ pub fn core_main() -> Option<CoreMainAction> {
             return None;
         } else if args[0] == "--cm" {
             // call connection manager to establish connections
-            // meanwhile, return true to call flutter window to show control panel
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
             crate::ui_interface::start_option_status_sync();
         } else if args[0] == "--whiteboard" {
             #[cfg(not(any(target_os = "android", target_os = "ios")))]

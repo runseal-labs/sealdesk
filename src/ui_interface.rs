@@ -24,8 +24,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-#[cfg(feature = "flutter")]
-#[cfg(not(any(target_os = "ios")))]
+#[cfg(not(target_os = "ios"))]
 use crate::ipc;
 
 type Message = RendezvousMessage;
@@ -68,7 +67,7 @@ lazy_static::lazy_static! {
 lazy_static::lazy_static! {
     static ref OPTION_SYNCED: Arc<Mutex<bool>> = Default::default();
     static ref OPTIONS : Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(Config::get_options()));
-    pub static ref SENDER : Mutex<mpsc::UnboundedSender<ipc::Data>> = Mutex::new(check_connect_status(true));
+    pub static ref SENDER: Mutex<mpsc::UnboundedSender<ipc::Data>> = Mutex::new(check_connect_status(true));
     static ref CHILDREN : Children = Default::default();
 }
 
@@ -133,12 +132,6 @@ pub fn get_license() -> String {
     if let Ok(lic) = crate::platform::windows::get_license_from_exe_name() {
         #[cfg(feature = "flutter")]
         return format!("Key: {}\nHost: {}\nAPI: {}", lic.key, lic.host, lic.api);
-        // default license format is html formed (sciter)
-        #[cfg(not(feature = "flutter"))]
-        return format!(
-            "<br /> Key: {} <br /> Host: {} API: {}",
-            lic.key, lic.host, lic.api
-        );
     }
     Default::default()
 }
@@ -389,7 +382,6 @@ pub fn get_sound_inputs() -> Vec<String> {
 
         let inputs = Arc::new(Mutex::new(Vec::new()));
         let cloned = inputs.clone();
-        // can not call below in UI thread, because conflict with sciter sound com initialization
         std::thread::spawn(move || *cloned.lock().unwrap() = get_sound_inputs_())
             .join()
             .ok();
@@ -463,7 +455,6 @@ pub fn set_option(key: String, value: String) {
     }
     #[cfg(any(target_os = "android", target_os = "ios"))]
     {
-        let _nat = crate::CheckTestNatType::new();
         Config::set_option(key, value);
     }
 }
@@ -536,6 +527,7 @@ pub fn check_mouse_time() {
     }
 }
 
+#[inline]
 #[inline]
 pub fn temporary_password() -> String {
     #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -1215,6 +1207,7 @@ mod tests {
 }
 
 pub fn start_option_status_sync() {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let _sender = SENDER.lock().unwrap();
 }
 

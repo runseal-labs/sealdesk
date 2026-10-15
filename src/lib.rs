@@ -23,12 +23,6 @@ pub use self::rendezvous_mediator::*;
 pub mod common;
 #[cfg(not(any(target_os = "ios")))]
 pub mod ipc;
-#[cfg(not(any(
-    target_os = "android",
-    target_os = "ios",
-    feature = "flutter"
-)))]
-pub mod ui;
 pub(crate) mod update_metadata;
 pub(crate) mod update_hash;
 #[cfg(target_os = "macos")]

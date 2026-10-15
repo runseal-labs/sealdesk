@@ -6702,17 +6702,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sciter-rs"
-version = "0.5.57"
-source = "git+https://github.com/rustdesk-org/rust-sciter?branch=dyn#5322f3a755a0e6bf999fbc60d1efc35246c0f821"
-dependencies = [
- "lazy_static",
- "libc",
- "objc",
- "objc-foundation",
-]
-
-[[package]]
 name = "scoped-tls"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6847,7 +6836,6 @@ dependencies = [
  "rubato",
  "rust-pulsectl",
  "samplerate",
- "sciter-rs",
  "scrap",
  "serde 1.0.228",
  "serde_derive",

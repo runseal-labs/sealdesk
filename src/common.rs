@@ -70,11 +70,6 @@ pub mod input {
     pub const MOUSE_TYPE_TRACKPAD: i32 = 4;
     /// Relative mouse movement type for gaming/3D applications.
     /// This type sends delta (dx, dy) values instead of absolute coordinates.
-    /// NOTE: This is only supported by the Flutter client. The Sciter client (deprecated)
-    /// does not support relative mouse mode due to:
-    /// 1. Fixed send_mouse() function signature that doesn't allow type differentiation
-    /// 2. Lack of pointer lock API in Sciter/TIS
-    /// 3. No OS cursor control (hide/show/clip) FFI bindings in Sciter UI
     pub const MOUSE_TYPE_MOVE_RELATIVE: i32 = 5;
 
     /// Mask to extract the mouse event type from the mask field.
@@ -1372,6 +1367,7 @@ mod tests {
     // The deadline must hold against a peer that keeps the receive side ready. `select!` rebuilds
     // its arms every iteration, so a relative sleep would be restarted by every datagram and the
     // punch would run for as long as the peer keeps talking, with no outer timeout to stop it.
+    #[cfg(feature = "flutter")]
     #[tokio::test]
     async fn test_udp_punch_deadline_survives_a_talkative_peer() {
         let a = UdpSocket::bind("127.0.0.1:0").await.unwrap();
@@ -1450,6 +1446,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "flutter")]
     #[test]
     fn test_is_public_matches_rustdesk_root_domain() {
         assert!(is_public("rustdesk.com/"));
@@ -1460,6 +1457,7 @@ mod tests {
         assert!(!is_public("https://rustdesk.com@evil.test"));
     }
 
+    #[cfg(feature = "flutter")]
     #[test]
     fn test_should_use_tcp_proxy_for_api_url() {
         assert!(should_use_tcp_proxy_for_api_url(
@@ -1488,6 +1486,7 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "flutter")]
     #[test]
     fn test_parse_simple_header_preserves_non_content_type_header() {
         let headers = parse_simple_header("Authorization: Bearer token");
@@ -1512,6 +1511,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "flutter")]
     #[test]
     fn test_http_proxy_response_to_json() {
         let mut resp = HttpProxyResponse {
@@ -1541,6 +1541,7 @@ mod tests {
     }
 
     /// A stand-in rendezvous server on loopback: accepts one connection and hands it to `serve`.
+    #[cfg(feature = "flutter")]
     async fn rendezvous_stub<F, Fut>(serve: F) -> String
     where
         F: FnOnce(hbb_common::tcp::FramedStream) -> Fut + Send + 'static,
@@ -1558,11 +1559,13 @@ mod tests {
         host
     }
 
+    #[cfg(feature = "flutter")]
     fn server_key() -> (String, sign::SecretKey) {
         let (pk, sk) = sign::gen_keypair();
         (encode64(pk.0), sk)
     }
 
+    #[cfg(feature = "flutter")]
     fn signed_key_exchange(
         pk: &box_::PublicKey,
         sk: &sign::SecretKey,
@@ -1583,12 +1586,14 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "flutter")]
     async fn connect(host: &str) -> Stream {
         hbb_common::socket_client::connect_tcp(host.to_owned(), 3000)
             .await
             .unwrap()
     }
 
+    #[cfg(feature = "flutter")]
     #[tokio::test]
     async fn test_secure_tcp_required_refuses_a_server_without_the_exchange() {
         let (key, _) = server_key();
@@ -1610,6 +1615,7 @@ mod tests {
         assert!(!conn.is_secured());
     }
 
+    #[cfg(feature = "flutter")]
     #[tokio::test]
     async fn test_secure_tcp_legacy_and_signed_servers_exchange_application_data() {
         for (advertised, signed) in [(0, false), (1, true), (3, true)] {
@@ -1690,6 +1696,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "flutter")]
     #[tokio::test]
     async fn test_secure_tcp_rejects_unverified_versions_before_reply() {
         let (key, sk) = server_key();
@@ -1787,6 +1794,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "flutter")]
     #[test]
     fn test_dtls_fingerprint_travels_signed_and_binds() {
         let (pk, sk) = sign::gen_keypair();

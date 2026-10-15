@@ -5,7 +5,7 @@ import 'package:sealdesk/generated_bridge.dart'
 final platformFFI = PlatformFFI.instance;
 final localeName = PlatformFFI.localeName;
 
-RustdeskImpl get bind => platformFFI.ffiBind;
+SealdeskImpl get bind => platformFFI.ffiBind;
 
 String ffiGetByName(String name, [String arg = '']) {
   return PlatformFFI.getByName(name, arg);

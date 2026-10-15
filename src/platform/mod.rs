@@ -14,9 +14,6 @@ pub mod win_device;
 #[cfg(target_os = "macos")]
 pub mod macos;
 
-#[cfg(target_os = "macos")]
-pub mod delegate;
-
 #[cfg(target_os = "linux")]
 pub mod linux;
 

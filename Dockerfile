@@ -50,7 +50,6 @@ RUN groupadd -r user && \
     echo "user ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/user
 
 WORKDIR /home/user
-RUN curl -LO https://raw.githubusercontent.com/c-smile/sciter-sdk/master/bin.lnx/x64/libsciter-gtk.so
 
 USER user
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs > rustup.sh && \

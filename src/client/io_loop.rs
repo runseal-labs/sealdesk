@@ -156,7 +156,6 @@ impl<T: InvokeUiSession> Remote<T> {
                 Some(crate::SimpleCallOnReturn {
                     b: true,
                     f: Box::new(|| {
-                        // No need to call `enable(false)` for sciter version, because each client of sciter version is a new process.
                         // It's better to check if the peers are windows(support file copy&paste), but it's not necessary.
                         #[cfg(feature = "flutter")]
                         if !crate::flutter::sessions::has_sessions_running(ConnType::DEFAULT_CONN) {

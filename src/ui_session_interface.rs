@@ -672,14 +672,6 @@ impl<T: InvokeUiSession> Session<T> {
         input_os_password(pass, activate, self.clone());
     }
 
-    #[cfg(not(feature = "flutter"))]
-    pub fn get_chatbox(&self) -> String {
-        #[cfg(feature = "inline")]
-        return crate::ui::inline::get_chatbox();
-        #[cfg(not(feature = "inline"))]
-        return "".to_owned();
-    }
-
     pub fn swap_modifier_key(&self, msg: &mut KeyEvent) {
         let allow_swap_key = self.get_toggle_option("allow_swap_key".to_string());
         if allow_swap_key {

@@ -4,8 +4,6 @@
 .idea
 .DS_Store
 .env
-libsciter-gtk.so
-src/ui/inline.rs
 extractor
 __pycache__
 src/version.rs
@@ -17,7 +15,6 @@ cert.pfx
 *png
 *svg
 *jpg
-sciter.dll
 **pdb
 src/bridge_generated.rs
 src/bridge_generated.io.rs
@@ -57,7 +54,6 @@ flutter/lib/generated_plugin_registrant.dart
 # Android signing credentials (keep key.properties outside the repository)
 key.properties
 flutter/android/key.properties
-libsciter.dylib
 flutter/web/
 # libdrmtap is cloned at build time by build.py (not a submodule)
 /third_party/libdrmtap/

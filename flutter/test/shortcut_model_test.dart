@@ -16,7 +16,7 @@ import 'package:sealdesk/models/platform_model.dart';
 import 'package:sealdesk/models/shortcut_model.dart';
 import 'package:uuid/uuid.dart';
 
-class _ChatBinding extends Fake implements RustdeskImpl {
+class _ChatBinding extends Fake implements SealdeskImpl {
   final sent = <(SessionID, String)>[];
   final cmSent = <(int, String)>[];
 

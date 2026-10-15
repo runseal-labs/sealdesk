@@ -1983,6 +1983,11 @@ pub fn main_set_unlock_pin(pin: String) -> SyncReturn<String> {
     SyncReturn(set_unlock_pin(pin))
 }
 
+pub fn main_check_connect_status() {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    start_option_status_sync();
+}
+
 pub fn main_check_mouse_time() {
     check_mouse_time();
 }
@@ -2178,10 +2183,6 @@ pub fn main_set_share_rdp(enable: bool) {
 pub fn main_goto_install() -> SyncReturn<bool> {
     goto_install();
     SyncReturn(true)
-}
-
-pub fn main_get_new_version() -> SyncReturn<String> {
-    SyncReturn(get_new_version())
 }
 
 pub fn main_update_me() -> SyncReturn<bool> {

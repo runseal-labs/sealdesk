@@ -2443,7 +2443,6 @@ fn fps_calculate(
 }
 
 fn get_hwcodec_config() {
-    // for sciter and unilink
     #[cfg(feature = "hwcodec")]
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     {
@@ -3302,7 +3301,7 @@ lazy_static::lazy_static! {
         ("VK_RBRACKET", Key::Chr(']' as _)),
         ("VK_BACKSLASH", Key::Chr('\\' as _)),
         ("VK_MINUS", Key::Chr('-' as _)),
-        ("VK_PLUS", Key::Chr('=' as _)), // it is =, but sciter return VK_PLUS
+        ("VK_PLUS", Key::Chr('=' as _)),
         ("VK_DIVIDE", Key::ControlKey(ControlKey::Divide)), // numpad
         ("VK_MULTIPLY", Key::ControlKey(ControlKey::Multiply)), // numpad
         ("VK_SUBTRACT", Key::ControlKey(ControlKey::Subtract)), // numpad
@@ -3412,7 +3411,6 @@ mod retry_tests {
             "error",
             "Connection Error",
             "Incoming only mode",
-            false,
         ));
     }
 }

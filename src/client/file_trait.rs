@@ -31,23 +31,6 @@ pub trait FileManager: Interface {
         fs::update_next_job_id(id);
     }
 
-    #[cfg(not(any(
-        target_os = "android",
-        target_os = "ios",
-        feature = "flutter"
-    )))]
-    fn read_dir(&self, path: String, include_hidden: bool) -> sciter::Value {
-        match fs::read_dir(&fs::get_path(&path), include_hidden) {
-            Err(_) => sciter::Value::null(),
-            Ok(fd) => {
-                use crate::ui::remote::make_fd;
-                let mut m = make_fd(0, &fd.entries.to_vec(), false);
-                m.set_item("path", path);
-                m
-            }
-        }
-    }
-
     fn cancel_job(&self, id: i32) {
         self.send(Data::CancelJob(id));
     }
