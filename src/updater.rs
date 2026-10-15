@@ -37,7 +37,7 @@ struct MacUpdateLock {
 
 #[cfg(target_os = "macos")]
 fn acquire_mac_update_lock() -> ResultType<MacUpdateLock> {
-    let path = std::path::PathBuf::from("/var/run/rustdesk-update.lock");
+    let path = std::path::PathBuf::from("/var/run/sealdesk-update.lock");
     let handle = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -200,7 +200,7 @@ fn check_update(manually: bool) -> ResultType<()> {
         return Ok(());
     }
 
-    let update_url = crate::common::SOFTWARE_UPDATE_URL.lock().unwrap().clone();
+    let update_url = String::new();
     if update_url.is_empty() {
         log::debug!("No update available.");
     } else {
@@ -433,7 +433,7 @@ async fn query_no_active_conns_ipc() -> ResultType<bool> {
 
 #[cfg(target_os = "macos")]
 fn wait_for_failed_update_retry() {
-    const FAILURE_MARKER: &str = "/var/root/.rustdeskupdate_failed";
+    const FAILURE_MARKER: &str = "/var/root/.sealdeskupdate_failed";
     let marker = std::path::Path::new(FAILURE_MARKER);
     if !marker.exists() {
         return;
@@ -471,7 +471,7 @@ fn wait_for_failed_update_retry() {
 #[cfg(target_os = "macos")]
 pub fn start_auto_update_macos() {
     let spawn_result = std::thread::Builder::new()
-        .name("rustdesk-auto-update".to_owned())
+        .name("sealdesk-auto-update".to_owned())
         .spawn(|| {
             log::info!("[root-update] Auto-update scheduler thread started.");
             std::thread::sleep(INITIAL_CHECK_DELAY);
@@ -529,8 +529,8 @@ pub fn check_update_as_root() -> ResultType<bool> {
         for entry in entries.flatten() {
             let name = entry.file_name();
             let name_str = name.to_string_lossy();
-            if name_str.starts_with(".rustdeskupdate-root-")
-                || name_str.starts_with(".rustdeskdownload-")
+            if name_str.starts_with(".sealdeskupdate-root-")
+                || name_str.starts_with(".sealdeskdownload-")
             {
                 let path = entry.path();
                 let Ok(metadata) = std::fs::symlink_metadata(&path) else {
@@ -555,7 +555,7 @@ pub fn check_update_as_root() -> ResultType<bool> {
             }
         }
     }
-    let update_url = crate::common::SOFTWARE_UPDATE_URL.lock().unwrap().clone();
+    let update_url = String::new();
     if update_url.is_empty() {
         log::info!("[root-update] No update available.");
         return Ok(false);
@@ -576,7 +576,7 @@ pub fn check_update_as_root() -> ResultType<bool> {
     // Use mktemp so a local user cannot pre-create a predictable path and
     // permanently deny updates for a reused service PID.
     let private_tmp_output = std::process::Command::new("/usr/bin/mktemp")
-        .args(["-d", "/tmp/.rustdeskdownload-XXXXXX"])
+        .args(["-d", "/tmp/.sealdeskdownload-XXXXXX"])
         .output()?;
     if !private_tmp_output.status.success() {
         bail!(

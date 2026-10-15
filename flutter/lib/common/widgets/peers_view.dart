@@ -2,9 +2,9 @@ import 'dart:collection';
 
 import 'package:dynamic_layouts/dynamic_layouts.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_hbb/consts.dart';
-import 'package:flutter_hbb/models/peer_tab_model.dart';
-import 'package:flutter_hbb/models/state_model.dart';
+import 'package:sealdesk/consts.dart';
+import 'package:sealdesk/models/peer_tab_model.dart';
+import 'package:sealdesk/models/state_model.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 

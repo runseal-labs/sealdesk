@@ -1,5 +1,5 @@
 import 'package:desktop_multi_window/desktop_multi_window.dart';
-import 'package:flutter_hbb/common.dart';
+import 'package:sealdesk/common.dart';
 import 'package:get/get.dart';
 
 import '../consts.dart';
@@ -24,8 +24,6 @@ class StateGlobal {
   bool isWebVisible = true;
 
   final isPortrait = false.obs;
-
-  final updateUrl = ''.obs;
 
   String _inputSource = '';
 

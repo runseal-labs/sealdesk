@@ -7,8 +7,8 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_hbb/consts.dart';
-import 'package:flutter_hbb/main.dart';
+import 'package:sealdesk/consts.dart';
+import 'package:sealdesk/main.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -25,13 +25,13 @@ typedef F3 = Pointer<Uint8> Function(Pointer<Utf8>, int);
 typedef F3Dart = Pointer<Uint8> Function(Pointer<Utf8>, Int32);
 typedef HandleEvent = Future<void> Function(Map<String, dynamic> evt);
 
-/// The Linux bundle keeps the core library at lib/librustdesk.so next to the
+/// The Linux bundle keeps the core library at lib/libsealdesk.so next to the
 /// executable. Prefer that copy, mirroring flutter/linux/main.cc: the plain
 /// name relies on the loader search path, which repackaged installs may not
 /// cover. https://github.com/rustdesk/rustdesk/discussions/14407
 DynamicLibrary _openLinuxCoreLib() {
   final bundled =
-      '${File(Platform.resolvedExecutable).parent.path}/lib/librustdesk.so';
+      '${File(Platform.resolvedExecutable).parent.path}/lib/libsealdesk.so';
   try {
     if (File(bundled).existsSync()) {
       return DynamicLibrary.open(bundled);
@@ -39,7 +39,7 @@ DynamicLibrary _openLinuxCoreLib() {
   } catch (e) {
     debugPrint("Failed to load '$bundled': $e");
   }
-  return DynamicLibrary.open('librustdesk.so');
+  return DynamicLibrary.open('libsealdesk.so');
 }
 
 /// FFI wrapper around the native Rust core.
@@ -138,17 +138,17 @@ class PlatformFFI {
   Future<void> init(String appType) async {
     _appType = appType;
     final dylib = isAndroid
-        ? DynamicLibrary.open('librustdesk.so')
+        ? DynamicLibrary.open('libsealdesk.so')
         : isLinux
             ? _openLinuxCoreLib()
             : isWindows
-                ? DynamicLibrary.open('librustdesk.dll')
+                ? DynamicLibrary.open('libsealdesk.dll')
                 :
                 // Use executable itself as the dynamic library for MacOS.
                 // Multiple dylib instances will cause some global instances to be invalid.
                 // eg. `lazy_static` objects in rust side, will be created more than once, which is not expected.
                 //
-                // isMacOS? DynamicLibrary.open("liblibrustdesk.dylib") :
+                // isMacOS? DynamicLibrary.open("libsealdesk.dylib") :
                 DynamicLibrary.process();
     debugPrint('initializing FFI $_appType');
     try {

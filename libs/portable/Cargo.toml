@@ -29,7 +29,7 @@ native-windows-gui = {version = "1.0", default-features = false, features = ["an
 [package.metadata.winres]
 LegalCopyright = "Copyright © 2026 Purslane Tech Pte. Ltd. All rights reserved."
 ProductName = "RustDesk"
-OriginalFilename = "rustdesk.exe"
+OriginalFilename = "sealdesk.exe"
 FileDescription = "RustDesk Remote Desktop"
 #ProductVersion = ""
 

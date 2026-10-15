@@ -102,7 +102,7 @@ mod tests {
     #[ignore]
     #[cfg(target_os = "linux")]
     fn live_clipboard_image() {
-        assert!(std::env::var("TAILDESK_CLIPBOARD_PROBE").is_ok());
+        assert!(std::env::var("SEALDESK_CLIPBOARD_PROBE").is_ok());
         let mut owner = arboard::Clipboard::new().unwrap();
         let pixels = [255, 255, 255, 255, 0, 0, 0, 255];
         owner

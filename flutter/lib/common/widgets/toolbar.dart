@@ -3,15 +3,15 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_hbb/common.dart';
-import 'package:flutter_hbb/common/shared_state.dart';
-import 'package:flutter_hbb/common/widgets/dialog.dart';
-import 'package:flutter_hbb/consts.dart';
-import 'package:flutter_hbb/desktop/widgets/remote_toolbar.dart';
-import 'package:flutter_hbb/models/model.dart';
-import 'package:flutter_hbb/models/platform_model.dart';
-import 'package:flutter_hbb/models/shortcut_model.dart';
-import 'package:flutter_hbb/utils/multi_window_manager.dart';
+import 'package:sealdesk/common.dart';
+import 'package:sealdesk/common/shared_state.dart';
+import 'package:sealdesk/common/widgets/dialog.dart';
+import 'package:sealdesk/consts.dart';
+import 'package:sealdesk/desktop/widgets/remote_toolbar.dart';
+import 'package:sealdesk/models/model.dart';
+import 'package:sealdesk/models/platform_model.dart';
+import 'package:sealdesk/models/shortcut_model.dart';
+import 'package:sealdesk/utils/multi_window_manager.dart';
 import 'package:get/get.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -1441,7 +1441,7 @@ bool showVirtualDisplayMenu(FFI ffi) {
   if (!ffi.ffiModel.pi.isInstalled) {
     return false;
   }
-  if (ffi.ffiModel.pi.isRustDeskIdd || ffi.ffiModel.pi.isAmyuniIdd) {
+  if (ffi.ffiModel.pi.isSealDeskIdd || ffi.ffiModel.pi.isAmyuniIdd) {
     return true;
   }
   return false;
@@ -1454,8 +1454,8 @@ List<Widget> getVirtualDisplayMenuChildren(
   }
   final pi = ffi.ffiModel.pi;
   final privacyModeState = PrivacyModeState.find(id);
-  if (pi.isRustDeskIdd) {
-    final virtualDisplays = ffi.ffiModel.pi.RustDeskVirtualDisplays;
+  if (pi.isSealDeskIdd) {
+    final virtualDisplays = ffi.ffiModel.pi.SealDeskVirtualDisplays;
     final children = <Widget>[];
     for (var i = 0; i < kMaxVirtualDisplayCount; i++) {
       children.add(Obx(() => CkbMenuButton(

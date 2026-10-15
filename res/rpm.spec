@@ -1,4 +1,4 @@
-Name:       rustdesk
+Name:       sealdesk
 Version:    1.5.1
 Release:    0
 Summary:    RPM package
@@ -23,27 +23,27 @@ The best open-source remote desktop client software, written in Rust.
 
 %install
 mkdir -p %{buildroot}/usr/bin/
-mkdir -p %{buildroot}/usr/share/rustdesk/
-mkdir -p %{buildroot}/usr/share/rustdesk/files/
+mkdir -p %{buildroot}/usr/share/sealdesk/
+mkdir -p %{buildroot}/usr/share/sealdesk/files/
 mkdir -p %{buildroot}/usr/share/icons/hicolor/256x256/apps/
 mkdir -p %{buildroot}/usr/share/icons/hicolor/scalable/apps/
-install -m 755 $HBB/target/release/rustdesk %{buildroot}/usr/bin/rustdesk
-install $HBB/libsciter-gtk.so %{buildroot}/usr/share/rustdesk/libsciter-gtk.so
-install $HBB/res/rustdesk.service %{buildroot}/usr/share/rustdesk/files/
-install $HBB/res/128x128@2x.png %{buildroot}/usr/share/icons/hicolor/256x256/apps/rustdesk.png
-install $HBB/res/scalable.svg %{buildroot}/usr/share/icons/hicolor/scalable/apps/rustdesk.svg
-install $HBB/res/rustdesk.desktop %{buildroot}/usr/share/rustdesk/files/
-install $HBB/res/rustdesk-link.desktop %{buildroot}/usr/share/rustdesk/files/
+install -m 755 $HBB/target/release/sealdesk %{buildroot}/usr/bin/sealdesk
+install $HBB/libsciter-gtk.so %{buildroot}/usr/share/sealdesk/libsciter-gtk.so
+install $HBB/res/sealdesk.service %{buildroot}/usr/share/sealdesk/files/
+install $HBB/res/128x128@2x.png %{buildroot}/usr/share/icons/hicolor/256x256/apps/sealdesk.png
+install $HBB/res/scalable.svg %{buildroot}/usr/share/icons/hicolor/scalable/apps/sealdesk.svg
+install $HBB/res/sealdesk.desktop %{buildroot}/usr/share/sealdesk/files/
+install $HBB/res/sealdesk-link.desktop %{buildroot}/usr/share/sealdesk/files/
 
 %files
-/usr/bin/rustdesk
-/usr/share/rustdesk/libsciter-gtk.so
-/usr/share/rustdesk/files/rustdesk.service
-/usr/share/icons/hicolor/256x256/apps/rustdesk.png
-/usr/share/icons/hicolor/scalable/apps/rustdesk.svg
-/usr/share/rustdesk/files/rustdesk.desktop
-/usr/share/rustdesk/files/rustdesk-link.desktop
-/usr/share/rustdesk/files/__pycache__/*
+/usr/bin/sealdesk
+/usr/share/sealdesk/libsciter-gtk.so
+/usr/share/sealdesk/files/sealdesk.service
+/usr/share/icons/hicolor/256x256/apps/sealdesk.png
+/usr/share/icons/hicolor/scalable/apps/sealdesk.svg
+/usr/share/sealdesk/files/sealdesk.desktop
+/usr/share/sealdesk/files/sealdesk-link.desktop
+/usr/share/sealdesk/files/__pycache__/*
 
 %changelog
 # let's skip this for now
@@ -56,26 +56,26 @@ case "$1" in
   ;;
   2)
     # for upgrade
-    systemctl stop rustdesk || true
+    systemctl stop sealdesk || true
   ;;
 esac
 
 %post
-cp /usr/share/rustdesk/files/rustdesk.service /etc/systemd/system/rustdesk.service
-cp /usr/share/rustdesk/files/rustdesk.desktop /usr/share/applications/
-cp /usr/share/rustdesk/files/rustdesk-link.desktop /usr/share/applications/
+cp /usr/share/sealdesk/files/sealdesk.service /etc/systemd/system/sealdesk.service
+cp /usr/share/sealdesk/files/sealdesk.desktop /usr/share/applications/
+cp /usr/share/sealdesk/files/sealdesk-link.desktop /usr/share/applications/
 systemctl daemon-reload
-systemctl enable rustdesk
-systemctl start rustdesk
+systemctl enable sealdesk
+systemctl start sealdesk
 update-desktop-database
 
 %preun
 case "$1" in
   0)
     # for uninstall
-    systemctl stop rustdesk || true
-    systemctl disable rustdesk || true
-    rm /etc/systemd/system/rustdesk.service || true
+    systemctl stop sealdesk || true
+    systemctl disable sealdesk || true
+    rm /etc/systemd/system/sealdesk.service || true
   ;;
   1)
     # for upgrade
@@ -86,8 +86,8 @@ esac
 case "$1" in
   0)
     # for uninstall
-    rm /usr/share/applications/rustdesk.desktop || true
-    rm /usr/share/applications/rustdesk-link.desktop || true
+    rm /usr/share/applications/sealdesk.desktop || true
+    rm /usr/share/applications/sealdesk-link.desktop || true
     update-desktop-database
   ;;
   1)

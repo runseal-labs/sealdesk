@@ -193,7 +193,7 @@ mod tests {
         ));
         std::fs::create_dir(&runner_dir).expect("runner directory should be created");
         let shortcut_commands = embedded_shortcut_commands(
-            shortcut_bytes(r"C:\RustDesk.exe", None, None)
+            shortcut_bytes(r"C:\SealDesk.exe", None, None)
                 .expect("native shortcut should be generated"),
             "test.lnk",
             "test",

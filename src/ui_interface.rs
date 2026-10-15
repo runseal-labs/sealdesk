@@ -24,7 +24,6 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::common::SOFTWARE_UPDATE_URL;
 #[cfg(feature = "flutter")]
 #[cfg(not(any(target_os = "ios")))]
 use crate::ipc;
@@ -156,11 +155,11 @@ pub fn refresh_options() {
 pub fn get_option<T: AsRef<str>>(key: T) -> String {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
-        if key.as_ref() == keys::OPTION_TAILDESK_HOST_MODE {
+        if key.as_ref() == keys::OPTION_SEALDESK_HOST_MODE {
             return match crate::tailcat::host::query_mode() {
                 Ok(mode) => mode,
                 Err(error) => {
-                    log::trace!("TailDesk mode query failed: {error}");
+                    log::trace!("SealDesk mode query failed: {error}");
                     String::new()
                 }
             };
@@ -248,16 +247,16 @@ pub fn get_builtin_option(key: &str) -> String {
 #[inline]
 pub fn set_local_option(key: String, value: String) {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    if key == keys::OPTION_TAILDESK_MODE {
+    if key == keys::OPTION_SEALDESK_MODE {
         let mode = value.clone();
         match std::thread::spawn(move || crate::tailcat::host::request_mode(&mode)).join() {
             Ok(Ok(())) => {}
             Ok(Err(error)) => {
-                log::warn!("TailDesk mode change failed: {error}");
+                log::warn!("SealDesk mode change failed: {error}");
                 return;
             }
             Err(_) => {
-                log::error!("TailDesk mode change worker failed");
+                log::error!("SealDesk mode change worker failed");
                 return;
             }
         }
@@ -688,18 +687,6 @@ pub fn current_is_wayland() -> bool {
     return crate::platform::linux::current_is_wayland();
     #[cfg(not(target_os = "linux"))]
     return false;
-}
-
-#[inline]
-pub fn get_new_version() -> String {
-    SOFTWARE_UPDATE_URL
-        .lock()
-        .unwrap()
-        .trim_end_matches('/')
-        .rsplit('/')
-        .next()
-        .unwrap_or("")
-        .to_owned()
 }
 
 #[inline]

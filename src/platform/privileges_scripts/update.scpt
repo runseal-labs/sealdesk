@@ -1,14 +1,14 @@
 on run {user, cur_pid, source_path, expected_sha256}
 
-  -- RustDesk identifiers in this script are templates. correct_app_name()
+  -- SealDesk identifiers in this script are templates. correct_app_name()
   -- rewrites them for the installed client before osascript executes it.
-  set agent_plist to "/Library/LaunchAgents/com.carriez.RustDesk_server.plist"
-  set daemon_plist to "/Library/LaunchDaemons/com.carriez.RustDesk_service.plist"
-  set app_bundle to "/Applications/RustDesk.app"
+  set agent_plist to "/Library/LaunchAgents/com.runseal.SealDesk_server.plist"
+  set daemon_plist to "/Library/LaunchDaemons/com.runseal.SealDesk_service.plist"
+  set app_bundle to "/Applications/SealDesk.app"
   set installed_info_q to quoted form of (app_bundle & "/Contents/Info.plist")
   set service_executable to app_bundle & "/Contents/MacOS/service"
-  set daemon_label to "com.carriez.RustDesk_service"
-  set daemon_socket to "/tmp/RustDesk-service/ipc_service"
+  set daemon_label to "com.runseal.SealDesk_service"
+  set daemon_socket to "/tmp/SealDesk-service/ipc_service"
   set readiness_attempts to "30"
   set write_plist_attempts to "60"
 
@@ -18,12 +18,12 @@ on run {user, cur_pid, source_path, expected_sha256}
   set daemon_target_q to quoted form of ("system/" & daemon_label)
   set check_source to "if [ -n " & expected_sha256_q & " ]; then test -f " & source_path_q & "; else test -d " & source_path_q & "; fi;"
   -- Rehash the root-owned copy in a clean environment before staging bytes.
-  set prepare_verified to "verified_dir=$(/usr/bin/mktemp -d /tmp/.rustdeskupdate-verified.XXXXXX); /bin/chmod 0700 \"$verified_dir\"; verified_app=\"$verified_dir/RustDesk.app\"; dmg_attached=0; if [ -n " & expected_sha256_q & " ]; then verified_dmg=\"$verified_dir/update.dmg\"; /bin/cp " & source_path_q & " \"$verified_dmg\"; /usr/sbin/chown root:wheel \"$verified_dmg\"; /bin/chmod 0400 \"$verified_dmg\"; actual_sha256=$(/usr/bin/env -i /usr/bin/shasum -a 256 \"$verified_dmg\"); actual_sha256=${actual_sha256%% *}; if [ \"$actual_sha256\" != " & expected_sha256_q & " ]; then echo 'Update DMG SHA256 mismatch' >&2; exit 1; fi; dmg_mount=\"$verified_dir/mount\"; /bin/mkdir \"$dmg_mount\"; dmg_attached=1; /usr/bin/hdiutil attach -readonly -nobrowse -mountpoint \"$dmg_mount\" \"$verified_dmg\" >/dev/null; /usr/bin/ditto \"$dmg_mount/RustDesk.app\" \"$verified_app\"; /usr/bin/hdiutil detach \"$dmg_mount\" -force >/dev/null; dmg_attached=0; /bin/rm -f \"$verified_dmg\"; else /usr/bin/ditto " & source_path_q & " \"$verified_app\"; fi; /usr/sbin/chown -R root:wheel \"$verified_app\"; /bin/chmod -R go-w \"$verified_app\";"
+  set prepare_verified to "verified_dir=$(/usr/bin/mktemp -d /tmp/.rustdeskupdate-verified.XXXXXX); /bin/chmod 0700 \"$verified_dir\"; verified_app=\"$verified_dir/SealDesk.app\"; dmg_attached=0; if [ -n " & expected_sha256_q & " ]; then verified_dmg=\"$verified_dir/update.dmg\"; /bin/cp " & source_path_q & " \"$verified_dmg\"; /usr/sbin/chown root:wheel \"$verified_dmg\"; /bin/chmod 0400 \"$verified_dmg\"; actual_sha256=$(/usr/bin/env -i /usr/bin/shasum -a 256 \"$verified_dmg\"); actual_sha256=${actual_sha256%% *}; if [ \"$actual_sha256\" != " & expected_sha256_q & " ]; then echo 'Update DMG SHA256 mismatch' >&2; exit 1; fi; dmg_mount=\"$verified_dir/mount\"; /bin/mkdir \"$dmg_mount\"; dmg_attached=1; /usr/bin/hdiutil attach -readonly -nobrowse -mountpoint \"$dmg_mount\" \"$verified_dmg\" >/dev/null; /usr/bin/ditto \"$dmg_mount/SealDesk.app\" \"$verified_app\"; /usr/bin/hdiutil detach \"$dmg_mount\" -force >/dev/null; dmg_attached=0; /bin/rm -f \"$verified_dmg\"; else /usr/bin/ditto " & source_path_q & " \"$verified_app\"; fi; /usr/sbin/chown -R root:wheel \"$verified_app\"; /bin/chmod -R go-w \"$verified_app\";"
   set validate_verified_app to "installed_bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' " & installed_info_q & "); candidate_bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \"$verified_app/Contents/Info.plist\"); if [ -z \"$installed_bundle_id\" ] || [ -z \"$candidate_bundle_id\" ] || [ \"$installed_bundle_id\" != \"$candidate_bundle_id\" ]; then echo 'Update app bundle identifier mismatch' >&2; exit 1; fi;"
   set resolve_uid to "uid=$(id -u " & quoted form of user & ");"
   set unload_agent to "if [ -n \"$uid\" ]; then launchctl bootout gui/$uid " & quoted form of agent_plist & " 2>/dev/null || launchctl bootout user/$uid " & quoted form of agent_plist & " 2>/dev/null || launchctl unload -w " & quoted form of agent_plist & " || true; else launchctl unload -w " & quoted form of agent_plist & " || true; fi;"
   set unload_service to "launchctl unload -w " & daemon_plist_q & " || true;"
-  set kill_others to "pids=$(pgrep -x 'RustDesk' | grep -vx " & cur_pid & " || true); if [ -n \"$pids\" ]; then echo \"$pids\" | xargs kill -9 || true; fi;"
+  set kill_others to "pids=$(pgrep -x 'SealDesk' | grep -vx " & cur_pid & " || true); if [ -n \"$pids\" ]; then echo \"$pids\" | xargs kill -9 || true; fi;"
 
   -- Update transaction:
   -- source -> root-owned verified_app -> .new -> installed app
@@ -53,7 +53,7 @@ on run {user, cur_pid, source_path, expected_sha256}
   -- Registration can succeed before a job is ready; keep rollback until both IPC sockets are live.
   -- A stale socket still passes -S; inspect open sockets without triggering IPC authentication.
   set check_service to "service_info=$(launchctl print " & daemon_target_q & " 2>/dev/null || true); printf '%s\n' \"$service_info\" | grep -E '^[[:space:]]*state = running[[:space:]]*$' >/dev/null && [ -S " & quoted form of daemon_socket & " ] && /usr/sbin/lsof -a -U -- " & quoted form of daemon_socket & " >/dev/null"
-  set check_agent to "agent_info=$(launchctl print \"gui/$uid/$agent_label\" 2>/dev/null || launchctl print \"user/$uid/$agent_label\" 2>/dev/null || launchctl print \"system/$agent_label\" 2>/dev/null || true); printf '%s\n' \"$agent_info\" | grep -E '^[[:space:]]*state = running[[:space:]]*$' >/dev/null && [ -S \"/tmp/RustDesk-$uid/ipc\" ] && /usr/sbin/lsof -a -U -- \"/tmp/RustDesk-$uid/ipc\" >/dev/null"
+  set check_agent to "agent_info=$(launchctl print \"gui/$uid/$agent_label\" 2>/dev/null || launchctl print \"user/$uid/$agent_label\" 2>/dev/null || launchctl print \"system/$agent_label\" 2>/dev/null || true); printf '%s\n' \"$agent_info\" | grep -E '^[[:space:]]*state = running[[:space:]]*$' >/dev/null && [ -S \"/tmp/SealDesk-$uid/ipc\" ] && /usr/sbin/lsof -a -U -- \"/tmp/SealDesk-$uid/ipc\" >/dev/null"
   set wait_for_service to "service_ready=0; for _ in $(/usr/bin/seq 1 " & readiness_attempts & "); do if " & check_service & "; then service_ready=1; break; fi; sleep 1; done; [ \"$service_ready\" -eq 1 ];"
   set wait_for_agent to "agent_ready=0; for _ in $(/usr/bin/seq 1 " & readiness_attempts & "); do if " & check_agent & "; then agent_ready=1; break; fi; sleep 1; done; [ \"$agent_ready\" -eq 1 ];"
   set verify_readiness to check_service & " || exit 1;" & check_agent & " || exit 1;"
@@ -64,5 +64,5 @@ on run {user, cur_pid, source_path, expected_sha256}
 
   set sh to "set -e; transaction_started=0; transaction_committed=0; bundle_backed_up=0; bundle_swapped=0; trap " & quoted form of rollback_update & " EXIT;" & check_source & prepare_verified & validate_verified_app & resolve_uid & prepare_swap_paths & cleanup_swap_paths & backup_plists & stage_bundle & protect_staged_bundle & "transaction_started=1;" & unload_agent & unload_service & kill_others & move_current_bundle & install_staged_bundle & write_new_plists & load_service & wait_for_service & load_agent & wait_for_agent & verify_readiness & commit_update
 
-  do shell script sh with prompt "RustDesk wants to update itself" with administrator privileges
+  do shell script sh with prompt "SealDesk wants to update itself" with administrator privileges
 end run

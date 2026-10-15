@@ -1,4 +1,4 @@
-import 'package:flutter_hbb/mobile/terminal_keyboard_utils.dart';
+import 'package:sealdesk/mobile/terminal_keyboard_utils.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

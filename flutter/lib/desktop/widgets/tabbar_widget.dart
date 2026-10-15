@@ -6,13 +6,13 @@ import 'package:bot_toast/bot_toast.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart' hide TabBarTheme;
-import 'package:flutter_hbb/common.dart';
-import 'package:flutter_hbb/consts.dart';
-import 'package:flutter_hbb/desktop/pages/remote_page.dart';
-import 'package:flutter_hbb/desktop/pages/view_camera_page.dart';
-import 'package:flutter_hbb/main.dart';
-import 'package:flutter_hbb/models/platform_model.dart';
-import 'package:flutter_hbb/models/state_model.dart';
+import 'package:sealdesk/common.dart';
+import 'package:sealdesk/consts.dart';
+import 'package:sealdesk/desktop/pages/remote_page.dart';
+import 'package:sealdesk/desktop/pages/view_camera_page.dart';
+import 'package:sealdesk/main.dart';
+import 'package:sealdesk/models/platform_model.dart';
+import 'package:sealdesk/models/state_model.dart';
 import 'package:get/get.dart';
 import 'package:get/get_rx/src/rx_workers/utils/debouncer.dart';
 import 'package:scroll_pos/scroll_pos.dart';
@@ -651,7 +651,7 @@ class _DesktopTabState extends State<DesktopTab>
                         Offstage(
                             offstage: !showTitle,
                             child: const Text(
-                              "RustDesk",
+                              "SealDesk",
                               style: TextStyle(fontSize: 13),
                             ).marginOnly(left: 2))
                       ]).marginOnly(

@@ -872,7 +872,7 @@ async fn handle(data: Data, stream: &mut Connection) {
                 let value;
                 if name == "id" {
                     value = Some(Config::get_id());
-                } else if name == base::config::keys::OPTION_TAILDESK_HOST_MODE {
+                } else if name == base::config::keys::OPTION_SEALDESK_HOST_MODE {
                     value = Some(crate::tailcat::host::mode().to_owned());
                 } else if name == base::config::keys::OPTION_STOP_SERVICE {
                     value = Some(Config::get_option(&name));
@@ -925,7 +925,7 @@ async fn handle(data: Data, stream: &mut Connection) {
                     }
                 } else if name == "temporary-password" {
                     password::update_temporary_password();
-                } else if name == base::config::keys::OPTION_TAILDESK_RESET_ADDRESS {
+                } else if name == base::config::keys::OPTION_SEALDESK_RESET_ADDRESS {
                     let result = if value == "Y" {
                         crate::tailcat::host::reset_key()
                     } else {
@@ -949,7 +949,7 @@ async fn handle(data: Data, stream: &mut Connection) {
                     // reading back any secret.
                     let ack = if updated { "Y" } else { "N" }.to_owned();
                     allow_err!(stream.send(&Data::Config((name.clone(), Some(ack)))).await);
-                } else if name == base::config::keys::OPTION_TAILDESK_HOST_MODE {
+                } else if name == base::config::keys::OPTION_SEALDESK_HOST_MODE {
                     if matches!(value.as_str(), "host" | "control") {
                         crate::tailcat::host::set_mode(value);
                     } else {
@@ -1592,7 +1592,7 @@ async fn get_config_async(name: &str, ms_timeout: u64) -> ResultType<Option<Stri
 pub async fn set_config_async(name: &str, value: String) -> ResultType<()> {
     let mut c = connect(1000, "").await?;
     c.send_config(name, value).await?;
-    if name == base::config::keys::OPTION_TAILDESK_RESET_ADDRESS {
+    if name == base::config::keys::OPTION_SEALDESK_RESET_ADDRESS {
         if let Some(Data::Config((response_name, Some(error)))) = c.next_timeout(1_000).await? {
             if response_name == name {
                 if error.is_empty() {

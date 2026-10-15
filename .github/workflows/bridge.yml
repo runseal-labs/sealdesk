@@ -65,7 +65,7 @@ jobs:
           targets: ${{ matrix.job.target }}
           components: "rustfmt"
 
-      - name: Install Go for TailDesk build script
+      - name: Install Go for SealDesk build script
         uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00
         with:
           go-version-file: libs/tailcat-ffi/go.mod

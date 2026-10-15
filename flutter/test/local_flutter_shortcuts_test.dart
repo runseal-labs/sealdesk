@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_hbb/common/widgets/keyboard_shortcuts/shortcut_constants.dart';
-import 'package:flutter_hbb/models/local_flutter_shortcuts.dart';
+import 'package:sealdesk/common/widgets/keyboard_shortcuts/shortcut_constants.dart';
+import 'package:sealdesk/models/local_flutter_shortcuts.dart';
 
 LocalFlutterShortcutDispatcher dispatcherFor(
     void Function(String) onTriggered) {

@@ -95,7 +95,10 @@ func saveJSON(path string, v any) error {
 	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o600)
 }
 
 // TcServe starts the controlled-side tunnel. Every TCP connection on any

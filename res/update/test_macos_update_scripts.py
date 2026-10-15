@@ -75,7 +75,7 @@ class MacosUpdateScriptTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         root = Path(directory.name)
-        bundle_id = "com.carriez.rustdesk"
+        bundle_id = "com.runseal.sealdesk"
         cases = (
             ("new", None, bundle_id, 0),
             ("installed", bundle_id, bundle_id, 0),

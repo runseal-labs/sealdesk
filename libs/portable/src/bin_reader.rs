@@ -16,7 +16,7 @@ const PACKAGE_RESOURCE_NAME: &str = "RDPKG";
 
 // 4bytes
 const LENGTH: usize = 4;
-const IDENTIFIER: &[u8] = b"rustdesk";
+const IDENTIFIER: &[u8] = b"sealdesk";
 const IDENTIFIER_LENGTH: usize = 8;
 const MD5_LENGTH: usize = 32;
 const BUF_SIZE: usize = 4096;
@@ -288,18 +288,18 @@ mod tests {
 
     #[test]
     fn without_a_package_the_stock_payload_is_untouched() {
-        let embedded = parse(blob(&[("./rustdesk.exe", b"app")], "./rustdesk.exe")).unwrap();
+        let embedded = parse(blob(&[("./sealdesk.exe", b"app")], "./sealdesk.exe")).unwrap();
         let (files, exe) = merge(embedded, Default::default());
-        assert_eq!(exe, "./rustdesk.exe");
-        assert!(entry(&files, "./rustdesk.exe").is_some());
+        assert_eq!(exe, "./sealdesk.exe");
+        assert!(entry(&files, "./sealdesk.exe").is_some());
     }
 
     #[test]
     fn renames_the_stock_executable_to_the_package_name() {
         // x86: the big executable stays in the generic payload and only gets renamed.
         let embedded = parse(blob(
-            &[("./rustdesk.exe", b"app"), ("./sciter.dll", b"dll")],
-            "./rustdesk.exe",
+            &[("./sealdesk.exe", b"app"), ("./sciter.dll", b"dll")],
+            "./sealdesk.exe",
         ))
         .unwrap();
         let package = parse(blob(&[("./custom.txt", b"cfg")], "./acme.exe")).unwrap();
@@ -308,7 +308,7 @@ mod tests {
 
         assert_eq!(exe, "./acme.exe");
         assert!(entry(&files, "./acme.exe").is_some());
-        assert!(entry(&files, "./rustdesk.exe").is_none());
+        assert!(entry(&files, "./sealdesk.exe").is_none());
         // Untouched neighbours survive.
         assert_eq!(entry(&files, "./sciter.dll").unwrap().raw, b"dll");
         assert_eq!(entry(&files, "./custom.txt").unwrap().raw, b"cfg");
@@ -320,9 +320,9 @@ mod tests {
         let embedded = parse(blob(
             &[
                 ("./data/flutter_assets/assets/icon.ico", b"stock-icon"),
-                ("./librustdesk.dll", b"core"),
+                ("./libsealdesk.dll", b"core"),
             ],
-            "./rustdesk.exe",
+            "./sealdesk.exe",
         ))
         .unwrap();
         let package = parse(blob(
@@ -350,6 +350,6 @@ mod tests {
                 .count(),
             1
         );
-        assert_eq!(entry(&files, "./librustdesk.dll").unwrap().raw, b"core");
+        assert_eq!(entry(&files, "./libsealdesk.dll").unwrap().raw, b"core");
     }
 }

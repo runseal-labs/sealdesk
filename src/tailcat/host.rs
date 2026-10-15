@@ -5,7 +5,7 @@ use std::sync::Mutex;
 static RUNNING: Mutex<bool> = Mutex::new(false);
 
 pub(crate) fn enabled() -> bool {
-    Config::get_option(keys::OPTION_TAILDESK_HOST_MODE) != "control"
+    Config::get_option(keys::OPTION_SEALDESK_HOST_MODE) != "control"
         && !option2bool(
             keys::OPTION_STOP_SERVICE,
             &Config::get_option(keys::OPTION_STOP_SERVICE),
@@ -40,11 +40,11 @@ pub(crate) fn set_mode(mode: String) {
     if mode == "host" {
         Config::set_option(keys::OPTION_STOP_SERVICE.to_owned(), String::new());
     }
-    Config::set_option(keys::OPTION_TAILDESK_HOST_MODE.to_owned(), mode);
+    Config::set_option(keys::OPTION_SEALDESK_HOST_MODE.to_owned(), mode);
 }
 
 fn preserve_host_state(options: &mut std::collections::HashMap<String, String>) {
-    for key in [keys::OPTION_TAILDESK_HOST_MODE, super::OPTION_ADDR] {
+    for key in [keys::OPTION_SEALDESK_HOST_MODE, super::OPTION_ADDR] {
         let value = Config::get_option(key);
         if value.is_empty() {
             options.remove(key);
@@ -68,7 +68,7 @@ pub(crate) fn sync_config(mut config: hbb_common::config::Config2) -> bool {
 
 pub(crate) fn mode() -> &'static str {
     let running = RUNNING.lock().unwrap();
-    if Config::get_option(keys::OPTION_TAILDESK_HOST_MODE) == "control" {
+    if Config::get_option(keys::OPTION_SEALDESK_HOST_MODE) == "control" {
         if *running {
             "stopping"
         } else {
@@ -95,7 +95,7 @@ pub(crate) fn reset_key() -> hbb_common::ResultType<()> {
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) fn reset_address() -> hbb_common::ResultType<()> {
-    let mode = crate::ipc::get_config(keys::OPTION_TAILDESK_HOST_MODE)?;
+    let mode = crate::ipc::get_config(keys::OPTION_SEALDESK_HOST_MODE)?;
     if !matches!(mode.as_deref(), Some("host" | "control")) {
         hbb_common::bail!("无法确认被控服务状态，请稍后重试");
     }
@@ -104,7 +104,7 @@ pub(crate) fn reset_address() -> hbb_common::ResultType<()> {
     let resume_host =
         mode.as_deref() == Some("host") && !option2bool(keys::OPTION_STOP_SERVICE, &stopped);
     request_mode("control")?;
-    crate::ipc::set_config(keys::OPTION_TAILDESK_RESET_ADDRESS, "Y".to_owned())?;
+    crate::ipc::set_config(keys::OPTION_SEALDESK_RESET_ADDRESS, "Y".to_owned())?;
     if resume_host {
         request_mode("host")?;
     }
@@ -126,7 +126,7 @@ fn daemon_absent(error: &hbb_common::anyhow::Error) -> bool {
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) fn query_mode() -> hbb_common::ResultType<String> {
-    match crate::ipc::get_config(keys::OPTION_TAILDESK_HOST_MODE) {
+    match crate::ipc::get_config(keys::OPTION_SEALDESK_HOST_MODE) {
         Ok(Some(mode)) => Ok(mode),
         Err(error) if daemon_absent(&error) => Ok("control".to_owned()),
         _ => hbb_common::bail!("无法确认被控服务状态，请稍后重试"),
@@ -147,7 +147,7 @@ pub(crate) fn request_mode(mode: &str) -> hbb_common::ResultType<()> {
     if mode == "host" && hbb_common::config::is_outgoing_only() {
         bail!("当前应用配置仅允许控制其他设备");
     }
-    match crate::ipc::get_config(keys::OPTION_TAILDESK_HOST_MODE) {
+    match crate::ipc::get_config(keys::OPTION_SEALDESK_HOST_MODE) {
         Err(error) if daemon_absent(&error) => {
             set_mode(mode.to_owned());
             if mode == "control" {
@@ -164,7 +164,7 @@ pub(crate) fn request_mode(mode: &str) -> hbb_common::ResultType<()> {
     }
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
-        match crate::ipc::set_config(keys::OPTION_TAILDESK_HOST_MODE, mode.to_owned()) {
+        match crate::ipc::set_config(keys::OPTION_SEALDESK_HOST_MODE, mode.to_owned()) {
             Ok(()) => break,
             Err(error) if daemon_absent(&error) && Instant::now() < deadline => {
                 std::thread::sleep(Duration::from_millis(100));
@@ -173,7 +173,7 @@ pub(crate) fn request_mode(mode: &str) -> hbb_common::ResultType<()> {
         }
     }
     loop {
-        if crate::ipc::get_config(keys::OPTION_TAILDESK_HOST_MODE)?.as_deref() == Some(mode) {
+        if crate::ipc::get_config(keys::OPTION_SEALDESK_HOST_MODE)?.as_deref() == Some(mode) {
             set_mode(mode.to_owned());
             return Ok(());
         }

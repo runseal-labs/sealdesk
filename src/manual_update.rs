@@ -5,7 +5,7 @@ use hbb_common::{
 use std::{io::Read, path::Path};
 
 const UPDATE_SIDECAR_MAX_BYTES: u64 = 1024 * 1024;
-const PUBLIC_MACOS_BUNDLE_ID: &str = "com.carriez.rustdesk";
+const PUBLIC_MACOS_BUNDLE_ID: &str = "com.runseal.sealdesk";
 const MACOS_UPDATE_USAGE: &str = "Usage: --update [update.dmg --metadata rustdesk-update.json --signature rustdesk-update.json.sig]";
 const LEGACY_UPDATE_WARNING: &str =
     "legacy offline update: signed metadata not found; release hash was not verified";
@@ -187,7 +187,7 @@ mod tests {
     fn resolves_public_and_custom_update_package_identity() {
         assert_eq!(
             "rustdesk",
-            expected_update_package_id(false, Some("com.carriez.rustdesk".to_owned())).unwrap()
+            expected_update_package_id(false, Some("com.runseal.sealdesk".to_owned())).unwrap()
         );
         assert_eq!(
             "com.example.rustdesk-custom",
@@ -200,8 +200,8 @@ mod tests {
                 .unwrap()
         );
         assert_eq!(
-            "com.carriez.rustdesk",
-            expected_update_package_id(true, Some("com.carriez.rustdesk".to_owned())).unwrap()
+            "com.runseal.sealdesk",
+            expected_update_package_id(true, Some("com.runseal.sealdesk".to_owned())).unwrap()
         );
         assert!(expected_update_package_id(false, None).is_err());
         assert!(expected_update_package_id(true, None).is_err());

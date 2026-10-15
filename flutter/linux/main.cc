@@ -5,13 +5,13 @@
 #include <unistd.h>
 #include "my_application.h"
 
-#define RUSTDESK_LIB_PATH "librustdesk.so"
+#define RUSTDESK_LIB_PATH "libsealdesk.so"
 typedef bool (*RustDeskCoreMain)();
 bool gIsConnectionManager = false;
 
 void print_help_install_pkg(const char* so);
 
-// The bundle keeps the core library at lib/librustdesk.so next to the
+// The bundle keeps the core library at lib/libsealdesk.so next to the
 // executable. Resolve that path explicitly instead of relying on the
 // runner's RPATH, which repackaged installs may strip.
 // https://github.com/rustdesk/rustdesk/discussions/14407
@@ -26,23 +26,23 @@ static void* dlopen_bundled_lib() {
   char lib_path[PATH_MAX + sizeof("/lib/" RUSTDESK_LIB_PATH)];
   snprintf(lib_path, sizeof(lib_path), "%s/lib/%s", exe_path, RUSTDESK_LIB_PATH);
   if (access(lib_path, F_OK) != 0) return nullptr;
-  void* librustdesk = dlopen(lib_path, RTLD_LAZY);
-  if (!librustdesk) {
+  void* libsealdesk = dlopen(lib_path, RTLD_LAZY);
+  if (!libsealdesk) {
     char* error = dlerror();
     if (error != nullptr) {
       fprintf(stderr, "Failed to load \"%s\": %s\n", lib_path, error);
     }
   }
-  return librustdesk;
+  return libsealdesk;
 }
 
-bool flutter_rustdesk_core_main() {
-   void* librustdesk = dlopen_bundled_lib();
-   if (!librustdesk) {
-      librustdesk = dlopen(RUSTDESK_LIB_PATH, RTLD_LAZY);
+bool flutter_sealdesk_core_main() {
+   void* libsealdesk = dlopen_bundled_lib();
+   if (!libsealdesk) {
+      libsealdesk = dlopen(RUSTDESK_LIB_PATH, RTLD_LAZY);
    }
-   if (!librustdesk) {
-      fprintf(stderr,"Failed to load \"librustdesk.so\"\n");
+   if (!libsealdesk) {
+      fprintf(stderr,"Failed to load \"libsealdesk.so\"\n");
       char* error;
       if ((error = dlerror()) != nullptr) {
         fprintf(stderr, "%s\n", error);
@@ -56,17 +56,17 @@ bool flutter_rustdesk_core_main() {
       }
      return false;
    }
-   auto core_main = (RustDeskCoreMain) dlsym(librustdesk,"rustdesk_core_main");
+   auto core_main = (RustDeskCoreMain) dlsym(libsealdesk,"rustdesk_core_main");
    char* error;
    if ((error = dlerror()) != nullptr) {
-       fprintf(stderr, "Program entry \"rustdesk_core_main\" is not found: %s\n", error);
+       fprintf(stderr, "Program entry \"sealdesk_core_main\" is not found: %s\n", error);
        return false;
    }
    return core_main();
 }
 
 int main(int argc, char** argv) {
-  if (!flutter_rustdesk_core_main()) {
+  if (!flutter_sealdesk_core_main()) {
       return 0;
   }
   for (int i = 0; i < argc; i++) {

@@ -10,7 +10,7 @@ int main(void) {
     }
     TcFree(response);
 
-    response = TcQR("TailDesk archive smoke");
+    response = TcQR("SealDesk archive smoke");
     if (response == NULL || response[0] == '\0' || strncmp(response, "ERR:", 4) == 0) {
         TcFree(response);
         return 2;

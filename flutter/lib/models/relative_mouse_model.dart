@@ -6,8 +6,8 @@ import 'dart:ui' as ui;
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
-import 'package:flutter_hbb/main.dart';
-import 'package:flutter_hbb/utils/relative_mouse_accumulator.dart';
+import 'package:sealdesk/main.dart';
+import 'package:sealdesk/utils/relative_mouse_accumulator.dart';
 import 'package:get/get.dart';
 
 import '../common.dart';
@@ -61,7 +61,7 @@ class RelativeMouseModel {
     if (_hostChannelInitialized) return;
     _hostChannelInitialized = true;
 
-    _hostChannel = const MethodChannel('org.rustdesk.rustdesk/host');
+    _hostChannel = const MethodChannel('com.runseal.sealdesk/host');
     _hostChannel!.setMethodCallHandler((call) async {
       if (call.method == 'onMouseDelta') {
         final args = call.arguments as Map<dynamic, dynamic>;

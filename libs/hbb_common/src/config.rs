@@ -16,6 +16,7 @@ use regex::Regex;
 use serde as de;
 use serde_derive::{Deserialize, Serialize};
 use serde_json;
+use sha2::{Digest, Sha256};
 use sodiumoxide::base64;
 use sodiumoxide::crypto::sign;
 
@@ -54,7 +55,7 @@ const SERIAL: i32 = 3;
 
 #[cfg(target_os = "macos")]
 lazy_static::lazy_static! {
-    pub static ref ORG: RwLock<String> = RwLock::new("com.carriez".to_owned());
+    pub static ref ORG: RwLock<String> = RwLock::new("com.runseal".to_owned());
 }
 
 type Size = (i32, i32, i32, i32);
@@ -67,7 +68,7 @@ lazy_static::lazy_static! {
     static ref STATUS: RwLock<Status> = RwLock::new(Status::load());
     static ref TRUSTED_DEVICES: RwLock<(Vec<TrustedDevice>, bool)> = Default::default();
     static ref ONLINE: Mutex<HashMap<String, i64>> = Default::default();
-    pub static ref APP_NAME: RwLock<String> = RwLock::new("RustDesk".to_owned());
+    pub static ref APP_NAME: RwLock<String> = RwLock::new("SealDesk".to_owned());
     static ref KEY_PAIR: Mutex<Option<KeyPair>> = Default::default();
     static ref USER_DEFAULT_CONFIG: RwLock<(UserDefaultConfig, Instant)> = RwLock::new((UserDefaultConfig::load(), Instant::now()));
     pub static ref NEW_STORED_PEER_CONFIG: Mutex<HashSet<String>> = Default::default();
@@ -100,8 +101,8 @@ pub const LINK_DOCS_X11_REQUIRED: &str = "https://rustdesk.com/docs/en/manual/li
 
 lazy_static::lazy_static! {
     pub static ref HELPER_URL: HashMap<&'static str, &'static str> = HashMap::from([
-        ("rustdesk docs home", LINK_DOCS_HOME),
-        ("rustdesk docs x11-required", LINK_DOCS_X11_REQUIRED),
+        ("sealdesk docs home", LINK_DOCS_HOME),
+        ("sealdesk docs x11-required", LINK_DOCS_X11_REQUIRED),
         ]);
 }
 
@@ -232,6 +233,8 @@ pub struct Resolution {
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct PeerConfig {
+    #[serde(default)]
+    pub id: String,
     #[serde(default, deserialize_with = "deserialize_vec_u8")]
     pub password: Vec<u8>,
     #[serde(default, deserialize_with = "deserialize_size")]
@@ -360,6 +363,7 @@ pub struct PeerConfig {
 impl Default for PeerConfig {
     fn default() -> Self {
         Self {
+            id: Default::default(),
             password: Default::default(),
             size: Default::default(),
             size_ft: Default::default(),
@@ -1461,6 +1465,9 @@ impl PeerConfig {
         match confy::load_path(Self::path(id)) {
             Ok(config) => {
                 let mut config: PeerConfig = config;
+                if config.id.is_empty() {
+                    config.id = id.to_owned();
+                }
                 let mut store = false;
                 let (password, _, store2) =
                     decrypt_vec_or_original(&config.password, PASSWORD_ENC_VERSION);
@@ -1497,12 +1504,8 @@ impl PeerConfig {
     }
 
     fn store_(&self, id: &str) {
-        // confy's temp file name appends pid/thread/nanos, so a tailcat address (~230 bytes)
-        // overflows NAME_MAX. Such peers are not persisted; their file name would be the id.
-        if id.len() > 128 {
-            return;
-        }
         let mut config = self.clone();
+        config.id = id.to_owned();
         config.password =
             encrypt_vec_or_original(&config.password, PASSWORD_ENC_VERSION, ENCRYPT_MAX_LEN);
         for opt in ["rdp_password", "os-username", "os-password"] {
@@ -1521,14 +1524,21 @@ impl PeerConfig {
     }
 
     fn path(id: &str) -> PathBuf {
-        //If the id contains invalid chars, encode it
+        // If the ID is too long for the temporary file name used by confy, hash it.
+        let id = if id.len() > 128 {
+            let digest = Sha256::digest(id.as_bytes());
+            format!("h_{digest:x}")
+        } else {
+            id.to_owned()
+        };
+        // If the id contains invalid chars, encode it
         let forbidden_paths = Regex::new(r".*[<>:/\\|\?\*].*");
         let path: PathBuf;
         if let Ok(forbidden_paths) = forbidden_paths {
-            let id_encoded = if forbidden_paths.is_match(id) {
-                "base64_".to_string() + base64::encode(id, base64::Variant::Original).as_str()
+            let id_encoded = if forbidden_paths.is_match(&id) {
+                "base64_".to_string() + base64::encode(&id, base64::Variant::Original).as_str()
             } else {
-                id.to_string()
+                id.clone()
             };
             path = [PEERS, id_encoded.as_str()].iter().collect();
         } else {
@@ -1565,20 +1575,27 @@ impl PeerConfig {
                     _ => None,
                 })
                 .map(|p| {
-                    let id = p
+                    let filename_id = p
                         .file_stem()
                         .map(|p| p.to_str().unwrap_or(""))
                         .unwrap_or("")
                         .to_owned();
-
-                    let id_decoded_string = if id.starts_with("base64_") && id.len() != 7 {
-                        let id_decoded =
-                            base64::decode(&id[7..], base64::Variant::Original).unwrap_or_default();
-                        String::from_utf8_lossy(&id_decoded).as_ref().to_owned()
-                    } else {
-                        id
-                    };
-                    (id_decoded_string, p)
+                    let filename_id =
+                        if filename_id.starts_with("base64_") && filename_id.len() != 7 {
+                            let id_decoded =
+                                base64::decode(&filename_id[7..], base64::Variant::Original)
+                                    .unwrap_or_default();
+                            String::from_utf8_lossy(&id_decoded).as_ref().to_owned()
+                        } else {
+                            filename_id
+                        };
+                    let id = fs::read_to_string(&p)
+                        .ok()
+                        .and_then(|contents| toml::from_str::<PeerConfig>(&contents).ok())
+                        .map(|config| config.id)
+                        .filter(|id| !id.is_empty())
+                        .unwrap_or(filename_id);
+                    (id, p)
                 })
                 .filter(|(id, _)| {
                     let Some(filters) = id_filters else {
@@ -2529,9 +2546,7 @@ pub fn is_disable_installation() -> bool {
 pub fn option2bool(option: &str, value: &str) -> bool {
     if option.starts_with("enable-") {
         value != "N"
-    } else if option.starts_with("allow-")
-        || option == "stop-service"
-    {
+    } else if option.starts_with("allow-") || option == "stop-service" {
         value == "Y"
     } else {
         value != "N"
@@ -2564,7 +2579,6 @@ pub mod keys {
     pub const OPTION_DISABLE_CHANGE_PERMANENT_PASSWORD: &str = "disable-change-permanent-password";
     pub const OPTION_DISABLE_CHANGE_ID: &str = "disable-change-id";
     pub const OPTION_DISABLE_UNLOCK_PIN: &str = "disable-unlock-pin";
-
 }
 
 pub fn common_load<
@@ -2916,7 +2930,6 @@ mod tests {
             decrypt_str_or_original(&cfg.unlock_pin, PASSWORD_ENC_VERSION);
         assert!(decrypted);
         cfg.unlock_pin = unlock_pin;
-        cfg.nat_type = 1;
 
         cfg.store();
 
@@ -3316,7 +3329,8 @@ mod tests {
     #[test]
     fn test_store_load() {
         let peerconfig_id = "123456789";
-        let cfg: PeerConfig = Default::default();
+        let mut cfg: PeerConfig = Default::default();
+        cfg.id = peerconfig_id.to_owned();
         cfg.store(&peerconfig_id);
         assert_eq!(PeerConfig::load(&peerconfig_id), cfg);
 
@@ -3333,6 +3347,20 @@ mod tests {
                 0o600
             );
         }
+    }
+
+    #[test]
+    fn test_store_load_long_id() {
+        let peerconfig_id = "x".repeat(230);
+        let mut cfg: PeerConfig = Default::default();
+        cfg.id = peerconfig_id.clone();
+        cfg.store(&peerconfig_id);
+        assert_eq!(PeerConfig::load(&peerconfig_id), cfg);
+        assert!(PeerConfig::path(&peerconfig_id)
+            .file_stem()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("h_"));
     }
 
     #[test]

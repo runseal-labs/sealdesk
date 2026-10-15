@@ -359,13 +359,13 @@ jobs:
             aarch64-linux-android)
               ./flutter/ndk_arm64.sh
               mkdir -p ./flutter/android/app/src/main/jniLibs/arm64-v8a
-              cp ./target/${{ matrix.job.target }}/release/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/librustdesk.so
+              cp ./target/${{ matrix.job.target }}/release/libsealdesk.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/libsealdesk.so
               cp ./target/${{ matrix.job.target }}/release/libtailcat.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/
             ;;
             armv7-linux-androideabi)
               ./flutter/ndk_arm.sh
               mkdir -p ./flutter/android/app/src/main/jniLibs/armeabi-v7a
-              cp ./target/${{ matrix.job.target }}/release/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/armeabi-v7a/librustdesk.so
+              cp ./target/${{ matrix.job.target }}/release/libsealdesk.so ./flutter/android/app/src/main/jniLibs/armeabi-v7a/libsealdesk.so
               cp ./target/${{ matrix.job.target }}/release/libtailcat.so ./flutter/android/app/src/main/jniLibs/armeabi-v7a/
             ;;
           esac
@@ -382,21 +382,21 @@ jobs:
             aarch64-linux-android)
               mkdir -p ./flutter/android/app/src/main/jniLibs/arm64-v8a
               cp ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/
-              cp ./target/${{ matrix.job.target }}/release/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/librustdesk.so
+              cp ./target/${{ matrix.job.target }}/release/libsealdesk.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/libsealdesk.so
               # build flutter
               pushd flutter
               flutter build apk --release --target-platform android-arm64 --split-per-abi
-              python3 ../tests/check_taildesk_android_package.py build/app/outputs/flutter-apk/app-arm64-v8a-release.apk --abi arm64-v8a
+              python3 ../tests/check_sealdesk_android_package.py build/app/outputs/flutter-apk/app-arm64-v8a-release.apk --abi arm64-v8a
               mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk ../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.apk
             ;;
             armv7-linux-androideabi)
               mkdir -p ./flutter/android/app/src/main/jniLibs/armeabi-v7a
               cp ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/arm-linux-androideabi/libc++_shared.so ./flutter/android/app/src/main/jniLibs/armeabi-v7a/
-              cp ./target/${{ matrix.job.target }}/release/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/armeabi-v7a/librustdesk.so
+              cp ./target/${{ matrix.job.target }}/release/libsealdesk.so ./flutter/android/app/src/main/jniLibs/armeabi-v7a/libsealdesk.so
               # build flutter
               pushd flutter
               flutter build apk --release --target-platform android-arm --split-per-abi
-              python3 ../tests/check_taildesk_android_package.py build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk --abi armeabi-v7a
+              python3 ../tests/check_sealdesk_android_package.py build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk --abi armeabi-v7a
               mv build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk ../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.apk
             ;;
           esac

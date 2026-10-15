@@ -4,16 +4,16 @@ import 'dart:convert';
 import 'package:dash_chat_2/dash_chat_2.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_hbb/common.dart' show SessionID;
-import 'package:flutter_hbb/common/widgets/keyboard_shortcuts/shortcut_constants.dart';
-import 'package:flutter_hbb/generated_bridge.dart';
-import 'package:flutter_hbb/consts.dart';
-import 'package:flutter_hbb/models/chat_model.dart';
-import 'package:flutter_hbb/models/input_model.dart';
-import 'package:flutter_hbb/models/local_flutter_shortcuts.dart';
-import 'package:flutter_hbb/models/model.dart';
-import 'package:flutter_hbb/models/platform_model.dart';
-import 'package:flutter_hbb/models/shortcut_model.dart';
+import 'package:sealdesk/common.dart' show SessionID;
+import 'package:sealdesk/common/widgets/keyboard_shortcuts/shortcut_constants.dart';
+import 'package:sealdesk/generated_bridge.dart';
+import 'package:sealdesk/consts.dart';
+import 'package:sealdesk/models/chat_model.dart';
+import 'package:sealdesk/models/input_model.dart';
+import 'package:sealdesk/models/local_flutter_shortcuts.dart';
+import 'package:sealdesk/models/model.dart';
+import 'package:sealdesk/models/platform_model.dart';
+import 'package:sealdesk/models/shortcut_model.dart';
 import 'package:uuid/uuid.dart';
 
 class _ChatBinding extends Fake implements RustdeskImpl {

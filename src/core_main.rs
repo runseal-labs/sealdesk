@@ -43,7 +43,7 @@ fn finish_macos_update(result: hbb_common::ResultType<()>) -> Option<CoreMainAct
 /// If it returns [`Some`], the action determines whether to start the UI or report failure.
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn core_main() -> Option<CoreMainAction> {
-    // Own name, so config, logs and IPC sockets never collide with a stock RustDesk: the two
+    // Own name, so config, logs and IPC sockets never collide with a stock SealDesk: the two
     // cannot talk to each other anyway (no rendezvous server here).
     *hbb_common::config::APP_NAME.write().unwrap() = crate::tailcat::APP_NAME.to_owned();
     if !crate::common::global_init() {
@@ -95,25 +95,25 @@ pub fn core_main() -> Option<CoreMainAction> {
         }
         i += 1;
     }
-    let taildesk_launch = match crate::tailcat::launch::Launch::parse(&args, no_server) {
+    let sealdesk_launch = match crate::tailcat::launch::Launch::parse(&args, no_server) {
         Ok(launch) => launch,
         Err(error) => return Some(CoreMainAction::ExitFailure(error)),
     };
-    if taildesk_launch.is_some() {
+    if sealdesk_launch.is_some() {
         args.clear();
         _is_flutter_invoke_new_connection = false;
         #[cfg(feature = "flutter")]
-        if let Some(input) = taildesk_launch
+        if let Some(input) = sealdesk_launch
             .as_ref()
             .and_then(|launch| launch.input.as_ref())
         {
             flutter_args = vec!["--control".to_owned(), input.clone()];
         }
     }
-    let startup_mode = taildesk_launch
+    let startup_mode = sealdesk_launch
         .as_ref()
         .map(|launch| launch.mode.as_str().to_owned())
-        .unwrap_or_else(|| config::LocalConfig::get_option(keys::OPTION_TAILDESK_MODE));
+        .unwrap_or_else(|| config::LocalConfig::get_option(keys::OPTION_SEALDESK_MODE));
     no_server = crate::tailcat::launch::controller_only(&startup_mode, no_server);
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     if args.is_empty() {
@@ -156,7 +156,7 @@ pub fn core_main() -> Option<CoreMainAction> {
         return core_main_invoke_new_connection(std::env::args()).map(CoreMainAction::StartUi);
     }
     let click_setup = cfg!(windows)
-        && taildesk_launch.is_none()
+        && sealdesk_launch.is_none()
         && args.is_empty()
         && crate::common::is_setup(&arg_exe);
     if click_setup && !config::is_disable_installation() {
@@ -235,9 +235,9 @@ pub fn core_main() -> Option<CoreMainAction> {
         if let Err(error) = crate::tailcat::host::request_mode(requested) {
             return Some(CoreMainAction::ExitFailure(error));
         }
-        if let Some(launch) = &taildesk_launch {
+        if let Some(launch) = &sealdesk_launch {
             config::LocalConfig::set_option(
-                keys::OPTION_TAILDESK_MODE.to_owned(),
+                keys::OPTION_SEALDESK_MODE.to_owned(),
                 launch.mode.as_str().to_owned(),
             );
         }
@@ -506,7 +506,7 @@ pub fn core_main() -> Option<CoreMainAction> {
         } else if args[0] == "--tc-addr" {
             let addr = crate::ui_interface::get_option(crate::tailcat::OPTION_ADDR.to_owned());
             if addr.is_empty() {
-                println!("No tailcat address yet; is the RustDesk server running?");
+                println!("No tailcat address yet; is the SealDesk server running?");
             } else {
                 if let Ok(qr) = crate::tailcat::qr_text(&addr) {
                     println!("{qr}");
@@ -527,7 +527,7 @@ pub fn core_main() -> Option<CoreMainAction> {
             }
             let keys = args.get(1).cloned().unwrap_or_default();
             crate::ui_interface::set_option(crate::tailcat::OPTION_ALLOW.to_owned(), keys);
-            println!("Done! Restart the RustDesk server to apply.");
+            println!("Done! Restart the SealDesk server to apply.");
             return None;
         } else if args[0] == "--get-id" {
             println!("{}", crate::ipc::get_id());
@@ -605,7 +605,7 @@ pub fn core_main() -> Option<CoreMainAction> {
     }
     //_async_logger_holder.map(|x| x.flush());
     #[cfg(not(feature = "flutter"))]
-    if let Some(input) = taildesk_launch.and_then(|launch| launch.input) {
+    if let Some(input) = sealdesk_launch.and_then(|launch| launch.input) {
         let pairing = match crate::tailcat::pairing::PairingCode::parse(&input) {
             Ok(pairing) => pairing,
             Err(error) => return Some(CoreMainAction::ExitFailure(error.into())),

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=SealDesk
+NoDisplay=true
+MimeType=x-scheme-handler/sealdesk;
+TryExec=sealdesk
+Exec=sealdesk %u
+Icon=sealdesk
+Terminal=false
+Type=Application
+StartupNotify=false
+StartupWMClass=sealdesk

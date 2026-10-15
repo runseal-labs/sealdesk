@@ -1,5 +1,5 @@
-import 'package:flutter_hbb/common.dart';
-import 'package:flutter_hbb/models/model.dart';
+import 'package:sealdesk/common.dart';
+import 'package:sealdesk/models/model.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:uuid/uuid.dart';
 

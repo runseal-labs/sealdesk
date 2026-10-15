@@ -1,0 +1,27 @@
+import 'package:sealdesk/common/sealdesk_startup.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  test('startup target is preserved verbatim and consumed once', () {
+    const target = 'SEALDESK:V:1;P:秘密 &?=;;';
+    SealDeskStartup.configure(['--control', target]);
+    expect(SealDeskStartup.takeTarget(), target);
+    expect(SealDeskStartup.takeTarget(), isNull);
+    SealDeskStartup.configure(['--control', '/tmp/配对 图.png']);
+    expect(SealDeskStartup.takeTarget(), '/tmp/配对 图.png');
+  });
+
+  test('other launches clear pending targets', () {
+    for (final arguments in <List<String>>[
+      [],
+      ['--host'],
+      ['--control'],
+      ['--control', 'one', 'two'],
+      ['multi_window', '42', 'secret'],
+    ]) {
+      SealDeskStartup.configure(['--control', 'pending']);
+      SealDeskStartup.configure(arguments);
+      expect(SealDeskStartup.takeTarget(), isNull);
+    }
+  });
+}

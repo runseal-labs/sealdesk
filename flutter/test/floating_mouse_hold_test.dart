@@ -4,10 +4,10 @@ import 'dart:async';
 import 'dart:js' as js;
 
 import 'package:flutter/material.dart';
-import 'package:flutter_hbb/common/widgets/remote_input.dart';
-import 'package:flutter_hbb/mobile/widgets/floating_mouse_widgets.dart';
-import 'package:flutter_hbb/models/input_model.dart';
-import 'package:flutter_hbb/models/model.dart';
+import 'package:sealdesk/common/widgets/remote_input.dart';
+import 'package:sealdesk/mobile/widgets/floating_mouse_widgets.dart';
+import 'package:sealdesk/models/input_model.dart';
+import 'package:sealdesk/models/model.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _Input extends Fake implements InputModel {

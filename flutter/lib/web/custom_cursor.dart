@@ -4,7 +4,7 @@ import 'dart:js' as js;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-import 'package:flutter_hbb/models/model.dart' as model;
+import 'package:sealdesk/models/model.dart' as model;
 
 class CursorData {
   final String key;

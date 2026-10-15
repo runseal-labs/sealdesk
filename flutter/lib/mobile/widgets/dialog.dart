@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter_hbb/common/widgets/setting_widgets.dart';
-import 'package:flutter_hbb/common/widgets/toolbar.dart';
+import 'package:sealdesk/common/widgets/setting_widgets.dart';
+import 'package:sealdesk/common/widgets/toolbar.dart';
 import 'package:get/get.dart';
 
 import '../../common.dart';

@@ -1,6 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_hbb/models/input_modifier_utils.dart';
+import 'package:sealdesk/models/input_modifier_utils.dart';
 
 void main() {
   group('shouldReleaseStaleMobileShift', () {

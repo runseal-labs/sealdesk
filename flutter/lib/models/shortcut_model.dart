@@ -79,7 +79,7 @@ class ShortcutModel {
   /// The matcher has already consumed the chord. With no handler the action
   /// is unavailable in this session (e.g. screenshot on a peer without
   /// support), and the chord is a deliberate no-op: a bound chord always
-  /// belongs to RustDesk and is never forwarded to the remote.
+  /// belongs to SealDesk and is never forwarded to the remote.
   void onTriggered(String actionId) {
     if (parent.target?.closed != false) return;
     unawaited(Future.sync(() async {
@@ -539,7 +539,7 @@ void registerSessionShortcutActions(
   registerKeyboardMode(kShortcutActionKeyboardModeLegacy, kKeyLegacyMode);
 
   // Plug out all virtual displays (Windows + IDD only). Mirrors the toolbar's
-  // "Plug out all" button — present in both IDD modes (RustDesk + Amyuni),
+  // "Plug out all" button — present in both IDD modes (SealDesk + Amyuni),
   // built as a MenuButton inside `getVirtualDisplayMenuChildren`.
   ffi.shortcutModel.register(kShortcutActionPlugOutAllVirtualDisplays, () {
     if (ffi.connType != ConnType.defaultConn ||

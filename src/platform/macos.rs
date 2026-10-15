@@ -155,7 +155,7 @@ pub fn is_can_screen_recording(prompt: bool) -> bool {
 
 // macOS >= 10.15
 // https://stackoverflow.com/questions/56597221/detecting-screen-recording-settings-on-macos-catalina/
-// remove just one app from all the permissions: tccutil reset All com.carriez.rustdesk
+// remove just one app from all the permissions: tccutil reset All com.runseal.sealdesk
 fn unsafe_is_can_screen_recording(prompt: bool) -> bool {
     // we got some report that we show no permission even after set it, so we try to use new api for screen recording check
     // the new api is only available on macOS >= 10.15, but on stackoverflow, some people said it works on >= 10.16 (crash on 10.15),
@@ -365,10 +365,10 @@ fn update_daemon_agent(agent_plist_file: String, update_source: UpdateSource) ->
 fn correct_app_name(s: &str) -> String {
     let mut s = s.to_owned();
     if let Some(bundleid) = get_bundle_id() {
-        s = s.replace("com.carriez.rustdesk", &bundleid);
+        s = s.replace("com.runseal.sealdesk", &bundleid);
     }
     s = s.replace("rustdesk", &crate::get_app_name().to_lowercase());
-    s = s.replace("RustDesk", &crate::get_app_name());
+    s = s.replace("SealDesk", &crate::get_app_name());
     s
 }
 
@@ -396,11 +396,11 @@ fn write_plist_atomically(path: &str, body: &str) -> ResultType<()> {
 
 pub fn write_plists() -> ResultType<()> {
     let daemon_plist_path = format!(
-        "/Library/LaunchDaemons/com.carriez.{}_service.plist",
+        "/Library/LaunchDaemons/com.runseal.{}_service.plist",
         crate::get_app_name()
     );
     let agent_plist_path = format!(
-        "/Library/LaunchAgents/com.carriez.{}_server.plist",
+        "/Library/LaunchAgents/com.runseal.{}_server.plist",
         crate::get_app_name()
     );
     let Some(daemon_plist) = PRIVILEGES_SCRIPTS_DIR.get_file("daemon.plist") else {
@@ -857,8 +857,6 @@ pub fn lock_screen() {
 /// silent auto-update thread.
 pub fn start_os_service() {
     log::info!("Username: {}", crate::username());
-    // Silent auto-update — runs as root via LaunchDaemon, no osascript dialog needed
-    crate::updater::start_auto_update_macos();
     if let Err(err) = crate::ipc::start("_service") {
         log::error!("Failed to start ipc_service: {}", err);
     }
@@ -866,8 +864,8 @@ pub fn start_os_service() {
     /* // mouse/keyboard works in prelogin now with launchctl asuser.
        // below can avoid multi-users logged in problem, but having its own below problem.
        // Not find a good way to start --cm without root privilege (affect file transfer).
-       // one way is to start with `launchctl asuser <uid> open -n -a /Applications/RustDesk.app/ --args --cm`,
-       // this way --cm is started with the user privilege, but we will have problem to start another RustDesk.app
+       // one way is to start with `launchctl asuser <uid> open -n -a /Applications/SealDesk.app/ --args --cm`,
+       // this way --cm is started with the user privilege, but we will have problem to start another SealDesk.app
        // with open in explorer.
         use std::sync::{
             atomic::{AtomicBool, Ordering},
@@ -948,7 +946,7 @@ pub fn quit_gui() {
 
 pub fn update_me() -> ResultType<()> {
     let cmd = std::env::current_exe()?;
-    // RustDesk.app/Contents/MacOS/RustDesk
+    // SealDesk.app/Contents/MacOS/SealDesk
     let app_dir = cmd
         .parent()
         .and_then(|p| p.parent())
@@ -1183,8 +1181,8 @@ pub fn update_from_dmg_as_root(dmg_path: &str, expected_version: &str) -> Result
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&tmp_dir, std::fs::Permissions::from_mode(0o700))?;
     }
-    let agent_plist = format!("/Library/LaunchAgents/com.carriez.{}_server.plist", app_name);
-    let daemon_plist = format!("/Library/LaunchDaemons/com.carriez.{}_service.plist", app_name);
+    let agent_plist = format!("/Library/LaunchAgents/com.runseal.{}_server.plist", app_name);
+    let daemon_plist = format!("/Library/LaunchDaemons/com.runseal.{}_service.plist", app_name);
 
     log::info!("[root-update] Starting silent root update from {}", dmg_path);
     // Check sessions before extracting to avoid unnecessary work
@@ -1314,10 +1312,10 @@ pub fn update_from_dmg_as_root(dmg_path: &str, expected_version: &str) -> Result
         .join(" ");
 
     // Write a shell script that runs detached after this function returns.
-    // We cannot directly replace /Applications/RustDesk.app while it is running,
+    // We cannot directly replace /Applications/SealDesk.app while it is running,
     // so we spawn a script that waits, kills processes, copies, and restarts.
-    let daemon_label = format!("com.carriez.{}_service", app_name);
-    let agent_label = format!("com.carriez.{}_server", app_name);
+    let daemon_label = format!("com.runseal.{}_service", app_name);
+    let agent_label = format!("com.runseal.{}_server", app_name);
     let script_path = format!("{}/rustdesk_update.sh", tmp_dir);
     let script = format!(
         r#"#!/bin/sh
@@ -1695,7 +1693,7 @@ fi
 # Agents have already been verified absent. Stop and verify any remaining GUI
 # processes as well so no process keeps the old bundle mapped across the swap.
 if ! stop_user_bundle_processes; then
-    echo "[root-update] RustDesk GUI process did not stop before bundle swap" >> {tmp_dir}/rustdesk_root_update.log
+    echo "[root-update] SealDesk GUI process did not stop before bundle swap" >> {tmp_dir}/rustdesk_root_update.log
     exit 1
 fi
 staged_bundle="{tmp_dir}/staged.app"
@@ -2105,7 +2103,7 @@ mod update_tests {
             std::process::id(),
             hbb_common::rand::random::<u64>()
         ));
-        let app_dir = test_dir.join("RustDesk.app");
+        let app_dir = test_dir.join("SealDesk.app");
         let frameworks_dir = app_dir.join("Contents/Frameworks");
         let external_framework = test_dir.join("External.framework");
         std::fs::create_dir_all(&frameworks_dir).unwrap();
@@ -2129,12 +2127,12 @@ mod update_tests {
             std::process::id(),
             hbb_common::rand::random::<u64>()
         ));
-        let framework_dir = test_dir.join("RustDesk.app/Contents/Frameworks/Test.framework");
+        let framework_dir = test_dir.join("SealDesk.app/Contents/Frameworks/Test.framework");
         let versions_dir = framework_dir.join("Versions");
         std::fs::create_dir_all(versions_dir.join("A")).unwrap();
         std::os::unix::fs::symlink("A", versions_dir.join("Current")).unwrap();
 
-        let result = validate_update_tree(&test_dir.join("RustDesk.app"), None);
+        let result = validate_update_tree(&test_dir.join("SealDesk.app"), None);
 
         std::fs::remove_dir_all(test_dir).unwrap();
         assert!(result.is_ok());
@@ -2157,11 +2155,11 @@ mod update_tests {
         }
         std::fs::write(
             installed.join("Contents/Info.plist"),
-            info("com.carriez.rustdesk"),
+            info("com.runseal.sealdesk"),
         )
         .unwrap();
 
-        for (bundle_id, accepted) in [("com.carriez.rustdesk", true), ("example.other", false)] {
+        for (bundle_id, accepted) in [("com.runseal.sealdesk", true), ("example.other", false)] {
             std::fs::write(candidate.join("Contents/Info.plist"), info(bundle_id)).unwrap();
             assert_eq!(
                 verify_update_app_identity(&installed, &candidate).is_ok(),

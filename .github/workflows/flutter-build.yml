@@ -473,7 +473,7 @@ jobs:
         # cannot rewrite a truncated placeholder, leaving short names pointing at it.
         #
         # It still has to be unique, which is why "RustDesk" itself cannot be used:
-        # it also names payload that must never be renamed, such as librustdesk.dll
+        # it also names payload that must never be renamed, such as libsealdesk.dll
         # and drivers\RustDeskPrinterDriver.
         #
         #
@@ -815,11 +815,11 @@ jobs:
           rustup target add ${{ matrix.job.target }}
           cargo build --locked --features flutter,hwcodec --release --target aarch64-apple-ios --lib
           
-      - name: Upload liblibrustdesk.a Artifacts
+      - name: Upload libsealdesk.a Artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: liblibrustdesk.a
-          path: target/aarch64-apple-ios/release/liblibrustdesk.a
+          name: libsealdesk.a
+          path: target/aarch64-apple-ios/release/libsealdesk.a
 
       - name: Build rustdesk
         shell: bash
@@ -1487,25 +1487,25 @@ jobs:
             aarch64-linux-android)
               ./flutter/ndk_arm64.sh
               mkdir -p ./flutter/android/app/src/main/jniLibs/arm64-v8a
-              cp ./target/${{ matrix.job.target }}/release/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/librustdesk.so
+              cp ./target/${{ matrix.job.target }}/release/libsealdesk.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/libsealdesk.so
               cp ./target/${{ matrix.job.target }}/release/libtailcat.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/
             ;;
             armv7-linux-androideabi)
               ./flutter/ndk_arm.sh
               mkdir -p ./flutter/android/app/src/main/jniLibs/armeabi-v7a
-              cp ./target/${{ matrix.job.target }}/release/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/armeabi-v7a/librustdesk.so
+              cp ./target/${{ matrix.job.target }}/release/libsealdesk.so ./flutter/android/app/src/main/jniLibs/armeabi-v7a/libsealdesk.so
               cp ./target/${{ matrix.job.target }}/release/libtailcat.so ./flutter/android/app/src/main/jniLibs/armeabi-v7a/
             ;;
             x86_64-linux-android)
               ./flutter/ndk_x64.sh
               mkdir -p ./flutter/android/app/src/main/jniLibs/x86_64
-              cp ./target/${{ matrix.job.target }}/release/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/x86_64/librustdesk.so
+              cp ./target/${{ matrix.job.target }}/release/libsealdesk.so ./flutter/android/app/src/main/jniLibs/x86_64/libsealdesk.so
               cp ./target/${{ matrix.job.target }}/release/libtailcat.so ./flutter/android/app/src/main/jniLibs/x86_64/
             ;;
             i686-linux-android)
               ./flutter/ndk_x86.sh
               mkdir -p ./flutter/android/app/src/main/jniLibs/x86
-              cp ./target/${{ matrix.job.target }}/release/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/x86/librustdesk.so
+              cp ./target/${{ matrix.job.target }}/release/libsealdesk.so ./flutter/android/app/src/main/jniLibs/x86/libsealdesk.so
               cp ./target/${{ matrix.job.target }}/release/libtailcat.so ./flutter/android/app/src/main/jniLibs/x86/
             ;;
           esac
@@ -1513,9 +1513,9 @@ jobs:
       - name: Upload Rustdesk library to Artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: librustdesk.so.${{ matrix.job.target }}
+          name: libsealdesk.so.${{ matrix.job.target }}
           path: |
-            ./target/${{ matrix.job.target }}/release/liblibrustdesk.so
+            ./target/${{ matrix.job.target }}/release/libsealdesk.so
             ./target/${{ matrix.job.target }}/release/libtailcat.so
 
       - name: Build rustdesk
@@ -1532,41 +1532,41 @@ jobs:
             aarch64-linux-android)
               mkdir -p ./flutter/android/app/src/main/jniLibs/arm64-v8a
               cp ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/
-              cp ./target/${{ matrix.job.target }}/release/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/librustdesk.so
+              cp ./target/${{ matrix.job.target }}/release/libsealdesk.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/libsealdesk.so
               # build flutter
               pushd flutter
               flutter build apk "--${{ matrix.job.reltype }}" --target-platform android-arm64 --split-per-abi
-              python3 ../tests/check_taildesk_android_package.py build/app/outputs/flutter-apk/app-arm64-v8a-${{ matrix.job.reltype }}.apk --abi arm64-v8a
+              python3 ../tests/check_sealdesk_android_package.py build/app/outputs/flutter-apk/app-arm64-v8a-${{ matrix.job.reltype }}.apk --abi arm64-v8a
               mv build/app/outputs/flutter-apk/app-arm64-v8a-${{ matrix.job.reltype }}.apk ../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk
             ;;
             armv7-linux-androideabi)
               mkdir -p ./flutter/android/app/src/main/jniLibs/armeabi-v7a
               cp ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/arm-linux-androideabi/libc++_shared.so ./flutter/android/app/src/main/jniLibs/armeabi-v7a/
-              cp ./target/${{ matrix.job.target }}/release/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/armeabi-v7a/librustdesk.so
+              cp ./target/${{ matrix.job.target }}/release/libsealdesk.so ./flutter/android/app/src/main/jniLibs/armeabi-v7a/libsealdesk.so
               # build flutter
               pushd flutter
               flutter build apk "--${{ matrix.job.reltype }}" --target-platform android-arm --split-per-abi
-              python3 ../tests/check_taildesk_android_package.py build/app/outputs/flutter-apk/app-armeabi-v7a-${{ matrix.job.reltype }}.apk --abi armeabi-v7a
+              python3 ../tests/check_sealdesk_android_package.py build/app/outputs/flutter-apk/app-armeabi-v7a-${{ matrix.job.reltype }}.apk --abi armeabi-v7a
               mv build/app/outputs/flutter-apk/app-armeabi-v7a-${{ matrix.job.reltype }}.apk ../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk
             ;;
             x86_64-linux-android)
               mkdir -p ./flutter/android/app/src/main/jniLibs/x86_64
               cp ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/x86_64-linux-android/libc++_shared.so ./flutter/android/app/src/main/jniLibs/x86_64/
-              cp ./target/${{ matrix.job.target }}/release/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/x86_64/librustdesk.so
+              cp ./target/${{ matrix.job.target }}/release/libsealdesk.so ./flutter/android/app/src/main/jniLibs/x86_64/libsealdesk.so
               # build flutter
               pushd flutter
               flutter build apk "--${{ matrix.job.reltype }}" --target-platform android-x64 --split-per-abi
-              python3 ../tests/check_taildesk_android_package.py build/app/outputs/flutter-apk/app-x86_64-${{ matrix.job.reltype }}.apk --abi x86_64
+              python3 ../tests/check_sealdesk_android_package.py build/app/outputs/flutter-apk/app-x86_64-${{ matrix.job.reltype }}.apk --abi x86_64
               mv build/app/outputs/flutter-apk/app-x86_64-${{ matrix.job.reltype }}.apk ../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk
             ;;
             i686-linux-android)
               mkdir -p ./flutter/android/app/src/main/jniLibs/x86
               cp ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/i686-linux-android/libc++_shared.so ./flutter/android/app/src/main/jniLibs/x86/
-              cp ./target/${{ matrix.job.target }}/release/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/x86/librustdesk.so
+              cp ./target/${{ matrix.job.target }}/release/libsealdesk.so ./flutter/android/app/src/main/jniLibs/x86/libsealdesk.so
               # build flutter
               pushd flutter
               flutter build apk "--${{ matrix.job.reltype }}" --target-platform android-x86 --split-per-abi
-              python3 ../tests/check_taildesk_android_package.py build/app/outputs/flutter-apk/app-x86-${{ matrix.job.reltype }}.apk --abi x86
+              python3 ../tests/check_sealdesk_android_package.py build/app/outputs/flutter-apk/app-x86-${{ matrix.job.reltype }}.apk --abi x86
               mv build/app/outputs/flutter-apk/app-x86-${{ matrix.job.reltype }}.apk ../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk
             ;;
           esac
@@ -1710,26 +1710,26 @@ jobs:
       - name: Download Rustdesk library from Artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: librustdesk.so.aarch64-linux-android
+          name: libsealdesk.so.aarch64-linux-android
           path: ./flutter/android/app/src/main/jniLibs/arm64-v8a
 
       - name: Download Rustdesk library from Artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: librustdesk.so.armv7-linux-androideabi
+          name: libsealdesk.so.armv7-linux-androideabi
           path: ./flutter/android/app/src/main/jniLibs/armeabi-v7a
 
       - name: Download Rustdesk library from Artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: librustdesk.so.x86_64-linux-android
+          name: libsealdesk.so.x86_64-linux-android
           path: ./flutter/android/app/src/main/jniLibs/x86_64
 
       - name: Download Rustdesk library from Artifacts
         if: ${{ env.reltype == 'debug' }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: librustdesk.so.i686-linux-android
+          name: libsealdesk.so.i686-linux-android
           path: ./flutter/android/app/src/main/jniLibs/x86
 
       - name: Build rustdesk
@@ -1742,14 +1742,14 @@ jobs:
           sed -i "s/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx2g/g" ./flutter/android/gradle.properties
           # temporary use debug sign config
           sed -i "s/signingConfigs.release/signingConfigs.debug/g" ./flutter/android/app/build.gradle
-          mv ./flutter/android/app/src/main/jniLibs/arm64-v8a/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/librustdesk.so
+          mv ./flutter/android/app/src/main/jniLibs/arm64-v8a/libsealdesk.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/libsealdesk.so
           cp ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/
-          mv ./flutter/android/app/src/main/jniLibs/armeabi-v7a/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/armeabi-v7a/librustdesk.so
+          mv ./flutter/android/app/src/main/jniLibs/armeabi-v7a/libsealdesk.so ./flutter/android/app/src/main/jniLibs/armeabi-v7a/libsealdesk.so
           cp ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/arm-linux-androideabi/libc++_shared.so ./flutter/android/app/src/main/jniLibs/armeabi-v7a/
-          mv ./flutter/android/app/src/main/jniLibs/x86_64/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/x86_64/librustdesk.so
+          mv ./flutter/android/app/src/main/jniLibs/x86_64/libsealdesk.so ./flutter/android/app/src/main/jniLibs/x86_64/libsealdesk.so
           cp ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/x86_64-linux-android/libc++_shared.so ./flutter/android/app/src/main/jniLibs/x86_64/
           if [ "${{ env.reltype }}" = "debug" ]; then
-            mv ./flutter/android/app/src/main/jniLibs/x86/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/x86/librustdesk.so
+            mv ./flutter/android/app/src/main/jniLibs/x86/libsealdesk.so ./flutter/android/app/src/main/jniLibs/x86/libsealdesk.so
             cp ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/i686-linux-android/libc++_shared.so ./flutter/android/app/src/main/jniLibs/x86/
           fi
           # build flutter
@@ -1759,7 +1759,7 @@ jobs:
           if [ "${{ env.reltype }}" = "debug" ]; then
             package_abis+=(--abi x86)
           fi
-          python3 ../tests/check_taildesk_android_package.py build/app/outputs/flutter-apk/app-${{ env.reltype }}.apk "${package_abis[@]}"
+          python3 ../tests/check_sealdesk_android_package.py build/app/outputs/flutter-apk/app-${{ env.reltype }}.apk "${package_abis[@]}"
           popd
           mkdir -p signed-apk
           mv ./flutter/build/app/outputs/flutter-apk/app-${{ env.reltype }}.apk signed-apk/rustdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk
@@ -2455,7 +2455,7 @@ jobs:
             exit 1
           fi
           rm -rf /tmp/deb && dpkg-deb -R "$deb" /tmp/deb
-          if ! grep -qF /usr/lib/rustdesk/libdrmtap.so.0 /tmp/deb/usr/share/rustdesk/lib/librustdesk.so; then
+          if ! grep -qF /usr/lib/rustdesk/libdrmtap.so.0 /tmp/deb/usr/share/rustdesk/lib/libsealdesk.so; then
             echo "::error::$deb was not built with the drm feature"
             exit 1
           fi

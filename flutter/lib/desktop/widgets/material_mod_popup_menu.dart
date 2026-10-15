@@ -5,8 +5,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_hbb/common.dart';
-import 'package:flutter_hbb/desktop/widgets/menu_button.dart';
+import 'package:sealdesk/common.dart';
+import 'package:sealdesk/desktop/widgets/menu_button.dart';
 
 // Examples can assume:
 // enum Commands { heroAndScholar, hurricaneCame }

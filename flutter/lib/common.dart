@@ -8,15 +8,15 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_hbb/common/formatter/id_formatter.dart';
-import 'package:flutter_hbb/desktop/widgets/refresh_wrapper.dart';
-import 'package:flutter_hbb/desktop/widgets/tabbar_widget.dart';
-import 'package:flutter_hbb/main.dart';
-import 'package:flutter_hbb/models/peer_model.dart';
-import 'package:flutter_hbb/models/peer_tab_model.dart';
-import 'package:flutter_hbb/models/state_model.dart';
-import 'package:flutter_hbb/utils/multi_window_manager.dart';
-import 'package:flutter_hbb/utils/platform_channel.dart';
+import 'package:sealdesk/common/formatter/id_formatter.dart';
+import 'package:sealdesk/desktop/widgets/refresh_wrapper.dart';
+import 'package:sealdesk/desktop/widgets/tabbar_widget.dart';
+import 'package:sealdesk/main.dart';
+import 'package:sealdesk/models/peer_model.dart';
+import 'package:sealdesk/models/peer_tab_model.dart';
+import 'package:sealdesk/models/state_model.dart';
+import 'package:sealdesk/utils/multi_window_manager.dart';
+import 'package:sealdesk/utils/platform_channel.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:get/get.dart';
 import 'package:get/get_rx/src/rx_workers/utils/debouncer.dart';
@@ -29,7 +29,7 @@ import 'package:window_manager/window_manager.dart';
 import 'package:window_size/window_size.dart' as window_size;
 
 import '../consts.dart';
-import 'common/taildesk_connection.dart';
+import 'common/sealdesk_connection.dart';
 import 'common/widgets/overlay.dart';
 import 'mobile/pages/file_manager_page.dart';
 import 'mobile/pages/remote_page.dart';
@@ -38,14 +38,14 @@ import 'mobile/pages/terminal_page.dart';
 import 'desktop/pages/remote_page.dart' as desktop_remote;
 import 'desktop/pages/file_manager_page.dart' as desktop_file_manager;
 import 'desktop/pages/view_camera_page.dart' as desktop_view_camera;
-import 'package:flutter_hbb/desktop/widgets/remote_toolbar.dart';
+import 'package:sealdesk/desktop/widgets/remote_toolbar.dart';
 import 'models/model.dart';
 import 'models/platform_model.dart';
 
-import 'package:flutter_hbb/native/win32.dart'
-    if (dart.library.html) 'package:flutter_hbb/web/win32.dart';
-import 'package:flutter_hbb/native/common.dart'
-    if (dart.library.html) 'package:flutter_hbb/web/common.dart';
+import 'package:sealdesk/native/win32.dart'
+    if (dart.library.html) 'package:sealdesk/web/win32.dart';
+import 'package:sealdesk/native/common.dart'
+    if (dart.library.html) 'package:sealdesk/web/common.dart';
 
 final globalKey = GlobalKey<NavigatorState>();
 final navigationBarKey = GlobalKey();
@@ -2427,7 +2427,7 @@ List<String>? urlLinkToCmdArgs(Uri uri, {String? rawAuthority}) {
               'Y';
       if (!allowDeepLinkServerSettings) {
         debugPrint(
-            "Ignore rustdesk://config because $kOptionAllowDeepLinkServerSettings is not enabled.");
+            "Ignore sealdesk://config because $kOptionAllowDeepLinkServerSettings is not enabled.");
         // Keep the user-facing error generic; detailed rejection reason is in debug logs.
         // Delay toast to avoid missing overlay during cold-start deeplink handling.
         Timer(Duration(seconds: 1), () {
@@ -2448,7 +2448,7 @@ List<String>? urlLinkToCmdArgs(Uri uri, {String? rawAuthority}) {
           bind.mainGetBuildinOption(key: kOptionAllowDeepLinkPassword) == 'Y';
       if (!allowDeepLinkPassword) {
         debugPrint(
-            "Ignore rustdesk://password because $kOptionAllowDeepLinkPassword is not enabled.");
+            "Ignore sealdesk://password because $kOptionAllowDeepLinkPassword is not enabled.");
         // Keep the user-facing error generic; detailed rejection reason is in debug logs.
         // Delay toast to avoid missing overlay during cold-start deeplink handling.
         Timer(Duration(seconds: 1), () {
@@ -2473,9 +2473,9 @@ List<String>? urlLinkToCmdArgs(Uri uri, {String? rawAuthority}) {
   } else if (uri.authority.length > 2 &&
       (uri.path.length <= 1 ||
           (uri.path == '/r' || uri.path.startsWith('/r@')))) {
-    // rustdesk://<connect-id>
-    // rustdesk://<connect-id>/r
-    // rustdesk://<connect-id>/r@<server>
+    // sealdesk://<connect-id>
+    // sealdesk://<connect-id>/r
+    // sealdesk://<connect-id>/r@<server>
     command = '--connect';
     id = rawAuthority ?? uri.authority;
     if (uri.path.length > 1) {
@@ -2838,7 +2838,7 @@ Future<void> onActiveWindowChanged() async {
     } catch (err) {
       debugPrintStack(label: "$err");
     } finally {
-      debugPrint("Start closing RustDesk...");
+      debugPrint("Start closing SealDesk...");
       await windowManager.setPreventClose(false);
       await windowManager.close();
       if (isMacOS) {
@@ -2854,9 +2854,9 @@ Future<void> onActiveWindowChanged() async {
         //
         //```
         // embedder.cc (2725): 'FlutterPlatformMessageCreateResponseHandle' returned 'kInvalidArguments'. Engine handle was invalid.
-        // 2024-11-11 11:41:11.546 RustDesk[90272:2567686] Failed to create a FlutterPlatformMessageResponseHandle (2)
+        // 2024-11-11 11:41:11.546 SealDesk[90272:2567686] Failed to create a FlutterPlatformMessageResponseHandle (2)
         // embedder.cc (2672): 'FlutterEngineSendPlatformMessage' returned 'kInvalidArguments'. Invalid engine handle.
-        // 2024-11-11 11:41:11.565 RustDesk[90272:2567686] Failed to send message to Flutter engine on channel 'flutter/lifecycle' (2).
+        // 2024-11-11 11:41:11.565 SealDesk[90272:2567686] Failed to send message to Flutter engine on channel 'flutter/lifecycle' (2).
         // ```
         periodic_immediate(
             Duration(milliseconds: 30), RdPlatformChannel.instance.terminate);
@@ -3055,7 +3055,7 @@ Future<void> updateSystemWindowTheme() async {
 ///
 /// Note: not found a general solution for rust based AVFoundation bingding.
 /// [AVFoundation] crate has compile error.
-const kMacOSPermChannel = MethodChannel("org.rustdesk.rustdesk/host");
+const kMacOSPermChannel = MethodChannel("com.runseal.sealdesk/host");
 
 enum PermissionAuthorizeType {
   undetermined,
@@ -3705,24 +3705,16 @@ Widget loadPowered(BuildContext context) {
   if (bind.mainGetBuildinOption(key: "hide-powered-by-me") == 'Y') {
     return SizedBox.shrink();
   }
-  return MouseRegion(
-    cursor: SystemMouseCursors.click,
-    child: GestureDetector(
-      onTap: () {
-        launchUrl(Uri.parse('https://rustdesk.com'));
-      },
-      child: Opacity(
-          opacity: 0.5,
-          child: Text(
-            translate("powered_by_me"),
-            overflow: TextOverflow.clip,
-            style: Theme.of(context)
-                .textTheme
-                .bodySmall
-                ?.copyWith(fontSize: 9, decoration: TextDecoration.underline),
-          )),
-    ),
-  ).marginOnly(top: 6);
+  return Opacity(
+      opacity: 0.5,
+      child: Text(
+        translate("powered_by_me"),
+        overflow: TextOverflow.clip,
+        style: Theme.of(context)
+            .textTheme
+            .bodySmall
+            ?.copyWith(fontSize: 9),
+      )).marginOnly(top: 6);
 }
 
 const _kDefaultLogoAsset = 'assets/logo.png';
@@ -3958,7 +3950,6 @@ const defaultOptionAccessMode = 'custom';
 const defaultOptionApproveMode = 'password-click';
 
 bool whitelistNotEmpty() {
-  // https://rustdesk.com/docs/en/self-host/client-configuration/advanced-settings/#whitelist
   final v = bind.mainGetOptionSync(key: kOptionWhitelist);
   return v != '' && v != ',';
 }
@@ -4123,8 +4114,8 @@ String get appName {
 }
 
 String getConnectionText(bool secure, bool direct, String streamType) {
-  final tailDeskText = tailDeskConnectionDescription(streamType);
-  if (tailDeskText != null) return tailDeskText;
+  final sealDeskText = sealDeskConnectionDescription(streamType);
+  if (sealDeskText != null) return sealDeskText;
   String connectionText;
   if (secure && direct) {
     connectionText = translate("Direct and encrypted connection");

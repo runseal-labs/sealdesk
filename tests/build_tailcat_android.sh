@@ -35,7 +35,7 @@ rustc --edition 2021 --crate-type cdylib --target "$target" \
   "$repository/tests/tailcat_android_link.rs" -o "$output_directory/libtailcat_link_probe.so"
 "$readelf" -d "$output_directory/libtailcat_link_probe.so" > "$output_directory/link-dependencies.txt"
 grep -q 'NEEDED.*\[libtailcat.so\]' "$output_directory/link-dependencies.txt"
-python3 "$repository/tests/test_taildesk_android_package.py" "$abi" "$output_directory" --readelf "$readelf"
+python3 "$repository/tests/test_sealdesk_android_package.py" "$abi" "$output_directory" --readelf "$readelf"
 "$readelf" -h -l "$output_directory/libtailcat.so" > "$output_directory/elf-layout.txt"
 "$go_executable" -C "$repository/libs/tailcat-ffi" version > "$output_directory/toolchain.txt"
 "$go_executable" -C "$repository/libs/tailcat-ffi" env GOOS GOARCH CC >> "$output_directory/toolchain.txt"

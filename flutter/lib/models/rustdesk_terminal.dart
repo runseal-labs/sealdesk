@@ -6,8 +6,8 @@ import 'package:xterm/xterm.dart';
 
 enum TerminalClipboardWritePermission { denied, unconfigured, allowed }
 
-class RustDeskTerminal extends Terminal {
-  RustDeskTerminal({
+class SealDeskTerminal extends Terminal {
+  SealDeskTerminal({
     super.maxLines,
     required TerminalClipboardWritePermission Function()
         clipboardWritePermission,
@@ -39,31 +39,31 @@ class RustDeskTerminal extends Terminal {
   void _handlePrivateOsc(String code, List<String> args) {
     if (code != _clipboardOscCode) return;
     if (args.length != 2 || !_osc52Selection.hasMatch(args.first)) {
-      debugPrint('[RustDeskTerminal] Rejected malformed OSC 52 command');
+      debugPrint('[SealDeskTerminal] Rejected malformed OSC 52 command');
       return;
     }
     if (args.last == '?') {
-      debugPrint('[RustDeskTerminal] Rejected OSC 52 clipboard query');
+      debugPrint('[SealDeskTerminal] Rejected OSC 52 clipboard query');
       return;
     }
     final permission = _clipboardWritePermission();
     if (permission == TerminalClipboardWritePermission.denied) {
-      debugPrint('[RustDeskTerminal] Rejected unauthorized OSC 52 write');
+      debugPrint('[SealDeskTerminal] Rejected unauthorized OSC 52 write');
       return;
     }
     final selection = args.first;
     if (selection.isNotEmpty &&
         !selection.contains(_systemClipboardSelection)) {
-      debugPrint('[RustDeskTerminal] Ignored unsupported OSC 52 selection');
+      debugPrint('[SealDeskTerminal] Ignored unsupported OSC 52 selection');
       return;
     }
     if (selection.replaceAll(_systemClipboardSelection, '').isNotEmpty) {
-      debugPrint('[RustDeskTerminal] Ignored unsupported OSC 52 selections');
+      debugPrint('[SealDeskTerminal] Ignored unsupported OSC 52 selections');
     }
     final text = _decodeClipboardPayload(args.last);
     if (text == null) return;
     if (permission == TerminalClipboardWritePermission.unconfigured) {
-      debugPrint('[RustDeskTerminal] Blocked OSC 52 write pending consent');
+      debugPrint('[SealDeskTerminal] Blocked OSC 52 write pending consent');
       _onClipboardWriteBlocked?.call(text);
       return;
     }
@@ -77,24 +77,24 @@ class RustDeskTerminal extends Terminal {
       return;
     }
     debugPrint(
-        '[RustDeskTerminal] OSC 52 clipboard write requires interaction');
+        '[SealDeskTerminal] OSC 52 clipboard write requires interaction');
     _onClipboardWriteBlocked?.call(text);
   }
 
   String? _decodeClipboardPayload(String payload) {
     if (payload.length > _maxBase64EncodedLength(_maxClipboardWriteBytes)) {
-      debugPrint('[RustDeskTerminal] Rejected oversized OSC 52 payload');
+      debugPrint('[SealDeskTerminal] Rejected oversized OSC 52 payload');
       return null;
     }
     try {
       final bytes = base64.decode(payload);
       if (bytes.length > _maxClipboardWriteBytes) {
-        debugPrint('[RustDeskTerminal] Rejected oversized OSC 52 payload');
+        debugPrint('[SealDeskTerminal] Rejected oversized OSC 52 payload');
         return null;
       }
       return utf8.decode(bytes);
     } on FormatException {
-      debugPrint('[RustDeskTerminal] Rejected malformed OSC 52 payload');
+      debugPrint('[SealDeskTerminal] Rejected malformed OSC 52 payload');
       return null;
     }
   }

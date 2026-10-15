@@ -5,9 +5,9 @@
 
 pub use hbb_common::config::keys::*;
 
-pub const OPTION_TAILDESK_MODE: &str = "taildesk-mode";
-pub const OPTION_TAILDESK_HOST_MODE: &str = "taildesk-host-mode";
-pub const OPTION_TAILDESK_RESET_ADDRESS: &str = "taildesk-reset-address";
+pub const OPTION_SEALDESK_MODE: &str = "sealdesk-mode";
+pub const OPTION_SEALDESK_HOST_MODE: &str = "sealdesk-host-mode";
+pub const OPTION_SEALDESK_RESET_ADDRESS: &str = "sealdesk-reset-address";
 pub const OPTION_STOP_SERVICE: &str = "stop-service";
 
 pub const OPTION_VIEW_ONLY: &str = "view_only";
@@ -33,7 +33,6 @@ pub const OPTION_TEXTURE_RENDER: &str = "use-texture-render";
 // "failed-*" flips the texture-render default to opt-in on this machine.
 pub const OPTION_TEXTURE_RENDER_HEALTH: &str = "texture-render-health";
 pub const OPTION_ALLOW_D3D_RENDER: &str = "allow-d3d-render";
-pub const OPTION_ENABLE_CHECK_UPDATE: &str = "enable-check-update";
 pub const OPTION_ALLOW_AUTO_UPDATE: &str = "allow-auto-update";
 pub const OPTION_ACCESS_MODE: &str = "access-mode";
 pub const OPTION_ENABLE_KEYBOARD: &str = "enable-keyboard";
@@ -209,7 +208,6 @@ pub const KEYS_LOCAL_SETTINGS: &[&str] = &[
     OPTION_PRE_ELEVATE_SERVICE,
     OPTION_ALLOW_REMOTE_CM_MODIFICATION,
     OPTION_ALLOW_SYNC_CLIPBOARD_BETWEEN_SESSIONS,
-    OPTION_ENABLE_CHECK_UPDATE,
     OPTION_PRINTER_INCOMING_JOB_ACTION,
     OPTION_PRINTER_ALLOW_AUTO_PRINT,
     OPTION_PRINTER_SELECTED_NAME,

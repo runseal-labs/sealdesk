@@ -96,7 +96,7 @@ def build_portable(output_folder: str, target: str):
         os.chdir(current_dir)
 
 # Linux: python3 generate.py -f ../rustdesk-portable-packer/test -o . -e ./test/main.py
-# Windows: python3 .\generate.py -f ..\rustdesk\flutter\build\windows\runner\Debug\ -o . -e ..\rustdesk\flutter\build\windows\runner\Debug\rustdesk.exe
+# Windows: python3 .\generate.py -f ..\rustdesk\flutter\build\windows\runner\Debug\ -o . -e ..\rustdesk\flutter\build\windows\runner\Debug\sealdesk.exe
 
 
 if __name__ == '__main__':
@@ -106,7 +106,7 @@ if __name__ == '__main__':
     parser.add_option("-o", "--output", dest="output_folder",
                       help="the root of portable packer project, default is './'")
     parser.add_option("-e", "--executable", dest="executable",
-                      help="specify startup file in --folder, default is rustdesk.exe")
+                      help="specify startup file in --folder, default is sealdesk.exe")
     parser.add_option("-t", "--target", dest="target",
                       help="the target used by cargo")
     parser.add_option("-l", "--level", dest="level", type="int",
@@ -124,11 +124,11 @@ if __name__ == '__main__':
     output_folder = os.path.abspath(options.output_folder or './')
 
     if not options.executable:
-        options.executable = 'rustdesk.exe'
+        options.executable = 'sealdesk.exe'
     if not options.executable.startswith(folder):
         options.executable = folder + '/' + options.executable
     # Note: the simple check `options.executable.startswith(folder)` is incorrect.
-    # `python generate.py -f rustdesk -e rustdesk.exe` or `python generate.py -f rustdesk`
+    # `python generate.py -f rustdesk -e sealdesk.exe` or `python generate.py -f rustdesk`
     # will result the print "Executable path: ..exe".
     # So we need to check if the executable is in the folder, and if so, concat again.
     if os.path.exists(os.path.join(folder, options.executable)):

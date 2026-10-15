@@ -2,31 +2,31 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 
-import '../../common/taildesk_startup.dart';
+import '../../common/sealdesk_startup.dart';
 
 import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_hbb/common.dart';
-import 'package:flutter_hbb/common/widgets/animated_rotation_widget.dart';
-import 'package:flutter_hbb/common/widgets/custom_password.dart';
-import 'package:flutter_hbb/consts.dart';
-import 'package:flutter_hbb/desktop/pages/connection_page.dart';
-import 'package:flutter_hbb/desktop/pages/desktop_setting_page.dart';
-import 'package:flutter_hbb/desktop/pages/desktop_tab_page.dart';
-import 'package:flutter_hbb/desktop/widgets/update_progress.dart';
-import 'package:flutter_hbb/models/platform_model.dart';
-import 'package:flutter_hbb/models/server_model.dart';
-import 'package:flutter_hbb/models/state_model.dart';
-import 'package:flutter_hbb/utils/multi_window_manager.dart';
-import 'package:flutter_hbb/utils/platform_channel.dart';
+import 'package:sealdesk/common.dart';
+import 'package:sealdesk/common/widgets/animated_rotation_widget.dart';
+import 'package:sealdesk/common/widgets/custom_password.dart';
+import 'package:sealdesk/consts.dart';
+import 'package:sealdesk/desktop/pages/connection_page.dart';
+import 'package:sealdesk/desktop/pages/desktop_setting_page.dart';
+import 'package:sealdesk/desktop/pages/desktop_tab_page.dart';
+import 'package:sealdesk/desktop/widgets/update_progress.dart';
+import 'package:sealdesk/models/platform_model.dart';
+import 'package:sealdesk/models/server_model.dart';
+import 'package:sealdesk/models/state_model.dart';
+import 'package:sealdesk/utils/multi_window_manager.dart';
+import 'package:sealdesk/utils/platform_channel.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:window_size/window_size.dart' as window_size;
 import '../widgets/button.dart';
-import 'taildesk_native_home_page.dart';
+import 'sealdesk_native_home_page.dart';
 
 class DesktopHomePage extends StatefulWidget {
   const DesktopHomePage({Key? key}) : super(key: key);
@@ -40,7 +40,7 @@ const borderColor = Color(0xFF2F65BA);
 class _DesktopHomePageState extends State<DesktopHomePage>
     with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
   final _leftPaneScrollController = ScrollController();
-  final _taildeskInitialInput = TailDeskStartup.takeTarget();
+  final _sealdeskInitialInput = SealDeskStartup.takeTarget();
 
   @override
   bool get wantKeepAlive => true;
@@ -62,9 +62,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    if (bind.mainGetAppNameSync() == 'TailDesk') {
+    if (bind.mainGetAppNameSync() == 'SealDesk') {
       return _buildBlock(
-          child: TailDeskNativeHomePage(initialInput: _taildeskInitialInput));
+          child: SealDeskNativeHomePage(initialInput: _sealdeskInitialInput));
     }
     final isIncomingOnly = bind.isIncomingOnly();
     return _buildBlock(
@@ -95,24 +95,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       buildTip(context),
       if (!isOutgoingOnly) buildIDBoard(context),
       if (!isOutgoingOnly) buildPasswordBoard(context),
-      FutureBuilder<Widget>(
-        future: Future.value(
-            Obx(() => buildHelpCards(stateGlobal.updateUrl.value))),
-        builder: (_, data) {
-          if (data.hasData) {
-            if (isIncomingOnly) {
-              if (isInHomePage()) {
-                Future.delayed(Duration(milliseconds: 300), () {
-                  _updateWindowSize();
-                });
-              }
-            }
-            return data.data!;
-          } else {
-            return const Offstage();
-          }
-        },
-      ),
+      buildHelpCards(),
     ];
     if (isIncomingOnly) {
       children.addAll([
@@ -430,32 +413,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
-  Widget buildHelpCards(String updateUrl) {
-    if (updateUrl.isNotEmpty &&
-        !isCardClosed &&
-        bind.mainUriPrefixSync().contains('rustdesk')) {
-      final isToUpdate = (isWindows || isMacOS) && bind.mainIsInstalled();
-      String btnText = isToUpdate ? 'Update' : 'Download';
-      GestureTapCallback onPressed = () async {
-        final Uri url = Uri.parse('https://rustdesk.com/download');
-        await launchUrl(url);
-      };
-      if (isToUpdate) {
-        onPressed = () {
-          handleUpdate(updateUrl);
-        };
-      }
-      return buildInstallCard(
-          "Status",
-          "${translate("new-version-of-{${bind.mainGetAppNameSync()}}-tip")} (${bind.mainGetNewVersion()}).",
-          btnText,
-          onPressed,
-          closeButton: true,
-          help: isToUpdate ? 'Changelog' : null,
-          link: isToUpdate
-              ? 'https://github.com/rustdesk/rustdesk/releases/tag/${bind.mainGetNewVersion()}'
-              : null);
-    }
+  Widget buildHelpCards() {
     if (systemError.isNotEmpty) {
       return buildInstallCard("", systemError, "", () {});
     }
@@ -487,19 +445,19 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           launchUrl(Uri.parse(
               'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'));
           watchIsCanScreenRecording = true;
-        }, help: 'Help', link: translate("doc_mac_permission"));
+        });
       } else if (!isOutgoingOnly && !bind.mainIsProcessTrusted(prompt: false)) {
         return buildInstallCard("Permissions", "config_acc", "Configure",
             () async {
           bind.mainIsProcessTrusted(prompt: true);
           watchIsProcessTrust = true;
-        }, help: 'Help', link: translate("doc_mac_permission"));
+        });
       } else if (!bind.mainIsCanInputMonitoring(prompt: false)) {
         return buildInstallCard("Permissions", "config_input", "Configure",
             () async {
           bind.mainIsCanInputMonitoring(prompt: true);
           watchIsInputMonitoring = true;
-        }, help: 'Help', link: translate("doc_mac_permission"));
+        });
       } else if (!isOutgoingOnly &&
           !svcStopped.value &&
           bind.mainIsInstalled() &&
@@ -532,9 +490,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             "",
             () async {},
             marginTop: LinuxCards.isEmpty ? 20.0 : 5.0,
-            help: 'Help',
-            link:
-                'https://rustdesk.com/docs/en/client/linux/#permissions-issue',
             closeButton: true,
             closeOption: keyShowSelinuxHelpTip,
           ));
@@ -544,14 +499,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         LinuxCards.add(buildInstallCard(
             "Warning", "wayland_experiment_tip", "", () async {},
             marginTop: LinuxCards.isEmpty ? 20.0 : 5.0,
-            help: 'Help',
-            link: 'https://rustdesk.com/docs/en/client/linux/#x11-required'));
+            ));
       } else if (bind.mainIsLoginWayland()) {
         LinuxCards.add(buildInstallCard("Warning",
             "Login screen using Wayland is not supported", "", () async {},
             marginTop: LinuxCards.isEmpty ? 20.0 : 5.0,
-            help: 'Help',
-            link: 'https://rustdesk.com/docs/en/client/linux/#login-screen'));
+            ));
       }
       if (LinuxCards.isNotEmpty) {
         return Column(

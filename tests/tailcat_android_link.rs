@@ -7,7 +7,7 @@ extern "C" {
 
 #[no_mangle]
 pub extern "C" fn tailcat_link_probe() -> i32 {
-    let response = unsafe { TcQR(b"TailDesk Android link probe\0".as_ptr().cast()) };
+    let response = unsafe { TcQR(b"SealDesk Android link probe\0".as_ptr().cast()) };
     if response.is_null() {
         return 1;
     }

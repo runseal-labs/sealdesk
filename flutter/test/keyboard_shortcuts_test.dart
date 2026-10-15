@@ -3,10 +3,10 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_hbb/common/widgets/keyboard_shortcuts/shortcut_actions.dart';
-import 'package:flutter_hbb/common/widgets/keyboard_shortcuts/shortcut_constants.dart';
-import 'package:flutter_hbb/common/widgets/keyboard_shortcuts/shortcut_utils.dart';
-import 'package:flutter_hbb/models/shortcut_model.dart';
+import 'package:sealdesk/common/widgets/keyboard_shortcuts/shortcut_actions.dart';
+import 'package:sealdesk/common/widgets/keyboard_shortcuts/shortcut_constants.dart';
+import 'package:sealdesk/common/widgets/keyboard_shortcuts/shortcut_utils.dart';
+import 'package:sealdesk/models/shortcut_model.dart';
 
 ShortcutPlatformCapabilities capabilities({
   bool includeFullscreenShortcut = true,

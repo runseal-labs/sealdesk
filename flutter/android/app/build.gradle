@@ -1,5 +1,6 @@
 import com.google.protobuf.gradle.*
 import groovy.json.JsonSlurper
+import java.util.Locale
 
 plugins {
     id "com.google.protobuf" version "0.9.4"
@@ -9,9 +10,35 @@ plugins {
 }
 
 def keystoreProperties = new Properties()
-def keystorePropertiesFile = rootProject.file('key.properties')
+def defaultKeyPropertiesFile = new File(System.getProperty('user.home'), '.sealdesk/key.properties')
+def keyPropertiesPath = System.getenv('SEALDESK_KEY_PROPERTIES')
+        ?: defaultKeyPropertiesFile.absolutePath
+def keystorePropertiesFile = file(keyPropertiesPath)
 if (keystorePropertiesFile.exists()) {
-    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+    keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
+}
+
+def requiredKeystoreProperties = ['keyAlias', 'keyPassword', 'storeFile', 'storePassword']
+def missingKeystoreProperties = requiredKeystoreProperties.findAll {
+    !keystoreProperties.getProperty(it)?.trim()
+}
+def releaseTaskRequested = gradle.startParameter.taskNames.any {
+    it.toLowerCase(Locale.ROOT).contains('release')
+}
+if (releaseTaskRequested && (!keystorePropertiesFile.isFile() || !missingKeystoreProperties.isEmpty())) {
+    def missing = !keystorePropertiesFile.isFile()
+            ? "properties file ${keystorePropertiesFile.absolutePath}"
+            : "properties: ${missingKeystoreProperties.join(', ')}"
+    throw new GradleException("Release signing is not configured; provide ${missing} outside the repository")
+}
+if (!missingKeystoreProperties.isEmpty()) {
+    logger.lifecycle("Android release signing is not configured; release tasks will fail until ${keystorePropertiesFile.absolutePath} is populated")
+}
+def releaseKeystoreFile = keystoreProperties.getProperty('storeFile')
+        ? file(keystoreProperties.getProperty('storeFile'))
+        : null
+if (releaseTaskRequested && releaseKeystoreFile != null && !releaseKeystoreFile.isFile()) {
+    throw new GradleException("Android release keystore does not exist: ${releaseKeystoreFile.absolutePath}")
 }
 
 def localProperties = new Properties()
@@ -82,7 +109,7 @@ protobuf {
 }
 
 android {
-    namespace "com.carriez.flutter_hbb"
+    namespace "com.runseal.sealdesk"
     compileSdkVersion 36
     sourceSets {
         main.java.srcDirs += 'src/main/kotlin'
@@ -99,7 +126,7 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId "com.carriez.flutter_hbb"
+        applicationId "com.runseal.sealdesk"
         minSdkVersion 22
         targetSdkVersion 36
         versionCode flutterVersionCode.toInteger()
@@ -110,7 +137,7 @@ android {
       release {
         keyAlias keystoreProperties['keyAlias']
         keyPassword keystoreProperties['keyPassword']
-        storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
+        storeFile releaseKeystoreFile
         storePassword keystoreProperties['storePassword']
       }
     }

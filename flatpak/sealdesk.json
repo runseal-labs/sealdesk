@@ -1,0 +1,54 @@
+{
+  "id": "com.runseal.SealDesk",
+  "runtime": "org.freedesktop.Platform",
+  "runtime-version": "24.08",
+  "sdk": "org.freedesktop.Sdk",
+  "command": "sealdesk",
+  "cleanup": ["/include", "/lib/pkgconfig", "/share/gtk-doc"],
+  "rename-desktop-file": "sealdesk.desktop",
+  "rename-icon": "sealdesk",
+  "modules": [
+    "shared-modules/libappindicator/libappindicator-gtk3-12.10.json",
+    {
+      "name": "xdotool",
+      "no-autogen": true,
+      "make-install-args": ["PREFIX=${FLATPAK_DEST}"],
+      "sources": [
+        {
+          "type": "archive",
+          "url": "https://github.com/jordansissel/xdotool/releases/download/v3.20211022.1/xdotool-3.20211022.1.tar.gz",
+          "sha256": "96f0facfde6d78eacad35b91b0f46fecd0b35e474c03e00e30da3fdd345f9ada"
+        }
+      ]
+    },
+    {
+      "name": "sealdesk",
+      "buildsystem": "simple",
+      "build-commands": [
+        "bsdtar -Oxf sealdesk.deb data.tar.xz | bsdtar -xf -",
+        "cp -r usr/* /app/",
+        "mkdir -p /app/bin && ln -s /app/share/sealdesk/sealdesk /app/bin/sealdesk"
+      ],
+      "sources": [
+        {
+          "type": "file",
+          "path": "sealdesk.deb"
+        },
+        {
+          "type": "file",
+          "path": "com.runseal.SealDesk.metainfo.xml"
+        }
+      ]
+    }
+  ],
+  "finish-args": [
+    "--share=ipc",
+    "--socket=wayland",
+    "--socket=x11",
+    "--share=network",
+    "--filesystem=home",
+    "--device=dri",
+    "--socket=pulseaudio",
+    "--talk-name=org.freedesktop.Flatpak"
+  ]
+}

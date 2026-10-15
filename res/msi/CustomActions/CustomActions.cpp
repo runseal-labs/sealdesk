@@ -206,7 +206,7 @@ UINT __stdcall RemoveRuntimeGeneratedFiles(
     }
 
     WcaLog(LOGMSG_STANDARD, "Removing runtime-generated files from install folder: %ls", installFolder);
-    DeleteRuntimeGeneratedFile(installFolder, L"RuntimeBroker_rustdesk.exe");
+    DeleteRuntimeGeneratedFile(installFolder, L"RuntimeBroker_sealdesk.exe");
 
 LExit:
     ReleaseStr(pwzData);

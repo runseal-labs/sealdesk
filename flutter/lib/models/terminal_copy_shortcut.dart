@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
-import 'package:flutter_hbb/consts.dart';
+import 'package:sealdesk/consts.dart';
 import 'package:xterm/xterm.dart';
 
 import 'terminal_clipboard_writer.dart'

@@ -2,13 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_hbb/common.dart';
-import 'package:flutter_hbb/common/widgets/dialog.dart';
-import 'package:flutter_hbb/utils/event_loop.dart';
+import 'package:sealdesk/common.dart';
+import 'package:sealdesk/common/widgets/dialog.dart';
+import 'package:sealdesk/utils/event_loop.dart';
 import 'package:get/get.dart';
 import 'package:path/path.dart' as path;
-import 'package:flutter_hbb/web/dummy.dart'
-    if (dart.library.html) 'package:flutter_hbb/web/web_unique.dart';
+import 'package:sealdesk/web/dummy.dart'
+    if (dart.library.html) 'package:sealdesk/web/web_unique.dart';
 
 import '../consts.dart';
 import 'model.dart';

@@ -1,9 +1,9 @@
 #!/bin/bash
 
 #
-# Script to build F-Droid release of RustDesk
+# Script to build F-Droid release of SealDesk
 #
-# Copyright (C) 2024, The RustDesk Authors
+# Copyright (C) 2024, The SealDesk Authors
 #               2024, Vasyl Gello <vasek.gello@gmail.com>
 #
 
@@ -302,7 +302,7 @@ prebuild)
 		fi
 	fi
 
-	# Patch the RustDesk sources
+	# Patch the SealDesk sources
 
 	git apply res/fdroid/patches/*.patch
 
@@ -367,7 +367,7 @@ prebuild)
 		unset BRIDGE_LLVM_PATH
 	fi
 
-	# Install Flutter version for RustDesk library build
+	# Install Flutter version for SealDesk library build
 
 	prepare_flutter "${FLUTTER_VERSION}" "${HOME}/flutter"
 
@@ -453,7 +453,7 @@ build)
 
 	bash flutter/build_android_deps.sh "${ANDROID_ABI}"
 
-	# Build rustdesk lib
+	# Build sealdesk lib
 
 	cargo ndk \
 		--platform 21 \
@@ -466,8 +466,8 @@ build)
 
 	mkdir -p "flutter/android/app/src/main/jniLibs/${ANDROID_ABI}"
 
-	cp "target/${RUST_TARGET}/release/liblibrustdesk.so" \
-		"flutter/android/app/src/main/jniLibs/${ANDROID_ABI}/librustdesk.so"
+	cp "target/${RUST_TARGET}/release/libsealdesk.so" \
+		"flutter/android/app/src/main/jniLibs/${ANDROID_ABI}/libsealdesk.so"
 	cp "target/${RUST_TARGET}/release/libtailcat.so" \
 		"flutter/android/app/src/main/jniLibs/${ANDROID_ABI}/libtailcat.so" || exit 1
 
@@ -605,14 +605,14 @@ build)
 			--build-number="${VERCODE}" \
 			--build-name="${VERNAME}" \
 			--target-platform "${FLUTTER_TARGET}"
-		python3 ../tests/check_taildesk_android_package.py build/app/outputs/flutter-apk/app-debug.apk --abi "${ANDROID_ABI}" || exit 1
+		python3 ../tests/check_sealdesk_android_package.py build/app/outputs/flutter-apk/app-debug.apk --abi "${ANDROID_ABI}" || exit 1
 	else
 		flutter build apk \
 			--release \
 			--build-number="${VERCODE}" \
 			--build-name="${VERNAME}" \
 			--target-platform "${FLUTTER_TARGET}"
-		python3 ../tests/check_taildesk_android_package.py build/app/outputs/flutter-apk/app-release.apk --abi "${ANDROID_ABI}" || exit 1
+		python3 ../tests/check_sealdesk_android_package.py build/app/outputs/flutter-apk/app-release.apk --abi "${ANDROID_ABI}" || exit 1
 	fi
 
 	popd # flutter

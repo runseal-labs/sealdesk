@@ -6,8 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import 'dart:html' as html;
 
-import 'package:flutter_hbb/consts.dart';
-import 'package:flutter_hbb/models/shortcut_model.dart';
+import 'package:sealdesk/consts.dart';
+import 'package:sealdesk/models/shortcut_model.dart';
 
 final _privateConstructorUsedError = UnsupportedError(
     'It seems like you constructed your class using `MyClass._()`. This constructor is only meant to be used by freezed and you are not supposed to need it nor use it.\nPlease check the documentation here for more information: https://github.com/rrousselGit/freezed#adding-getters-and-methods-to-our-models');
@@ -816,11 +816,11 @@ class RustdeskImpl {
     return Future.value(mainGetOptionSync(key: key));
   }
 
-  Future<String> mainResetTaildeskAddress({dynamic hint}) async {
+  Future<String> mainResetSealdeskAddress({dynamic hint}) async {
     return '网页端不支持重置被控地址';
   }
 
-  Future<String> mainGetTaildeskClipboardImage({dynamic hint}) async {
+  Future<String> mainGetSealdeskClipboardImage({dynamic hint}) async {
     throw const FormatException('网页端请使用二维码图片导入');
   }
 
@@ -1235,10 +1235,6 @@ class RustdeskImpl {
     return Future(() => mainGetLocalOption(key: 'last_remote_id'));
   }
 
-  Future<void> mainGetSoftwareUpdateUrl({dynamic hint}) {
-    throw UnimplementedError("mainGetSoftwareUpdateUrl");
-  }
-
   Future<String> mainGetHomeDir({dynamic hint}) {
     return Future.value('');
   }
@@ -1614,10 +1610,6 @@ class RustdeskImpl {
     throw UnimplementedError("mainGotoInstall");
   }
 
-  String mainGetNewVersion({dynamic hint}) {
-    throw UnimplementedError("mainGetNewVersion");
-  }
-
   bool mainUpdateMe({dynamic hint}) {
     throw UnimplementedError("mainUpdateMe");
   }
@@ -1715,8 +1707,8 @@ class RustdeskImpl {
   }
 
   bool isCustomClient({dynamic hint}) {
-    // is_custom_client() checks if app name is not "RustDesk"
-    return mainGetAppNameSync(hint: hint) != "RustDesk";
+    // is_custom_client() checks if app name is not "SealDesk"
+    return mainGetAppNameSync(hint: hint) != "SealDesk";
   }
 
   bool isDisableSettings({dynamic hint}) {

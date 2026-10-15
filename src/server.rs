@@ -186,7 +186,7 @@ pub async fn create_tcp_connection(
     meta: ConnectionMeta,
 ) -> ResultType<()> {
     if meta.via_tailcat && !crate::tailcat::host::enabled() {
-        bail!("TailDesk host mode is disabled");
+        bail!("SealDesk host mode is disabled");
     }
     let mut stream = stream;
     // The address the connection layer keys on, whitelist and admission alike.

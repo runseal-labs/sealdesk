@@ -41,7 +41,7 @@ impl Launch {
             if input
                 .trim()
                 .get(..9)
-                .map(|prefix| prefix.eq_ignore_ascii_case("TAILDESK:"))
+                .map(|prefix| prefix.eq_ignore_ascii_case("SEALDESK:"))
                 .unwrap_or(false)
             {
                 PairingCode::parse(input)?;
@@ -145,7 +145,7 @@ mod tests {
     #[test]
     fn image_metadata_rejects_missing_directory_empty_and_oversized_files() {
         let directory = std::env::temp_dir().join(format!(
-            "taildesk-launch-{}-{}",
+            "sealdesk-launch-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

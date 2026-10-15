@@ -50,7 +50,7 @@ class GenerateUpdateMetadataTest(unittest.TestCase):
             capture_output=True,
         )
 
-    def artifact(self, name="rustdesk-1.4.6-x86_64.exe", data=b"rustdesk"):
+    def artifact(self, name="sealdesk-1.4.6-x86_64.exe", data=b"sealdesk"):
         path = self.root / name
         path.write_bytes(data)
         return path
@@ -61,12 +61,12 @@ class GenerateUpdateMetadataTest(unittest.TestCase):
         *,
         version="1.4.6",
         release_id="v1.4.6",
-        package_id="rustdesk",
+        package_id="sealdesk",
         release_base_url=OFFICIAL_RELEASE_BASE_URL,
         seed=None,
     ):
-        metadata = self.root / "rustdesk-update.json"
-        signature = self.root / "rustdesk-update.json.sig"
+        metadata = self.root / "sealdesk-update.json"
+        signature = self.root / "sealdesk-update.json.sig"
         args = ["sign"]
         for platform, arch, file_format, path in artifacts:
             args.extend(["--artifact", platform, arch, file_format, str(path)])
@@ -98,7 +98,7 @@ class GenerateUpdateMetadataTest(unittest.TestCase):
         artifacts,
         *,
         public_key=None,
-        package_id="rustdesk",
+        package_id="sealdesk",
         release_base_url=OFFICIAL_RELEASE_BASE_URL,
     ):
         args = [
@@ -136,7 +136,7 @@ class GenerateUpdateMetadataTest(unittest.TestCase):
 
     def test_signs_and_verifies_release_artifacts(self):
         exe = self.artifact()
-        dmg = self.artifact("rustdesk-1.4.6-aarch64.dmg", b"dmg")
+        dmg = self.artifact("sealdesk-1.4.6-aarch64.dmg", b"dmg")
         specs = [("windows", "x86_64", "exe", exe), ("macos", "aarch64", "dmg", dmg)]
 
         metadata, signature, signed = self.sign(specs)
@@ -154,7 +154,7 @@ class GenerateUpdateMetadataTest(unittest.TestCase):
         artifact.write_bytes(b"tampered")
         self.assertNotEqual(self.verify(metadata, signature, [artifact]).returncode, 0)
 
-        artifact.write_bytes(b"rustdesk")
+        artifact.write_bytes(b"sealdesk")
         data = json.loads(metadata.read_text(encoding="utf-8"))
         data["published_at"] = "2026-05-15T00:00:00Z"
         metadata.write_text(json.dumps(data), encoding="utf-8")
@@ -185,9 +185,9 @@ class GenerateUpdateMetadataTest(unittest.TestCase):
         self.assertNotEqual(self.sign(duplicate)[2].returncode, 0)
 
     def test_signs_and_verifies_custom_release_identity(self):
-        package_id = "com.example.rustdesk-custom"
+        package_id = "com.example.sealdesk-custom"
         release_base_url = "https://updates.example.com/releases/download"
-        artifact = self.artifact("rustdesk-custom-1.4.6-aarch64.dmg", b"dmg")
+        artifact = self.artifact("sealdesk-custom-1.4.6-aarch64.dmg", b"dmg")
 
         metadata, signature, signed = self.sign(
             [("macos", "aarch64", "dmg", artifact)],
@@ -212,7 +212,7 @@ class GenerateUpdateMetadataTest(unittest.TestCase):
         )
 
     def test_rejects_unsafe_custom_release_policy(self):
-        artifact = self.artifact("rustdesk-custom-1.4.6-aarch64.dmg", b"dmg")
+        artifact = self.artifact("sealdesk-custom-1.4.6-aarch64.dmg", b"dmg")
         spec = [("macos", "aarch64", "dmg", artifact)]
 
         for package_id in ("", "com.example/custom", "com.example custom"):

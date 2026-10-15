@@ -54,6 +54,9 @@ examples/**/target/
 # ===
 vcpkg_installed
 flutter/lib/generated_plugin_registrant.dart
+# Android signing credentials (keep key.properties outside the repository)
+key.properties
+flutter/android/key.properties
 libsciter.dylib
 flutter/web/
 # libdrmtap is cloned at build time by build.py (not a submodule)

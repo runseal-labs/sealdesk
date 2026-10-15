@@ -5,25 +5,24 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_hbb/common.dart';
-import 'package:flutter_hbb/common/widgets/audio_input.dart';
-import 'package:flutter_hbb/common/widgets/setting_widgets.dart';
-import 'package:flutter_hbb/consts.dart';
-import 'package:flutter_hbb/desktop/pages/desktop_home_page.dart';
-import 'package:flutter_hbb/common/widgets/keyboard_shortcuts/page_body.dart';
-import 'package:flutter_hbb/desktop/pages/desktop_keyboard_shortcuts_page.dart';
-import 'package:flutter_hbb/desktop/pages/desktop_tab_page.dart';
-import 'package:flutter_hbb/desktop/widgets/remote_toolbar.dart';
-import 'package:flutter_hbb/mobile/widgets/dialog.dart';
-import 'package:flutter_hbb/models/platform_model.dart';
-import 'package:flutter_hbb/models/printer_model.dart';
-import 'package:flutter_hbb/models/server_model.dart';
-import 'package:flutter_hbb/models/shortcut_model.dart';
-import 'package:flutter_hbb/models/state_model.dart';
+import 'package:sealdesk/common.dart';
+import 'package:sealdesk/common/widgets/audio_input.dart';
+import 'package:sealdesk/common/widgets/setting_widgets.dart';
+import 'package:sealdesk/consts.dart';
+import 'package:sealdesk/desktop/pages/desktop_home_page.dart';
+import 'package:sealdesk/common/widgets/keyboard_shortcuts/page_body.dart';
+import 'package:sealdesk/desktop/pages/desktop_keyboard_shortcuts_page.dart';
+import 'package:sealdesk/desktop/pages/desktop_tab_page.dart';
+import 'package:sealdesk/desktop/widgets/remote_toolbar.dart';
+import 'package:sealdesk/mobile/widgets/dialog.dart';
+import 'package:sealdesk/models/platform_model.dart';
+import 'package:sealdesk/models/printer_model.dart';
+import 'package:sealdesk/models/server_model.dart';
+import 'package:sealdesk/models/shortcut_model.dart';
+import 'package:sealdesk/models/state_model.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:url_launcher/url_launcher_string.dart';
 
 import '../../common/widgets/dialog.dart';
 
@@ -572,13 +571,6 @@ class _GeneralState extends State<_General> {
             ),
           ),
       ],
-      if (!isWeb)
-        _OptionCheckBox(
-          context,
-          'Check for software update on startup',
-          kOptionEnableCheckUpdate,
-          isServer: false,
-        ),
       if (showAutoUpdate)
         _OptionCheckBox(
           context,
@@ -2194,7 +2186,7 @@ class _AboutState extends State<_About> {
       final scrollController = ScrollController();
       return SingleChildScrollView(
         controller: scrollController,
-        child: _Card(title: translate('About RustDesk'), children: [
+        child: _Card(title: translate('About SealDesk'), children: [
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -2214,22 +2206,6 @@ class _AboutState extends State<_About> {
               SelectionArea(
                   child: Text('${translate('ID')}: $myId')
                       .marginSymmetric(vertical: 4.0)),
-              InkWell(
-                  onTap: () {
-                    launchUrlString('https://rustdesk.com/privacy.html');
-                  },
-                  child: Text(
-                    translate('Privacy Statement'),
-                    style: linkStyle,
-                  ).marginSymmetric(vertical: 4.0)),
-              InkWell(
-                  onTap: () {
-                    launchUrlString('https://rustdesk.com');
-                  },
-                  child: Text(
-                    translate('Website'),
-                    style: linkStyle,
-                  ).marginSymmetric(vertical: 4.0)),
               Container(
                 decoration: const BoxDecoration(color: Color(0xFF2c8cff)),
                 padding:
@@ -2438,14 +2414,14 @@ class _WaylandCardState extends State<WaylandCard> {
   final _clearShortcutsInhibitorFailedMsg = ''.obs;
   // Don't show the shortcuts permission reset button for now.
   // Users can change it manually:
-  //   "Settings" -> "Apps" -> "RustDesk" -> "Permissions" -> "Inhibit Shortcuts".
+  //   "Settings" -> "Apps" -> "SealDesk" -> "Permissions" -> "Inhibit Shortcuts".
   // For resetting(clearing) the permission from the portal permission store, you can
-  // use (replace <desktop-id> with the RustDesk desktop file ID):
+  // use (replace <desktop-id> with the SealDesk desktop file ID):
   //   busctl --user call org.freedesktop.impl.portal.PermissionStore \
   //   /org/freedesktop/impl/portal/PermissionStore org.freedesktop.impl.portal.PermissionStore \
   //   DeletePermission sss "gnome" "shortcuts-inhibitor" "<desktop-id>"
-  // On a native install this is typically "rustdesk.desktop"; on Flatpak it is usually
-  // the exported desktop ID derived from the Flatpak app-id (e.g. "com.rustdesk.RustDesk.desktop").
+  // On a native install this is typically "sealdesk.desktop"; on Flatpak it is usually
+  // the exported desktop ID derived from the Flatpak app-id (e.g. "com.runseal.SealDesk.desktop").
   //
   // We may add it back in the future if needed.
   final showResetInhibitorPermission = false;

@@ -1,6 +1,6 @@
 import 'dart:js' as js;
 // cycle imports, maybe we can improve this
-import 'package:flutter_hbb/consts.dart';
+import 'package:sealdesk/consts.dart';
 
 final isAndroid_ = false;
 final isIOS_ = false;

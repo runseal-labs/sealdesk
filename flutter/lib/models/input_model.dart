@@ -9,8 +9,8 @@ import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
-import 'package:flutter_hbb/main.dart';
-import 'package:flutter_hbb/utils/multi_window_manager.dart';
+import 'package:sealdesk/main.dart';
+import 'package:sealdesk/utils/multi_window_manager.dart';
 import 'package:get/get.dart';
 
 import '../../models/model.dart';
@@ -353,7 +353,7 @@ class InputModel {
     if (_sideButtonChannelInitialized) return;
     _sideButtonChannelInitialized = true;
 
-    const channel = MethodChannel('org.rustdesk.rustdesk/side_buttons');
+    const channel = MethodChannel('com.runseal.sealdesk/side_buttons');
     channel.setMethodCallHandler((call) async {
       if (call.method == 'onSideMouseButton') {
         final args = call.arguments as Map<dynamic, dynamic>;

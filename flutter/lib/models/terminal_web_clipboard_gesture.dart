@@ -9,7 +9,7 @@ extension _TerminalWebClipboardGesture on _TerminalMouseInteractionState {
     if (!kIsWeb) return;
     _cancelTerminalClipboardWrite();
     final terminal = widget.terminal;
-    if (terminal is! RustDeskTerminal || !terminal.isClipboardWriteAllowed) {
+    if (terminal is! SealDeskTerminal || !terminal.isClipboardWriteAllowed) {
       return;
     }
     try {

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_hbb/mobile/pages/server_page.dart';
-import 'package:flutter_hbb/mobile/pages/settings_page.dart';
-import 'package:flutter_hbb/web/settings_page.dart';
+import 'package:sealdesk/mobile/pages/server_page.dart';
+import 'package:sealdesk/mobile/pages/settings_page.dart';
+import 'package:sealdesk/web/settings_page.dart';
 import 'package:get/get.dart';
 import '../../common.dart';
 import '../../common/widgets/chat_page.dart';
@@ -188,7 +188,7 @@ class WebHomePage extends StatelessWidget {
           return;
         }
         list.removeAt(0);
-        fakelink = "rustdesk://${list.join(s)}";
+        fakelink = "sealdesk://${list.join(s)}";
         break;
       }
     }

@@ -2,13 +2,12 @@ import 'dart:async';
 
 import 'package:auto_size_text_field/auto_size_text_field.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_hbb/common/formatter/id_formatter.dart';
-import 'package:flutter_hbb/common/widgets/connection_page_title.dart';
-import 'package:flutter_hbb/models/state_model.dart';
+import 'package:sealdesk/common/formatter/id_formatter.dart';
+import 'package:sealdesk/common/widgets/connection_page_title.dart';
+import 'package:sealdesk/models/state_model.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:flutter_hbb/models/peer_model.dart';
+import 'package:sealdesk/models/peer_model.dart';
 
 import '../../common.dart';
 import '../../common/widgets/peer_tab_page.dart';
@@ -17,7 +16,7 @@ import '../../consts.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
 import 'home_page.dart';
-import '../taildesk_scan.dart';
+import '../sealdesk_scan.dart';
 
 /// Connection page for connecting to a remote peer.
 class ConnectionPage extends StatefulWidget implements PageShape {
@@ -48,7 +47,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
   final AllPeersLoader _allPeersLoader = AllPeersLoader();
 
   StreamSubscription? _uniLinksSubscription;
-  bool _taildeskScanning = false;
+  bool _sealdeskScanning = false;
 
   // https://github.com/flutter/flutter/issues/157244
   Iterable<Peer> _autocompleteOpts = [];
@@ -86,21 +85,19 @@ class _ConnectionPageState extends State<ConnectionPage> {
       slivers: [
         SliverList(
             delegate: SliverChildListDelegate([
-          if (!isIOS)
-            Obx(() => _buildUpdateUI(stateGlobal.updateUrl.value)),
           _buildRemoteIDTextField(),
-          if (!isWeb && bind.mainGetAppNameSync() == 'TailDesk')
+          if (!isWeb && bind.mainGetAppNameSync() == 'SealDesk')
             OutlinedButton.icon(
               icon: const Icon(Icons.qr_code_scanner),
-              label: const Text('扫码连接 TailDesk'),
-              onPressed: _taildeskScanning
+              label: const Text('扫码连接 SealDesk'),
+              onPressed: _sealdeskScanning
                   ? null
                   : () async {
-                      setState(() => _taildeskScanning = true);
+                      setState(() => _sealdeskScanning = true);
                       try {
-                        await scanAndConnectTailDesk(context);
+                        await scanAndConnectSealDesk(context);
                       } finally {
-                        if (mounted) setState(() => _taildeskScanning = false);
+                        if (mounted) setState(() => _sealdeskScanning = false);
                       }
                     },
             ),
@@ -132,34 +129,6 @@ class _ConnectionPageState extends State<ConnectionPage> {
       _idEditingController.selection =
           TextSelection(baseOffset: 0, extentOffset: textLength);
     }
-  }
-
-  /// UI for software update.
-  /// If _updateUrl] is not empty, shows a button to update the software.
-  Widget _buildUpdateUI(String updateUrl) {
-    return updateUrl.isEmpty
-        ? const SizedBox(height: 0)
-        : InkWell(
-            onTap: () async {
-              final url = 'https://rustdesk.com/download';
-              // https://pub.dev/packages/url_launcher#configuration
-              // https://developer.android.com/training/package-visibility/use-cases#open-urls-custom-tabs
-              //
-              // `await launchUrl(Uri.parse(url))` can also run if skip
-              // 1. The following check
-              // 2. `<action android:name="android.support.customtabs.action.CustomTabsService" />` in AndroidManifest.xml
-              //
-              // But it is better to add the check.
-              await launchUrl(Uri.parse(url));
-            },
-            child: Container(
-                alignment: AlignmentDirectional.center,
-                width: double.infinity,
-                color: Colors.pinkAccent,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                child: Text(translate('Download new version'),
-                    style: const TextStyle(
-                        color: Colors.white, fontWeight: FontWeight.bold))));
   }
 
   /// UI for the remote ID TextField.

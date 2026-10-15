@@ -42,7 +42,7 @@ pub fn start(args: &mut [String]) {
     #[cfg(all(target_os = "linux", feature = "inline"))]
     {
         let app_dir = std::env::var("APPDIR").unwrap_or("".to_string());
-        let mut so_path = "/usr/share/rustdesk/libsciter-gtk.so".to_owned();
+        let mut so_path = "/usr/share/sealdesk/libsciter-gtk.so".to_owned();
         for (prefix, dir) in [
             ("", "/usr"),
             ("", "/app"),
@@ -518,14 +518,6 @@ impl UI {
         current_is_wayland()
     }
 
-    fn get_software_update_url(&self) -> String {
-        crate::SOFTWARE_UPDATE_URL.lock().unwrap().clone()
-    }
-
-    fn get_new_version(&self) -> String {
-        get_new_version()
-    }
-
     fn get_version(&self) -> String {
         get_version()
     }
@@ -546,19 +538,6 @@ impl UI {
         #[cfg(target_os = "linux")]
         let p = "deb";
         p.to_owned()
-    }
-
-    fn get_software_store_path(&self) -> String {
-        let mut p = std::env::temp_dir();
-        let name = crate::SOFTWARE_UPDATE_URL
-            .lock()
-            .unwrap()
-            .split("/")
-            .last()
-            .map(|x| x.to_owned())
-            .unwrap_or(crate::get_app_name());
-        p.push(name);
-        format!("{}.{}", p.to_string_lossy(), self.get_software_ext())
     }
 
     fn create_shortcut(&self, _id: String) {
@@ -787,8 +766,6 @@ impl sciter::EventHandler for UI {
         fn get_sound_inputs();
         fn set_options(Value);
         fn set_option(String, String);
-        fn get_software_update_url();
-        fn get_new_version();
         fn get_version();
         fn get_fingerprint();
         fn update_me(String);

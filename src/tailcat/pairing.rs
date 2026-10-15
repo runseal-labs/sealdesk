@@ -4,7 +4,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-const PREFIX: &str = "TAILDESK:";
+const PREFIX: &str = "SEALDESK:";
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct PairingCode {
@@ -30,12 +30,12 @@ pub enum PairingError {
 impl fmt::Display for PairingError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InvalidFormat => formatter.write_str("Invalid TailDesk pairing code"),
+            Self::InvalidFormat => formatter.write_str("Invalid SealDesk pairing code"),
             Self::InvalidEscape => formatter.write_str("Invalid pairing code escape"),
             Self::MissingField(field) => write!(formatter, "Missing pairing field: {field}"),
             Self::DuplicateField(field) => write!(formatter, "Duplicate pairing field: {field}"),
             Self::UnsupportedVersion => {
-                formatter.write_str("Unsupported pairing version; please upgrade TailDesk")
+                formatter.write_str("Unsupported pairing version; please upgrade SealDesk")
             }
             Self::InvalidAddress => formatter.write_str("Invalid tailcat address"),
             Self::InvalidExpiry => formatter.write_str("Invalid pairing expiry timestamp"),
@@ -209,7 +209,7 @@ mod tests {
     #[test]
     fn matches_flutter_protocol_fixtures() {
         let fixtures: Vec<serde_json::Value> = serde_json::from_str(include_str!(
-            "../../flutter/test/fixtures/taildesk_pairing.json"
+            "../../flutter/test/fixtures/sealdesk_pairing.json"
         ))
         .unwrap();
         for fixture in fixtures {
@@ -234,7 +234,7 @@ mod tests {
         let encoded = original.encode_at(100).unwrap();
         assert_eq!(
             encoded,
-            format!("TAILDESK:V:1;A:{ADDRESS};P:secret;N:ros2go-gpu;E:200;;")
+            format!("SEALDESK:V:1;A:{ADDRESS};P:secret;N:ros2go-gpu;E:200;;")
         );
         assert!(PairingCode::parse_at(&encoded, 100).unwrap() == original);
     }
@@ -251,14 +251,14 @@ mod tests {
 
     #[test]
     fn optional_fields_can_be_missing_or_empty() {
-        let parsed = PairingCode::parse_at(&format!("TAILDESK:A:{ADDRESS};V:1;;"), 100).unwrap();
+        let parsed = PairingCode::parse_at(&format!("SEALDESK:A:{ADDRESS};V:1;;"), 100).unwrap();
         assert!(parsed.password.is_none());
         assert!(parsed.name.is_none());
         assert!(parsed.expires_at.is_none());
         let encoded = parsed.encode_at(100).unwrap();
-        assert_eq!(encoded, format!("TAILDESK:V:1;A:{ADDRESS};;"));
+        assert_eq!(encoded, format!("SEALDESK:V:1;A:{ADDRESS};;"));
         let parsed =
-            PairingCode::parse_at(&format!("TAILDESK:V:1;A:{ADDRESS};P:;N:;;"), 100).unwrap();
+            PairingCode::parse_at(&format!("SEALDESK:V:1;A:{ADDRESS};P:;N:;;"), 100).unwrap();
         assert_eq!(parsed.password.as_deref(), Some(""));
         assert_eq!(parsed.name.as_deref(), Some(""));
     }
@@ -266,7 +266,7 @@ mod tests {
     #[test]
     fn prefix_order_and_unknown_fields() {
         let input = format!(
-            r#"  taildesk:X:future\;field;N:电脑;E:200;A:{ADDRESS};P:secret;V:1;X:ignored;;  "#
+            r#"  sealdesk:X:future\;field;N:电脑;E:200;A:{ADDRESS};P:secret;V:1;X:ignored;;  "#
         );
         let parsed = PairingCode::parse_at(&input, 100).unwrap();
         assert_eq!(parsed.name.as_deref(), Some("电脑"));
@@ -277,22 +277,22 @@ mod tests {
     #[test]
     fn field_names_are_case_sensitive() {
         assert_error(
-            &format!("TAILDESK:v:1;A:{ADDRESS};;"),
+            &format!("SEALDESK:v:1;A:{ADDRESS};;"),
             PairingError::MissingField("V"),
         );
         assert_error(
-            &format!("TAILDESK:V:1;a:{ADDRESS};;"),
+            &format!("SEALDESK:V:1;a:{ADDRESS};;"),
             PairingError::MissingField("A"),
         );
     }
 
     #[test]
     fn missing_required_fields_and_unsupported_versions() {
-        assert_error("TAILDESK:;", PairingError::MissingField("V"));
-        assert_error("TAILDESK:V:1;;", PairingError::MissingField("A"));
+        assert_error("SEALDESK:;", PairingError::MissingField("V"));
+        assert_error("SEALDESK:V:1;;", PairingError::MissingField("A"));
         for version in ["", "0", "2", "01"] {
             assert_error(
-                &format!("TAILDESK:V:{version};A:{ADDRESS};;"),
+                &format!("SEALDESK:V:{version};A:{ADDRESS};;"),
                 PairingError::UnsupportedVersion,
             );
         }
@@ -301,7 +301,7 @@ mod tests {
     #[test]
     fn rejects_duplicate_known_fields() {
         for field in ["V", "A", "P", "N", "E"] {
-            let input = format!("TAILDESK:V:1;A:{ADDRESS};P:secret;N:host;E:200;{field}:other;;");
+            let input = format!("SEALDESK:V:1;A:{ADDRESS};P:secret;N:host;E:200;{field}:other;;");
             assert!(matches!(
                 PairingCode::parse_at(&input, 100),
                 Err(PairingError::DuplicateField(_))
@@ -331,12 +331,12 @@ mod tests {
             "18446744073709551616",
         ] {
             assert_error(
-                &format!("TAILDESK:V:1;A:{ADDRESS};E:{expiry};;"),
+                &format!("SEALDESK:V:1;A:{ADDRESS};E:{expiry};;"),
                 PairingError::InvalidExpiry,
             );
         }
         assert_error(
-            &format!("TAILDESK:V:1;A:{ADDRESS};E:0;;"),
+            &format!("SEALDESK:V:1;A:{ADDRESS};E:0;;"),
             PairingError::Expired,
         );
     }
@@ -351,7 +351,7 @@ mod tests {
             "tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef=",
         ] {
             assert_error(
-                &format!("TAILDESK:V:1;A:{address};;"),
+                &format!("SEALDESK:V:1;A:{address};;"),
                 PairingError::InvalidAddress,
             );
             let mut invalid = pairing();
@@ -365,19 +365,19 @@ mod tests {
         for input in [
             "",
             "电脑",
-            "TAILDESK",
-            "TAILDESK:V:1",
-            "TAILDESK:V:1;",
-            "TAILDESK:V:1;;extra",
-            "TAILDESK:V:1;;;",
-            "TAILDESK:V:1;broken;;",
-            "TAILDESK::empty;;",
+            "SEALDESK",
+            "SEALDESK:V:1",
+            "SEALDESK:V:1;",
+            "SEALDESK:V:1;;extra",
+            "SEALDESK:V:1;;;",
+            "SEALDESK:V:1;broken;;",
+            "SEALDESK::empty;;",
         ] {
             assert_error(input, PairingError::InvalidFormat);
         }
         for suffix in ["", ";", ";N:unterminated"] {
             assert_error(
-                &format!("TAILDESK:V:1;A:{ADDRESS}{suffix}"),
+                &format!("SEALDESK:V:1;A:{ADDRESS}{suffix}"),
                 PairingError::InvalidFormat,
             );
         }
@@ -387,16 +387,16 @@ mod tests {
     fn rejects_invalid_and_dangling_escapes() {
         for suffix in [r"P:bad\x;;", "N:trailing\\", r"X:bad\x;;"] {
             assert_error(
-                &format!("TAILDESK:V:1;A:{ADDRESS};{suffix}"),
+                &format!("SEALDESK:V:1;A:{ADDRESS};{suffix}"),
                 PairingError::InvalidEscape,
             );
         }
         assert_error(
-            &format!(r"TAILDESK:V:1;A:{ADDRESS};P:ends\;;"),
+            &format!(r"SEALDESK:V:1;A:{ADDRESS};P:ends\;;"),
             PairingError::InvalidFormat,
         );
         assert_error(
-            &format!(r"TAILDESK:V:1;A\:{ADDRESS};;"),
+            &format!(r"SEALDESK:V:1;A\:{ADDRESS};;"),
             PairingError::InvalidEscape,
         );
     }

@@ -60,7 +60,7 @@ extern "C" {
     fn TcQR(s: *const c_char) -> *mut c_char;
 }
 
-pub const APP_NAME: &str = "TailDesk";
+pub const APP_NAME: &str = "SealDesk";
 
 /// Comma-separated `nodekey:...` list of controllers allowed in. Empty allows anyone holding
 /// the address.
@@ -97,6 +97,14 @@ fn client_key_path() -> String {
         .into_owned()
 }
 
+#[cfg(target_os = "linux")]
+fn secure_key_file(path: &str) -> ResultType<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    Ok(())
+}
+
 /// A tailcat address: `tc` + unpadded base64url. Always far longer than a RustDesk ID.
 pub fn is_addr(s: &str) -> bool {
     s.len() > 40
@@ -112,14 +120,17 @@ pub fn serve(target_port: u16, token: &[u8; 32]) -> ResultType<String> {
     let key = cstring(&server_key_path())?;
     let allow = cstring(&Config::get_option(OPTION_ALLOW))?;
     let token = cstring(&hex::encode(token))?;
-    take(unsafe {
+    let address = take(unsafe {
         TcServe(
             key.as_ptr(),
             allow.as_ptr(),
             target_port as c_int,
             token.as_ptr(),
         )
-    })
+    })?;
+    #[cfg(target_os = "linux")]
+    secure_key_file(key.to_str()?)?;
+    Ok(address)
 }
 
 pub(crate) fn stop_serving() -> ResultType<()> {
@@ -130,7 +141,10 @@ pub(crate) fn stop_serving() -> ResultType<()> {
 /// This machine's controller identity, for the peer's allow list.
 pub fn client_pubkey() -> ResultType<String> {
     let key = cstring(&client_key_path())?;
-    take(unsafe { TcClientPubkey(key.as_ptr()) })
+    let pubkey = take(unsafe { TcClientPubkey(key.as_ptr()) })?;
+    #[cfg(target_os = "linux")]
+    secure_key_file(key.to_str()?)?;
+    Ok(pubkey)
 }
 
 /// Opens the tunnel to `addr` and returns a loopback `ip:port` that reaches the peer's RustDesk.
@@ -141,6 +155,8 @@ fn forward(addr: &str, timeout_ms: u64, token: &[u8; 32]) -> ResultType<LocalFor
     let token = cstring(&hex::encode(token))?;
     let timeout_ms = c_int::try_from(timeout_ms)?;
     let local = take(unsafe { TcForward(a.as_ptr(), key.as_ptr(), timeout_ms, token.as_ptr()) })?;
+    #[cfg(target_os = "linux")]
+    secure_key_file(key.to_str()?)?;
     Ok(LocalForward(cstring(&local)?))
 }
 
@@ -216,10 +232,10 @@ pub fn current_pairing_code(lifetime_secs: u64) -> ResultType<String> {
     let options = crate::ipc::get_options();
     let address = options.get(OPTION_ADDR).filter(|address| is_addr(address));
     let Some(address) = address else {
-        bail!("No tailcat address yet; start the TailDesk server and try again");
+        bail!("No tailcat address yet; start the SealDesk server and try again");
     };
     let server_password = crate::ipc::get_config("temporary-password")?
-        .ok_or_else(|| hbb_common::anyhow::anyhow!("TailDesk server did not return a password"))?;
+        .ok_or_else(|| hbb_common::anyhow::anyhow!("SealDesk server did not return a password"))?;
     let password = if options
         .get(base::config::keys::OPTION_APPROVE_MODE)
         .map(String::as_str)
@@ -291,6 +307,25 @@ pub async fn connect(addr: &str, timeout_ms: u64) -> ResultType<hbb_common::Stre
 #[cfg(test)]
 mod tests {
     use super::path_is_direct;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn secure_key_file_sets_private_mode() {
+        use std::{fs, os::unix::fs::PermissionsExt};
+
+        let path =
+            std::env::temp_dir().join(format!("rustdesk-tailcat-mode-test-{}", std::process::id()));
+        fs::write(&path, b"key").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+
+        super::secure_key_file(path.to_str().unwrap()).unwrap();
+
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn path_status_distinguishes_direct_relay_and_unknown() {

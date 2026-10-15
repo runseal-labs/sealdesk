@@ -9,11 +9,11 @@ import java.nio.ByteBuffer
 import org.json.JSONArray
 import org.json.JSONObject
 
-import com.carriez.flutter_hbb.RdClipboardManager
+import com.runseal.sealdesk.RdClipboardManager
 
 object FFI {
     init {
-        System.loadLibrary("rustdesk")
+        System.loadLibrary("sealdesk")
     }
 
     external fun init(ctx: Context)

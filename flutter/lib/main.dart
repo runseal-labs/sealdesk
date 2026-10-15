@@ -2,24 +2,24 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'common/taildesk_startup.dart';
+import 'common/sealdesk_startup.dart';
 
 import 'package:bot_toast/bot_toast.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_hbb/common/widgets/overlay.dart';
-import 'package:flutter_hbb/desktop/pages/desktop_tab_page.dart';
-import 'package:flutter_hbb/desktop/pages/install_page.dart';
-import 'package:flutter_hbb/desktop/pages/server_page.dart';
-import 'package:flutter_hbb/desktop/screen/desktop_file_transfer_screen.dart';
-import 'package:flutter_hbb/desktop/screen/desktop_view_camera_screen.dart';
-import 'package:flutter_hbb/desktop/screen/desktop_port_forward_screen.dart';
-import 'package:flutter_hbb/desktop/screen/desktop_remote_screen.dart';
-import 'package:flutter_hbb/desktop/screen/desktop_terminal_screen.dart';
-import 'package:flutter_hbb/desktop/widgets/refresh_wrapper.dart';
-import 'package:flutter_hbb/models/state_model.dart';
-import 'package:flutter_hbb/utils/multi_window_manager.dart';
+import 'package:sealdesk/common/widgets/overlay.dart';
+import 'package:sealdesk/desktop/pages/desktop_tab_page.dart';
+import 'package:sealdesk/desktop/pages/install_page.dart';
+import 'package:sealdesk/desktop/pages/server_page.dart';
+import 'package:sealdesk/desktop/screen/desktop_file_transfer_screen.dart';
+import 'package:sealdesk/desktop/screen/desktop_view_camera_screen.dart';
+import 'package:sealdesk/desktop/screen/desktop_port_forward_screen.dart';
+import 'package:sealdesk/desktop/screen/desktop_remote_screen.dart';
+import 'package:sealdesk/desktop/screen/desktop_terminal_screen.dart';
+import 'package:sealdesk/desktop/widgets/refresh_wrapper.dart';
+import 'package:sealdesk/models/state_model.dart';
+import 'package:sealdesk/utils/multi_window_manager.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
@@ -41,7 +41,7 @@ Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
 
   debugPrint('launch argument count: ${args.length}');
-  TailDeskStartup.configure(args);
+  SealDeskStartup.configure(args);
   kBootArgs = List.from(args);
 
   if (!isDesktop) {

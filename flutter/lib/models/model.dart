@@ -10,21 +10,21 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:flutter_hbb/common/widgets/peers_view.dart';
-import 'package:flutter_hbb/consts.dart';
-import 'package:flutter_hbb/models/chat_model.dart';
-import 'package:flutter_hbb/models/cm_file_model.dart';
-import 'package:flutter_hbb/models/file_model.dart';
-import 'package:flutter_hbb/models/peer_model.dart';
-import 'package:flutter_hbb/models/peer_tab_model.dart';
-import 'package:flutter_hbb/models/printer_model.dart';
-import 'package:flutter_hbb/models/server_model.dart';
-import 'package:flutter_hbb/models/shortcut_model.dart';
-import 'package:flutter_hbb/models/state_model.dart';
-import 'package:flutter_hbb/models/desktop_render_texture.dart';
-import 'package:flutter_hbb/models/terminal_model.dart';
-import 'package:flutter_hbb/common/shared_state.dart';
-import 'package:flutter_hbb/utils/multi_window_manager.dart';
+import 'package:sealdesk/common/widgets/peers_view.dart';
+import 'package:sealdesk/consts.dart';
+import 'package:sealdesk/models/chat_model.dart';
+import 'package:sealdesk/models/cm_file_model.dart';
+import 'package:sealdesk/models/file_model.dart';
+import 'package:sealdesk/models/peer_model.dart';
+import 'package:sealdesk/models/peer_tab_model.dart';
+import 'package:sealdesk/models/printer_model.dart';
+import 'package:sealdesk/models/server_model.dart';
+import 'package:sealdesk/models/shortcut_model.dart';
+import 'package:sealdesk/models/state_model.dart';
+import 'package:sealdesk/models/desktop_render_texture.dart';
+import 'package:sealdesk/models/terminal_model.dart';
+import 'package:sealdesk/common/shared_state.dart';
+import 'package:sealdesk/utils/multi_window_manager.dart';
 import 'package:tuple/tuple.dart';
 import 'package:image/image.dart' as img2;
 import 'package:flutter_svg/flutter_svg.dart';
@@ -39,12 +39,12 @@ import '../utils/image.dart' as img;
 import '../common/widgets/dialog.dart';
 import 'input_model.dart';
 import 'platform_model.dart';
-import 'package:flutter_hbb/utils/scale.dart';
+import 'package:sealdesk/utils/scale.dart';
 
-import 'package:flutter_hbb/generated_bridge.dart'
-    if (dart.library.html) 'package:flutter_hbb/web/bridge.dart';
-import 'package:flutter_hbb/native/custom_cursor.dart'
-    if (dart.library.html) 'package:flutter_hbb/web/custom_cursor.dart';
+import 'package:sealdesk/generated_bridge.dart'
+    if (dart.library.html) 'package:sealdesk/web/bridge.dart';
+import 'package:sealdesk/native/custom_cursor.dart'
+    if (dart.library.html) 'package:sealdesk/web/custom_cursor.dart';
 
 typedef HandleMsgBox = Function(Map<String, dynamic> evt, String id);
 typedef ReconnectHandle = Function(OverlayDialogManager, SessionID, bool);
@@ -1631,7 +1631,7 @@ class FfiModel with ChangeNotifier {
     }
 
     if (updateData.isEmpty) {
-      _pi.platformAdditions.remove(kPlatformAdditionsRustDeskVirtualDisplays);
+      _pi.platformAdditions.remove(kPlatformAdditionsSealDeskVirtualDisplays);
       _pi.platformAdditions.remove(kPlatformAdditionsAmyuniVirtualDisplays);
     } else {
       try {
@@ -1640,9 +1640,9 @@ class FfiModel with ChangeNotifier {
           _pi.platformAdditions[key] = updateJson[key];
         }
         if (!updateJson
-            .containsKey(kPlatformAdditionsRustDeskVirtualDisplays)) {
+            .containsKey(kPlatformAdditionsSealDeskVirtualDisplays)) {
           _pi.platformAdditions
-              .remove(kPlatformAdditionsRustDeskVirtualDisplays);
+              .remove(kPlatformAdditionsSealDeskVirtualDisplays);
         }
         if (!updateJson.containsKey(kPlatformAdditionsAmyuniVirtualDisplays)) {
           _pi.platformAdditions.remove(kPlatformAdditionsAmyuniVirtualDisplays);
@@ -4422,8 +4422,8 @@ class PeerInfo with ChangeNotifier {
   bool get isInstalled =>
       platform != kPeerPlatformWindows ||
       platformAdditions[kPlatformAdditionsIsInstalled] == true;
-  List<int> get RustDeskVirtualDisplays => List<int>.from(
-      platformAdditions[kPlatformAdditionsRustDeskVirtualDisplays] ?? []);
+  List<int> get SealDeskVirtualDisplays => List<int>.from(
+      platformAdditions[kPlatformAdditionsSealDeskVirtualDisplays] ?? []);
   int get amyuniVirtualDisplayCount =>
       platformAdditions[kPlatformAdditionsAmyuniVirtualDisplays] ?? 0;
 
@@ -4433,7 +4433,7 @@ class PeerInfo with ChangeNotifier {
 
   bool get cursorEmbedded => tryGetDisplay()?.cursorEmbedded ?? false;
 
-  bool get isRustDeskIdd =>
+  bool get isSealDeskIdd =>
       platformAdditions[kPlatformAdditionsIddImpl] == 'rustdesk_idd';
   bool get isAmyuniIdd =>
       platformAdditions[kPlatformAdditionsIddImpl] == 'amyuni_idd';

@@ -1,5 +1,5 @@
-import 'package:flutter_hbb/common/widgets/autocomplete.dart';
-import 'package:flutter_hbb/models/peer_model.dart';
+import 'package:sealdesk/common/widgets/autocomplete.dart';
+import 'package:sealdesk/models/peer_model.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Peer _peer({

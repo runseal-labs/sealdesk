@@ -3,13 +3,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_hbb/common/widgets/audio_input.dart';
-import 'package:flutter_hbb/common/widgets/dialog.dart';
-import 'package:flutter_hbb/common/widgets/keyboard_shortcuts/display.dart';
-import 'package:flutter_hbb/common/widgets/toolbar.dart';
-import 'package:flutter_hbb/models/chat_model.dart';
-import 'package:flutter_hbb/models/state_model.dart';
-import 'package:flutter_hbb/consts.dart';
+import 'package:sealdesk/common/widgets/audio_input.dart';
+import 'package:sealdesk/common/widgets/dialog.dart';
+import 'package:sealdesk/common/widgets/keyboard_shortcuts/display.dart';
+import 'package:sealdesk/common/widgets/toolbar.dart';
+import 'package:sealdesk/models/chat_model.dart';
+import 'package:sealdesk/models/state_model.dart';
+import 'package:sealdesk/consts.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
@@ -21,11 +21,11 @@ import '../../common.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
 import '../../common/shared_state.dart';
-import '../../common/taildesk_connection.dart';
+import '../../common/sealdesk_connection.dart';
 import './popup_menu.dart';
 import './kb_layout_type_chooser.dart';
-import 'package:flutter_hbb/utils/scale.dart';
-import 'package:flutter_hbb/common/widgets/custom_scale_base.dart';
+import 'package:sealdesk/utils/scale.dart';
+import 'package:sealdesk/common/widgets/custom_scale_base.dart';
 
 enum _ToolbarEdge { top, right, bottom, left }
 
@@ -808,10 +808,10 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
     if (widget.id.startsWith('tc')) {
       toolbarItems.add(Obx(() {
         final streamType = ConnectionTypeState.find(widget.id).stream_type.value;
-        final label = tailDeskConnectionLabel(streamType);
+        final label = sealDeskConnectionLabel(streamType);
         if (label == null) return const SizedBox.shrink();
         return Tooltip(
-          message: tailDeskConnectionDescription(streamType)!,
+          message: sealDeskConnectionDescription(streamType)!,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8),
             child: Text(label),

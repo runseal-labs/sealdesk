@@ -985,7 +985,7 @@ pub fn main_get_option(key: String) -> String {
     get_option(key)
 }
 
-pub fn main_reset_taildesk_address() -> String {
+pub fn main_reset_sealdesk_address() -> String {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         if config::is_disable_settings() {
@@ -1002,7 +1002,7 @@ pub fn main_reset_taildesk_address() -> String {
 
 // 返回 JSON 字符串：成功为 {"png": "<base64>"}，失败为 {"error": "..."}。
 // flutter_rust_bridge 1.80 无法解析 ResultType<非单元类型>，因此在这里统一编码。
-pub fn main_get_taildesk_clipboard_image() -> String {
+pub fn main_get_sealdesk_clipboard_image() -> String {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let result = crate::tailcat::clipboard::read_image();
     #[cfg(any(target_os = "android", target_os = "ios"))]

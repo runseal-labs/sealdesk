@@ -56,10 +56,10 @@ const kShortcutActionCodecAv1 = 'codec_av1';
 const kShortcutActionCodecH264 = 'codec_h264';
 const kShortcutActionCodecH265 = 'codec_h265';
 // Plug out every virtual display in one shot — toolbar exposes this in
-// both IDD modes (RustDesk and Amyuni). Per-index virtual-display toggles
-// (RustDesk IDD's 4 checkboxes) and the +/- count buttons (Amyuni-only)
+// both IDD modes (SealDesk and Amyuni). Per-index virtual-display toggles
+// (SealDesk IDD's 4 checkboxes) and the +/- count buttons (Amyuni-only)
 // are NOT exposed as shortcuts: per-index is too granular, and +/- has
-// no toolbar counterpart on RustDesk IDD peers.
+// no toolbar counterpart on SealDesk IDD peers.
 const kShortcutActionPlugOutAllVirtualDisplays =
     'plug_out_all_virtual_displays';
 const kShortcutActionToggleRelativeMouseMode = 'toggle_relative_mouse_mode';

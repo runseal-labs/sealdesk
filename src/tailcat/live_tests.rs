@@ -17,14 +17,14 @@ use hbb_common::{
 #[test]
 #[ignore]
 fn live_controller_does_not_start_host() {
-    assert!(std::env::var("TAILDESK_CONTROLLER_PROBE").is_ok());
+    assert!(std::env::var("SEALDESK_CONTROLLER_PROBE").is_ok());
     *hbb_common::config::APP_NAME.write().unwrap() =
-        format!("TailDeskCliProbe-{}", std::process::id());
+        format!("SealDeskCliProbe-{}", std::process::id());
     assert!(!std::path::Path::new(&Config::ipc_path("")).exists());
     assert!(!crate::common::is_server_running());
     let no_server = super::launch::controller_only("", false);
     host::request_mode("control").unwrap();
-    assert!(hbb_common::config::LocalConfig::get_option(keys::OPTION_TAILDESK_MODE).is_empty());
+    assert!(hbb_common::config::LocalConfig::get_option(keys::OPTION_SEALDESK_MODE).is_empty());
     crate::start_server(false, no_server);
     std::thread::sleep(std::time::Duration::from_secs(2));
     assert!(!crate::common::is_server_running());
@@ -44,9 +44,9 @@ fn live_host_role_switch() {
         time::{Duration, Instant},
     };
 
-    assert!(std::env::var("TAILDESK_CONTROLLER_PROBE").is_ok());
+    assert!(std::env::var("SEALDESK_CONTROLLER_PROBE").is_ok());
     *hbb_common::config::APP_NAME.write().unwrap() =
-        format!("TailDeskRoleProbe-{}", std::process::id());
+        format!("SealDeskRoleProbe-{}", std::process::id());
     let listening_ports = || -> Vec<u16> {
         let inodes: HashSet<String> = std::fs::read_dir("/proc/self/fd")
             .unwrap()
@@ -75,13 +75,13 @@ fn live_host_role_switch() {
     };
     let select = |mode: &str| {
         crate::ui_interface::set_local_option(
-            keys::OPTION_TAILDESK_MODE.to_owned(),
+            keys::OPTION_SEALDESK_MODE.to_owned(),
             mode.to_owned(),
         );
-        assert_eq!(LocalConfig::get_option(keys::OPTION_TAILDESK_MODE), mode);
+        assert_eq!(LocalConfig::get_option(keys::OPTION_SEALDESK_MODE), mode);
         assert_eq!(host::query_mode().unwrap(), mode);
     };
-    assert!(LocalConfig::get_option(keys::OPTION_TAILDESK_MODE).is_empty());
+    assert!(LocalConfig::get_option(keys::OPTION_SEALDESK_MODE).is_empty());
     assert!(super::launch::controller_only("", false));
     select("control");
     assert!(!std::path::Path::new(&Config::ipc_path("")).exists());
@@ -165,11 +165,11 @@ fn live_host_role_switch() {
         );
     }
     crate::ui_interface::set_local_option(
-        keys::OPTION_TAILDESK_MODE.to_owned(),
+        keys::OPTION_SEALDESK_MODE.to_owned(),
         "invalid".to_owned(),
     );
     assert_eq!(
-        LocalConfig::get_option(keys::OPTION_TAILDESK_MODE),
+        LocalConfig::get_option(keys::OPTION_SEALDESK_MODE),
         "control"
     );
     println!(
@@ -183,9 +183,9 @@ fn live_reset_address() {
     use std::io::{Read, Write};
     use std::time::{Duration, Instant};
 
-    assert!(std::env::var("TAILDESK_CONTROLLER_PROBE").is_ok());
+    assert!(std::env::var("SEALDESK_CONTROLLER_PROBE").is_ok());
     *hbb_common::config::APP_NAME.write().unwrap() =
-        format!("TailDeskResetProbe-{}", std::process::id());
+        format!("SealDeskResetProbe-{}", std::process::id());
     assert!(host::reset_address().is_err());
     host::request_mode("host").unwrap();
     let address = || {
@@ -201,7 +201,7 @@ fn live_reset_address() {
     };
     let original_address = address();
     let original_key = std::fs::read(server_key_path()).unwrap();
-    assert!(crate::ipc::set_config(keys::OPTION_TAILDESK_RESET_ADDRESS, "Y".to_owned()).is_err());
+    assert!(crate::ipc::set_config(keys::OPTION_SEALDESK_RESET_ADDRESS, "Y".to_owned()).is_err());
     assert_eq!(std::fs::read(server_key_path()).unwrap(), original_key);
     let token = transport::local_token();
     let old_forward = forward(&original_address, 10_000, &token).unwrap();
@@ -256,7 +256,7 @@ fn live_reset_address() {
 #[test]
 #[ignore]
 fn live_pairing_password_policies() {
-    assert!(std::env::var("TAILDESK_LIVE_CODE_FILE").is_ok());
+    assert!(std::env::var("SEALDESK_LIVE_CODE_FILE").is_ok());
     *hbb_common::config::APP_NAME.write().unwrap() = APP_NAME.to_owned();
     let original = crate::ipc::get_options();
     assert!(original.contains_key(OPTION_ADDR));
@@ -289,10 +289,10 @@ fn live_pairing_password_policies() {
 #[ignore]
 async fn live_tunnel_password_login() {
     *hbb_common::config::APP_NAME.write().unwrap() = APP_NAME.to_owned();
-    let code_path = std::env::var("TAILDESK_LIVE_CODE_FILE").unwrap();
+    let code_path = std::env::var("SEALDESK_LIVE_CODE_FILE").unwrap();
     let code = std::fs::read_to_string(code_path).unwrap();
     let pairing = pairing::PairingCode::parse(code.lines().last().unwrap()).unwrap();
-    let expect_rejection = std::env::var("TAILDESK_LIVE_REJECT").is_ok();
+    let expect_rejection = std::env::var("SEALDESK_LIVE_REJECT").is_ok();
     let password = if expect_rejection {
         "deliberately-wrong-password".to_owned()
     } else {

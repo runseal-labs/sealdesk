@@ -5,8 +5,8 @@ import 'package:flutter_custom_cursor/flutter_custom_cursor.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-import 'package:flutter_hbb/common.dart' show isLinux;
-import 'package:flutter_hbb/models/model.dart';
+import 'package:sealdesk/common.dart' show isLinux;
+import 'package:sealdesk/models/model.dart';
 import 'package:image/image.dart' as img;
 
 deleteCustomCursor(String key) =>

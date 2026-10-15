@@ -1,6 +1,6 @@
-import 'package:flutter_hbb/common.dart';
-import 'package:flutter_hbb/consts.dart';
-import 'package:flutter_hbb/models/platform_model.dart';
+import 'package:sealdesk/common.dart';
+import 'package:sealdesk/consts.dart';
+import 'package:sealdesk/models/platform_model.dart';
 
 class PrinterOptions {
   String action;
