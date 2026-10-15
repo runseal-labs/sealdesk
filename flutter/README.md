@@ -1,4 +1,4 @@
-# flutter_hbb
+# sealdesk
 
 A new Flutter project.
 

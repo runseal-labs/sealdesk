@@ -30,10 +30,10 @@ RustDesk вітає внески від усіх охочих. Дивіться 
 
 [<img src="https://f-droid.org/badge/get-it-on.png"
     alt="Get it on F-Droid"
-    height="80">](https://f-droid.org/en/packages/com.carriez.flutter_hbb)
+    height="80">](https://f-droid.org/en/packages/com.runseal.sealdesk)
 [<img src="https://flathub.org/api/badge?svg&locale=en"
     alt="Get it on Flathub"
-    height="80">](https://flathub.org/apps/com.rustdesk.RustDesk)
+    height="80">](https://flathub.org/apps/com.runseal.SealDesk)
 
 ## Залежності
 

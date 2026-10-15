@@ -1,182 +1,179 @@
-<p align="center">
-  <img src="res/logo-header.svg" alt="RustDesk - Your remote desktop"><br>
-  <a href="#raw-steps-to-build">Build</a> •
-  <a href="#how-to-build-with-docker">Docker</a> •
-  <a href="#file-structure">Structure</a> •
-  <a href="#screenshots">Screenshots</a><br>
-  [<a href="docs/README-UA.md">Українська</a>] | [<a href="docs/README-CS.md">česky</a>] | [<a href="docs/README-ZH.md">中文</a>] | [<a href="docs/README-HU.md">Magyar</a>] | [<a href="docs/README-ES.md">Español</a>] | [<a href="docs/README-FA.md">فارسی</a>] | [<a href="docs/README-FR.md">Français</a>] | [<a href="docs/README-DE.md">Deutsch</a>] | [<a href="docs/README-PL.md">Polski</a>] | [<a href="docs/README-ID.md">Indonesian</a>] | [<a href="docs/README-FI.md">Suomi</a>] | [<a href="docs/README-ML.md">മലയാളം</a>] | [<a href="docs/README-JP.md">日本語</a>] | [<a href="docs/README-NL.md">Nederlands</a>] | [<a href="docs/README-IT.md">Italiano</a>] | [<a href="docs/README-RU.md">Русский</a>] | [<a href="docs/README-PTBR.md">Português (Brasil)</a>] | [<a href="docs/README-EO.md">Esperanto</a>] | [<a href="docs/README-KR.md">한국어</a>] | [<a href="docs/README-AR.md">العربي</a>] | [<a href="docs/README-VN.md">Tiếng Việt</a>] | [<a href="docs/README-DA.md">Dansk</a>] | [<a href="docs/README-GR.md">Ελληνικά</a>] | [<a href="docs/README-TR.md">Türkçe</a>] | [<a href="docs/README-NO.md">Norsk</a>] | [<a href="docs/README-RO.md">Română</a>]<br>
-  <b>We need your help to translate this README, <a href="https://github.com/rustdesk/rustdesk/tree/master/src/lang">RustDesk UI</a> and <a href="https://github.com/rustdesk/doc.rustdesk.com">RustDesk Doc</a> to your native language</b>
-</p>
+# SealDesk
 
-> [!Caution]
-> **Misuse Disclaimer:** <br>
-> The developers of RustDesk do not condone or support any unethical or illegal use of this software. Misuse, such as unauthorized access, control or invasion of privacy, is strictly against our guidelines. The authors are not responsible for any misuse of the application.
+English | [简体中文](README.zh-CN.md)
 
+SealDesk is a RustDesk-derived remote-desktop application with a SealDesk-only
+connection path. It is intended to connect two devices using a SealDesk
+(`tc...`) address and pairing code, without a RustDesk ID server or RustDesk
+relay server.
 
-Chat with us: [Discord](https://discord.gg/nDceKgxnkV) | [Twitter](https://twitter.com/rustdesk) | [Reddit](https://www.reddit.com/r/rustdesk) | [YouTube](https://www.youtube.com/@rustdesk)
+This repository is a fork, not a drop-in RustDesk client. SealDesk sessions do
+not interoperate with stock RustDesk sessions, and this fork does not provide
+the upstream rendezvous, hole-punching, or relay implementation. See
+[FORK.md](FORK.md) for the maintained fork boundary, patch layers, and upgrade
+rules.
 
-[![RustDesk Server Pro](https://img.shields.io/badge/RustDesk%20Server%20Pro-Advanced%20Features-blue)](https://rustdesk.com/pricing.html)
+## Current scope
 
-Yet another remote desktop solution, written in Rust. Works out of the box with no configuration required. You have full control of your data, with no concerns about security. You can use our rendezvous/relay server, [set up your own](https://rustdesk.com/server), or [write your own rendezvous/relay server](https://github.com/rustdesk/rustdesk-server-demo).
+- Host mode publishes a SealDesk address and pairing code.
+- Control mode accepts a `SEALDESK:` pairing-code string or a QR-image path.
+- Tailcat provides the encrypted direct/DERP transport for public connections.
+- Native desktop LAN discovery and encrypted direct connections work without Internet access.
+  Select a sharing device under **LAN devices** and approve on the host.
+  Android controllers use the **Discovered** tab with the same encrypted connection and host approval.
+  Original RustDesk peers are also listed: enable direct IP access on the host, then use its password or click approval. RustDesk IP sessions are unencrypted and require explicit confirmation; SealDesk sessions remain encrypted.
+  **Trust this device** remembers the controller key and granted permissions;
+  **Revoke access** ends its sessions and requires approval again.
+  Original RustDesk controllers can also discover SealDesk and request access on standard TCP 21118. This compatibility listener is unencrypted, uses upstream password/click approval, and runs only while sharing is enabled. The host displays a plaintext warning. Both protocols share TCP 21118. SealDesk declares its encrypted protocol first and never falls back to plaintext after a handshake failure.
+  LAN discovery listens on UDP 21119 and desktop connections on TCP 21118,
+  only while sharing is enabled. LAN access does not need a pairing password or require enabling 2FA.
+- The existing remote-desktop session, input, audio, clipboard, and file
+  transfer code is retained where it is used by SealDesk sessions.
+- The Flutter UI contains the SealDesk host/control and QR flows; platform
+  packaging and complete native Flutter builds still require their platform
+  toolchains and generated bridge artifacts.
 
-![image](https://user-images.githubusercontent.com/71636191/171661982-430285f0-2e12-4b1d-9957-4a58e375304d.png)
+The pairing code is a remote-access credential. Treat it like a password and
+share it only with the intended operator. Reset the host address after a
+`tc...` address is exposed.
 
-RustDesk welcomes contribution from everyone. See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for help getting started.
+## Build prerequisites
 
-[**FAQ**](https://github.com/rustdesk/rustdesk/wiki/FAQ)
+For a native desktop build, install:
 
-[**BINARY DOWNLOAD**](https://github.com/rustdesk/rustdesk/releases)
+- Rust with the toolchain required by `Cargo.toml` (Rust 1.75 or newer).
+- Go 1.27.1, as specified by `libs/tailcat-ffi/go.mod`.
+- A C compiler and the native dependencies required by the target platform.
 
-[**NIGHTLY BUILD**](https://github.com/rustdesk/rustdesk/releases/tag/nightly)
+The Cargo build script compiles `libs/tailcat-ffi` with cgo and links it into
+SealDesk. Set `GO=/path/to/go` when the required Go executable is not on
+`PATH`.
 
-[<img src="https://f-droid.org/badge/get-it-on.png"
-    alt="Get it on F-Droid"
-    height="80">](https://f-droid.org/en/packages/com.carriez.flutter_hbb)
-[<img src="https://flathub.org/api/badge?svg&locale=en"
-    alt="Get it on Flathub"
-    height="80">](https://flathub.org/apps/com.rustdesk.RustDesk)
+## Build and run on Linux
 
-## Dependencies
+Run commands from the repository root:
 
-Desktop versions use Flutter or Sciter (deprecated) for GUI. This tutorial is for Sciter only, since it is easier and more friendly to start. Check out our [CI](https://github.com/rustdesk/rustdesk/blob/master/.github/workflows/flutter-build.yml) for building the Flutter version.
-
-Please download Sciter dynamic library yourself.
-
-[Windows](https://raw.githubusercontent.com/c-smile/sciter-sdk/master/bin.win/x64/sciter.dll) |
-[Linux](https://raw.githubusercontent.com/c-smile/sciter-sdk/master/bin.lnx/x64/libsciter-gtk.so) |
-[macOS](https://raw.githubusercontent.com/c-smile/sciter-sdk/master/bin.osx/libsciter.dylib)
-
-## Raw Steps to build
-
-- Prepare your Rust development env and C++ build env
-
-- Install [vcpkg](https://github.com/microsoft/vcpkg), and set `VCPKG_ROOT` env variable correctly
-
-  - Windows: vcpkg install libvpx:x64-windows-static libyuv:x64-windows-static opus:x64-windows-static aom:x64-windows-static
-  - Linux/macOS: vcpkg install libvpx libyuv opus aom
-
-- run `cargo run`
-
-## [Build](https://rustdesk.com/docs/en/dev/build/)
-
-## How to Build on Linux
-
-### Ubuntu 18 (Debian 10)
-
-```sh
-sudo apt install -y zip g++ gcc git curl wget nasm yasm libgtk-3-dev clang libxcb-randr0-dev libxdo-dev \
-        libxfixes-dev libxcb-shape0-dev libxcb-xfixes0-dev libasound2-dev libpulse-dev cmake make \
-        libclang-dev ninja-build libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
-```
-
-### openSUSE Tumbleweed
-
-```sh
-sudo zypper install gcc-c++ git curl wget nasm yasm gcc gtk3-devel clang libxcb-devel libXfixes-devel cmake alsa-lib-devel gstreamer-devel gstreamer-plugins-base-devel xdotool-devel
-```
-
-### Fedora 28 (CentOS 8)
-
-```sh
-sudo yum -y install gcc-c++ git curl wget nasm yasm gcc gtk3-devel clang libxcb-devel libxdo-devel libXfixes-devel pulseaudio-libs-devel cmake alsa-lib-devel gstreamer1-devel gstreamer1-plugins-base-devel
-```
-
-### Arch (Manjaro)
-
-```sh
-sudo pacman -Syu --needed unzip git cmake gcc curl wget yasm nasm zip make pkg-config clang gtk3 xdotool libxcb libxfixes alsa-lib pipewire
-```
-
-### Install vcpkg
-
-```sh
-git clone https://github.com/microsoft/vcpkg
-cd vcpkg
-git checkout 2023.04.15
-cd ..
-vcpkg/bootstrap-vcpkg.sh
-export VCPKG_ROOT=$HOME/vcpkg
-vcpkg/vcpkg install libvpx libyuv opus aom
-```
-
-### Fix libvpx (For Fedora)
-
-```sh
-cd vcpkg/buildtrees/libvpx/src
-cd *
-./configure
-sed -i 's/CFLAGS+=-I/CFLAGS+=-fPIC -I/g' Makefile
-sed -i 's/CXXFLAGS+=-I/CXXFLAGS+=-fPIC -I/g' Makefile
-make
-cp libvpx.a $HOME/vcpkg/installed/x64-linux/lib/
-cd
-```
-
-### Build
-
-```sh
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source $HOME/.cargo/env
-git clone --recurse-submodules https://github.com/rustdesk/rustdesk
-cd rustdesk
-mkdir -p target/debug
-wget https://raw.githubusercontent.com/c-smile/sciter-sdk/master/bin.lnx/x64/libsciter-gtk.so
-mv libsciter-gtk.so target/debug
-VCPKG_ROOT=$HOME/vcpkg cargo run
-```
-
-## How to build with Docker
-
-Begin by cloning the repository and building the Docker container:
-
-```sh
-git clone https://github.com/rustdesk/rustdesk
-cd rustdesk
+```bash
 git submodule update --init --recursive
-docker build -t "rustdesk-builder" .
+GO=/path/to/go cargo build --bin sealdesk
 ```
 
-Then, each time you need to build the application, run the following command:
+The development executable is `target/debug/sealdesk`. Start a host, or start
+the control UI, with:
 
-```sh
-docker run --rm -it -v $PWD:/home/user/rustdesk -v rustdesk-git-cache:/home/user/.cargo/git -v rustdesk-registry-cache:/home/user/.cargo/registry -e PUID="$(id -u)" -e PGID="$(id -g)" rustdesk-builder
+```bash
+./target/debug/sealdesk --host
+./target/debug/sealdesk --control 'SEALDESK:V:1;A:<tc-address>;P:<temporary-password>;N:<name>;;'
+./target/debug/sealdesk --control /path/to/pairing-code.png
 ```
 
-Note that the first build may take longer before dependencies are cached, subsequent builds will be faster. Additionally, if you need to specify different arguments to the build command, you may do so at the end of the command in the `<OPTIONAL-ARGS>` position. For instance, if you wanted to build an optimized release version, you would run the command above followed by `--release`. The resulting executable will be available in the target folder on your system, and can be run with:
+The control image path is supported by the Flutter UI. `--control` with text
+requires a complete pairing-code payload. To revoke the current host address
+and invalidate old pairing codes:
 
-```sh
-target/debug/rustdesk
+```bash
+./target/debug/sealdesk --tc-reset-address
 ```
 
-Or, if you're running a release executable:
+Useful diagnostic commands are `--tc-addr`, `--tc-pubkey`, `--tc-pair`, and
+`--tc-allow`. The latter changes the Tailcat allow-list and requires restarting
+the host service to apply it.
 
-```sh
-target/release/rustdesk
+## Linux desktop lifecycle
+
+The Linux package installs a normal desktop application. It does not install,
+enable, or start a systemd daemon. Launch `sealdesk` from the application menu
+or terminal when needed. Package upgrades retire legacy SealDesk service units;
+they do not enable an alternative background service.
+
+Normal launches always start in control mode. Even if sharing was enabled before
+exit, accepting connections requires selecting Share this device again. Closing
+the main window stops sharing, closes session windows, and exits the application
+without leaving a tray or background process. Use `sealdesk --host` to explicitly
+start sharing. The Linux desktop package rejects the legacy `--service`,
+`--server`, and `--tray` daemon entry points.
+
+## Android release signing
+
+Release builds use an external keystore and properties file; neither belongs in
+this repository. The default properties path is `~/.sealdesk/key.properties`.
+Set `SEALDESK_KEY_PROPERTIES` to use another path outside the repository.
+
+Create and protect the directory, then generate or obtain the release keystore
+through your approved key-management process. The keystore path should also be
+outside the repository, for example `~/.sealdesk/release.jks`:
+
+```bash
+mkdir -p ~/.sealdesk
+chmod 700 ~/.sealdesk
+# Generate a keystore only when you are ready to retain and back it up safely.
+keytool -genkeypair -v \\
+  -keystore ~/.sealdesk/release.jks \\
+  -alias sealdesk \\
+  -keyalg RSA -keysize 2048 -validity 10000
+chmod 600 ~/.sealdesk/release.jks
 ```
 
-Please ensure that you run these commands from the root of the RustDesk repository, or the application may not find the required resources. Also note that other cargo subcommands such as `install` or `run` are not currently supported via this method as they would install or run the program inside the container instead of the host.
+Write `~/.sealdesk/key.properties` with the values for that keystore. Use an
+absolute `storeFile` path so builds are independent of Gradle's project
+working directory:
 
-## File Structure
+```properties
+storeFile=/home/your-user/.sealdesk/release.jks
+storePassword=<keystore-password>
+keyAlias=sealdesk
+keyPassword=<key-password>
+```
 
-- **[libs/hbb_common](https://github.com/rustdesk/rustdesk/tree/master/libs/hbb_common)**: video codec, config, tcp/udp wrapper, and some other utility functions shared with the server
-- **[libs/base](https://github.com/rustdesk/rustdesk/tree/master/libs/base)**: protobuf, fs functions for file transfer, keyboard and platform code used only by this app
-- **[libs/scrap](https://github.com/rustdesk/rustdesk/tree/master/libs/scrap)**: screen capture
-- **[libs/enigo](https://github.com/rustdesk/rustdesk/tree/master/libs/enigo)**: platform specific keyboard/mouse control
-- **[libs/clipboard](https://github.com/rustdesk/rustdesk/tree/master/libs/clipboard)**: file copy and paste implementation for Windows, Linux, macOS.
-- **[src/ui](https://github.com/rustdesk/rustdesk/tree/master/src/ui)**: obsolete Sciter UI (deprecated)
-- **[src/server](https://github.com/rustdesk/rustdesk/tree/master/src/server)**: audio/clipboard/input/video services, and network connections
-- **[src/client.rs](https://github.com/rustdesk/rustdesk/tree/master/src/client.rs)**: start a peer connection
-- **[src/rendezvous_mediator.rs](https://github.com/rustdesk/rustdesk/tree/master/src/rendezvous_mediator.rs)**: Communicate with [rustdesk-server](https://github.com/rustdesk/rustdesk-server), wait for remote direct (TCP hole punching) or relayed connection
-- **[src/platform](https://github.com/rustdesk/rustdesk/tree/master/src/platform)**: platform specific code
-- **[flutter](https://github.com/rustdesk/rustdesk/tree/master/flutter)**: Flutter code for desktop and mobile
+Protect the properties file (`chmod 600 ~/.sealdesk/key.properties`) and never
+commit it or paste its contents into logs, issues, or CI output. CI should
+provide an equivalent external file and keystore through its secret-management
+system. Release Gradle tasks fail early when the properties or keystore are
+missing; debug builds do not require release credentials.
 
-## Screenshots
+## Flutter desktop build
 
-![Connection Manager](https://github.com/rustdesk/rustdesk/assets/28412477/db82d4e7-c4bc-4823-8e6f-6af7eadf7651)
+The repository build wrapper assembles the native library and Flutter bundle.
+With the matching Flutter SDK and platform dependencies installed, run from
+the repository root:
 
-![Connected to a Windows PC](https://github.com/rustdesk/rustdesk/assets/28412477/9baa91e9-3362-4d06-aa1a-7518edcbd7ea)
+```bash
+python3 build.py --flutter --hwcodec
+```
 
-![File Transfer](https://github.com/rustdesk/rustdesk/assets/28412477/39511ad3-aa9a-4f8c-8947-1cce286a46ad)
+The wrapper invokes Cargo, builds the Flutter desktop target, and packages the
+platform output. The exact package and native prerequisites vary by Linux,
+macOS, and Windows. A complete Flutter build also needs the generated bridge
+artifacts produced by the project CI/toolchain; they are not regenerated by
+this documentation.
 
-![TCP Tunneling](https://github.com/rustdesk/rustdesk/assets/28412477/78e8708f-e87e-4570-8373-1360033ea6c5)
+## Focused checks
 
+These checks cover the SealDesk-specific code and do not replace full
+platform, GUI, or cross-network acceptance:
+
+```bash
+GO=/path/to/go cargo test --lib tailcat::
+GO=/path/to/go go -C libs/tailcat-ffi test -race ./...
+FLUTTER=/path/to/flutter bash tests/run_sealdesk_flutter_tests.sh
+```
+
+The Flutter script creates an isolated test project and runs analysis plus the
+SealDesk tests. The live security and CLI smoke tests require a successfully
+built native test binary and use temporary configuration; consult the scripts
+before running them on a machine with an existing SealDesk service.
+
+## Project references
+
+- [FORK.md](FORK.md) — fork boundary, ownership, and maintenance rules.
+- [FORK.md](FORK.md) — upstream baseline, patch layers, and upgrade plan.
+- [docs/sealdesk-prd.md](docs/sealdesk-prd.md) — SealDesk pairing and product
+  behavior, including known validation limits.
+- [libs/tailcat-ffi/README.md](libs/tailcat-ffi/README.md) — Tailcat library,
+  cross-compilation, and Android library checks.
+
+## License
+
+SealDesk retains the licensing terms of the upstream RustDesk-derived code and
+the licenses of its bundled dependencies. Consult the upstream notices and the
+individual component licenses included with each dependency.
