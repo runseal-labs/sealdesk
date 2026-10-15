@@ -177,6 +177,9 @@ class PlatformFFI {
           // files enter and leave this workspace through the system picker.
           _homeDir = (await getExternalStorageDirectory())?.path ??
               (await getApplicationSupportDirectory()).path;
+          // Sets the Rust config directory in this process; without it the
+          // config file is resolved relative to the working directory.
+          _ffiBind.mainGetDataDirIos(appDir: _dir);
         } else if (isIOS) {
           // The previous code was `_homeDir = (await getDownloadsDirectory())?.path ?? '';`,
           // which provided the `downloads` path in the sandbox.

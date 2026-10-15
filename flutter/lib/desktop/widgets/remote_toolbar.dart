@@ -21,6 +21,7 @@ import '../../common.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
 import '../../common/shared_state.dart';
+import '../../common/taildesk_connection.dart';
 import './popup_menu.dart';
 import './kb_layout_type_chooser.dart';
 import 'package:flutter_hbb/utils/scale.dart';
@@ -804,6 +805,20 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
       BuildContext context, _ToolbarEdge edge, bool isHorizontal) {
     final List<Widget> toolbarItems = [];
     toolbarItems.add(_PinMenu(state: widget.state));
+    if (widget.id.startsWith('tc')) {
+      toolbarItems.add(Obx(() {
+        final streamType = ConnectionTypeState.find(widget.id).stream_type.value;
+        final label = tailDeskConnectionLabel(streamType);
+        if (label == null) return const SizedBox.shrink();
+        return Tooltip(
+          message: tailDeskConnectionDescription(streamType)!,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Text(label),
+          ),
+        );
+      }));
+    }
     toolbarItems.add(Obx(() {
       final privacyModeState = PrivacyModeState.find(widget.id);
       if ((privacyModeState.isEmpty ||

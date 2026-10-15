@@ -29,6 +29,7 @@ import 'package:window_manager/window_manager.dart';
 import 'package:window_size/window_size.dart' as window_size;
 
 import '../consts.dart';
+import 'common/taildesk_connection.dart';
 import 'common/widgets/overlay.dart';
 import 'mobile/pages/file_manager_page.dart';
 import 'mobile/pages/remote_page.dart';
@@ -2222,11 +2223,16 @@ StreamSubscription? listenUniLinks({handleByFlutter = true}) {
     return null;
   }
 
-  final sub = uriLinkStream.listen((Uri? uri) {
+  final sub = uriLinkStream.listen((Uri? uri) async {
     debugPrint("A uri was received: $uri. handleByFlutter $handleByFlutter");
     if (uri != null) {
       if (handleByFlutter) {
-        handleUriLink(uri: uri);
+        final raw = await _rawDeepLinkOnAndroid(uri);
+        if (raw != null) {
+          handleUriLink(uriString: raw);
+        } else {
+          handleUriLink(uri: uri);
+        }
       } else {
         bind.sendUrlScheme(url: uri.toString());
       }
@@ -2253,6 +2259,21 @@ setEnvTerminalAdmin() {
 }
 
 // uri link handler
+// Android keeps the original intent data; Uri has already lowercased the authority.
+Future<String?> _rawDeepLinkOnAndroid(Uri uri) async {
+  if (!isAndroid) return null;
+  try {
+    final raw = await const MethodChannel('mChannel')
+        .invokeMethod<String>('getLastRawUri');
+    if (raw != null &&
+        raw.split('?').first.toLowerCase() ==
+            uri.toString().split('?').first.toLowerCase()) {
+      return raw;
+    }
+  } catch (_) {}
+  return null;
+}
+
 bool handleUriLink({List<String>? cmdArgs, Uri? uri, String? uriString}) {
   List<String>? args;
   if (cmdArgs != null && cmdArgs.isNotEmpty) {
@@ -2269,7 +2290,13 @@ bool handleUriLink({List<String>? cmdArgs, Uri? uri, String? uriString}) {
   } else if (uriString != null) {
     final uri = Uri.tryParse(uriString);
     if (uri != null) {
-      args = urlLinkToCmdArgs(uri);
+      // Uri lowercases the host, but a tailcat address is case-sensitive.
+      final rawAuthority =
+          uriString.split('://').last.split(RegExp(r'[/?#]')).first;
+      args = urlLinkToCmdArgs(uri,
+          rawAuthority: rawAuthority.toLowerCase() == uri.authority
+              ? rawAuthority
+              : null);
     }
   }
   if (args == null) {
@@ -2388,7 +2415,7 @@ bool handleUriLink({List<String>? cmdArgs, Uri? uri, String? uriString}) {
   return false;
 }
 
-List<String>? urlLinkToCmdArgs(Uri uri) {
+List<String>? urlLinkToCmdArgs(Uri uri, {String? rawAuthority}) {
   String? command;
   String? id;
   final options = [
@@ -2465,7 +2492,7 @@ List<String>? urlLinkToCmdArgs(Uri uri) {
     // rustdesk://<connect-id>/r
     // rustdesk://<connect-id>/r@<server>
     command = '--connect';
-    id = uri.authority;
+    id = rawAuthority ?? uri.authority;
     if (uri.path.length > 1) {
       id = id + uri.path;
     }
@@ -4193,6 +4220,8 @@ String get appName {
 }
 
 String getConnectionText(bool secure, bool direct, String streamType) {
+  final tailDeskText = tailDeskConnectionDescription(streamType);
+  if (tailDeskText != null) return tailDeskText;
   String connectionText;
   if (secure && direct) {
     connectionText = translate("Direct and encrypted connection");

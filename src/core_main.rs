@@ -43,6 +43,9 @@ fn finish_macos_update(result: hbb_common::ResultType<()>) -> Option<CoreMainAct
 /// If it returns [`Some`], the action determines whether to start the UI or report failure.
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn core_main() -> Option<CoreMainAction> {
+    // Own name, so config, logs and IPC sockets never collide with a stock RustDesk: the two
+    // cannot talk to each other anyway (no rendezvous server here).
+    *hbb_common::config::APP_NAME.write().unwrap() = crate::tailcat::APP_NAME.to_owned();
     if !crate::common::global_init() {
         return None;
     }
@@ -93,6 +96,26 @@ pub fn core_main() -> Option<CoreMainAction> {
         }
         i += 1;
     }
+    let taildesk_launch = match crate::tailcat::launch::Launch::parse(&args, no_server) {
+        Ok(launch) => launch,
+        Err(error) => return Some(CoreMainAction::ExitFailure(error)),
+    };
+    if taildesk_launch.is_some() {
+        args.clear();
+        _is_flutter_invoke_new_connection = false;
+        #[cfg(feature = "flutter")]
+        if let Some(input) = taildesk_launch
+            .as_ref()
+            .and_then(|launch| launch.input.as_ref())
+        {
+            flutter_args = vec!["--control".to_owned(), input.clone()];
+        }
+    }
+    let startup_mode = taildesk_launch
+        .as_ref()
+        .map(|launch| launch.mode.as_str().to_owned())
+        .unwrap_or_else(|| config::LocalConfig::get_option(keys::OPTION_TAILDESK_MODE));
+    no_server = crate::tailcat::launch::controller_only(&startup_mode, no_server);
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     if args.is_empty() {
         #[cfg(target_os = "linux")]
@@ -133,7 +156,10 @@ pub fn core_main() -> Option<CoreMainAction> {
     if _is_flutter_invoke_new_connection {
         return core_main_invoke_new_connection(std::env::args()).map(CoreMainAction::StartUi);
     }
-    let click_setup = cfg!(windows) && args.is_empty() && crate::common::is_setup(&arg_exe);
+    let click_setup = cfg!(windows)
+        && taildesk_launch.is_none()
+        && args.is_empty()
+        && crate::common::is_setup(&arg_exe);
     if click_setup && !config::is_disable_installation() {
         args.push("--install".to_owned());
         flutter_args.push("--install".to_string());
@@ -190,6 +216,7 @@ pub fn core_main() -> Option<CoreMainAction> {
     #[cfg(windows)]
     if !crate::platform::is_installed()
         && args.is_empty()
+        && !no_server
         && _is_quick_support
         && !_is_elevate
         && !_is_run_as_system
@@ -205,6 +232,16 @@ pub fn core_main() -> Option<CoreMainAction> {
         return None;
     }
     if args.is_empty() || crate::common::is_empty_uni_link(&args[0]) {
+        let requested = if no_server { "control" } else { "host" };
+        if let Err(error) = crate::tailcat::host::request_mode(requested) {
+            return Some(CoreMainAction::ExitFailure(error));
+        }
+        if let Some(launch) = &taildesk_launch {
+            config::LocalConfig::set_option(
+                keys::OPTION_TAILDESK_MODE.to_owned(),
+                launch.mode.as_str().to_owned(),
+            );
+        }
         #[cfg(target_os = "macos")]
         {
             crate::platform::macos::try_remove_temp_update_dir(None);
@@ -431,7 +468,8 @@ pub fn core_main() -> Option<CoreMainAction> {
                 return None;
             }
             if args.len() == 2 {
-                if crate::platform::is_installed() && is_root() {
+                // A portable (not installed) server runs as this user, so this user may set it.
+                if !crate::platform::is_installed() || is_root() {
                     if let Err(err) = crate::ipc::set_permanent_password(args[1].to_owned()) {
                         println!("{err}");
                     } else {
@@ -459,6 +497,52 @@ pub fn core_main() -> Option<CoreMainAction> {
                     println!("Installation and administrative privileges required!");
                 }
             }
+            return None;
+        } else if args[0] == "--tc-reset-address" {
+            if args.len() != 1 || is_cli_setting_change_disabled() {
+                return Some(CoreMainAction::ExitFailure(hbb_common::anyhow::anyhow!(
+                    "用法：--tc-reset-address；需要允许修改设置。此操作会断开被控会话并使旧二维码失效"
+                )));
+            }
+            return match crate::tailcat::host::reset_address() {
+                Ok(()) => {
+                    println!("地址已重置，旧二维码已失效；被控服务会按原运行状态恢复，请重新获取配对码");
+                    None
+                }
+                Err(error) => Some(CoreMainAction::ExitFailure(hbb_common::anyhow::anyhow!(
+                    "地址重置未完成，请确认被控服务状态后重试：{error}"
+                ))),
+            };
+        } else if args[0] == "--tc-pair" {
+            return match crate::tailcat::print_pairing_code(&args) {
+                Ok(()) => None,
+                Err(err) => Some(CoreMainAction::ExitFailure(err)),
+            };
+        } else if args[0] == "--tc-addr" {
+            let addr = crate::ui_interface::get_option(crate::tailcat::OPTION_ADDR.to_owned());
+            if addr.is_empty() {
+                println!("No tailcat address yet; is the RustDesk server running?");
+            } else {
+                if let Ok(qr) = crate::tailcat::qr_text(&addr) {
+                    println!("{qr}");
+                }
+                println!("{addr}");
+            }
+            return None;
+        } else if args[0] == "--tc-pubkey" {
+            match crate::tailcat::client_pubkey() {
+                Ok(k) => println!("{k}"),
+                Err(err) => println!("{err}"),
+            }
+            return None;
+        } else if args[0] == "--tc-allow" {
+            if is_cli_setting_change_disabled() {
+                println!("Settings are disabled!");
+                return None;
+            }
+            let keys = args.get(1).cloned().unwrap_or_default();
+            crate::ui_interface::set_option(crate::tailcat::OPTION_ALLOW.to_owned(), keys);
+            println!("Done! Restart the RustDesk server to apply.");
             return None;
         } else if args[0] == "--get-id" {
             println!("{}", crate::ipc::get_id());
@@ -717,6 +801,23 @@ pub fn core_main() -> Option<CoreMainAction> {
         }
     }
     //_async_logger_holder.map(|x| x.flush());
+    #[cfg(not(feature = "flutter"))]
+    if let Some(input) = taildesk_launch.and_then(|launch| launch.input) {
+        let pairing = match crate::tailcat::pairing::PairingCode::parse(&input) {
+            Ok(pairing) => pairing,
+            Err(error) => return Some(CoreMainAction::ExitFailure(error.into())),
+        };
+        if let Some(name) = pairing.name {
+            crate::ui_interface::set_peer_option(
+                pairing.address.clone(), "alias".to_owned(), name,
+            );
+        }
+        args = vec![
+            "--connect".to_owned(),
+            pairing.address,
+            pairing.password.unwrap_or_default(),
+        ];
+    }
     #[cfg(feature = "flutter")]
     return Some(CoreMainAction::StartUi(flutter_args));
     #[cfg(not(feature = "flutter"))]
@@ -867,6 +968,10 @@ fn is_user_main_ipc_scope_cli_command(args: &[String]) -> bool {
         Some("--password")
             | Some("--set-unlock-pin")
             | Some("--get-id")
+            | Some("--tc-addr")
+            | Some("--tc-pair")
+            | Some("--tc-reset-address")
+            | Some("--tc-allow")
             | Some("--set-id")
             | Some("--config")
             | Some("--option")

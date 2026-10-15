@@ -347,6 +347,10 @@ class FfiModel with ChangeNotifier {
         setConnectionType(peerId, evt['secure'] == 'true',
             evt['direct'] == 'true', evt['stream_type'] ?? '');
         resetRestartReconnectState();
+      } else if (name == 'tailcat_path') {
+        final direct = evt['direct'] == 'true';
+        setConnectionType(
+            peerId, true, direct, direct ? 'Tailcat/P2P' : 'Tailcat/DERP');
       } else if (name == 'switch_display') {
         // switch display is kept for backward compatibility
         handleSwitchDisplay(evt, sessionId, peerId);

@@ -190,6 +190,7 @@ lazy_static::lazy_static! {
     // Bucket 2 is separate so its rejections do not touch the password / 2FA budgets. It is
     // decayed in `check_id_whitelist` and cleared on auth, never on a bare id match.
     static ref LOGIN_FAILURES: [Arc::<Mutex<HashMap<String, (i32, i32, i32)>>>; 3] = Default::default();
+    static ref TAILCAT_LOGIN_FAILURES: [Arc::<Mutex<HashMap<String, (i32, i32, i32)>>>; 3] = Default::default();
     static ref SESSIONS: Arc::<Mutex<HashMap<SessionKey, Session>>> = Default::default();
     static ref ALIVE_CONNS: Arc::<Mutex<Vec<i32>>> = Default::default();
     pub static ref AUTHED_CONNS: Arc::<Mutex<Vec<AuthedConn>>> = Default::default();
@@ -354,6 +355,7 @@ impl TerminalUserToken {
     }
 }
 pub struct Connection {
+    via_tailcat: bool,
     inner: ConnInner,
     display_idx: usize,
     stream: super::Stream,
@@ -530,6 +532,7 @@ impl Connection {
         unauthorized: UnauthorizedID,
     ) {
         let super::ConnectionMeta {
+            via_tailcat,
             control_permissions,
             controlled_context,
         } = meta;
@@ -605,6 +608,7 @@ impl Connection {
             follow_remote_window: false,
             multi_ui_session: false,
             ip: "".to_owned(),
+            via_tailcat,
             disable_audio: false,
             #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
             enable_file_transfer: false,
@@ -1483,10 +1487,18 @@ impl Connection {
         keys
     }
 
+    fn failure_map(&self, index: usize) -> &Mutex<HashMap<String, (i32, i32, i32)>> {
+        if self.via_tailcat {
+            &TAILCAT_LOGIN_FAILURES[index]
+        } else {
+            &LOGIN_FAILURES[index]
+        }
+    }
+
     // Only this connection's own keys, so it stays O(1) instead of scanning the map.
     fn decay_id_whitelist_failures(&self) {
         decay_stale_failures(
-            &mut LOGIN_FAILURES[FAILURE_IDX_ID_WHITELIST].lock().unwrap(),
+            &mut self.failure_map(FAILURE_IDX_ID_WHITELIST).lock().unwrap(),
             &self.failure_keys(),
             (get_time() / 60_000) as i32,
             ID_WHITELIST_FAILURE_DECAY_MINUTES,
@@ -1497,7 +1509,7 @@ impl Connection {
     // normal on IPv6, leaving the shared prefixes that are what actually block it.
     fn clear_id_whitelist_failures(&self) {
         clear_failures(
-            &mut LOGIN_FAILURES[FAILURE_IDX_ID_WHITELIST].lock().unwrap(),
+            &mut self.failure_map(FAILURE_IDX_ID_WHITELIST).lock().unwrap(),
             &self.failure_keys(),
         );
     }
@@ -2989,7 +3001,10 @@ impl Connection {
                 },
             );
 
-            if !crate::common::is_direct_ip_access(&lr.username) && lr.username != Config::get_id()
+            if !crate::common::is_direct_ip_access(&lr.username)
+                && lr.username != Config::get_id()
+                && !(crate::tailcat::is_addr(&lr.username)
+                    && lr.username == Config::get_option(crate::tailcat::OPTION_ADDR))
             {
                 self.send_login_error(crate::client::LOGIN_MSG_OFFLINE)
                     .await;
@@ -4364,6 +4379,9 @@ impl Connection {
     // note: we specifically don't use hbb_common::is_ipv6_str to avoid divergence issues
     // between its regex and the system std::net::Ipv6Addr implementation.
     fn get_ipv6_prefixes(&self) -> Option<(String, String, String)> {
+        if self.via_tailcat {
+            return None;
+        }
         fn mask_u128(addr: u128, prefix: u8) -> u128 {
             let mask = if prefix == 0 || prefix > 128 {
                 0
@@ -4416,7 +4434,7 @@ impl Connection {
             return;
         }
 
-        let map_mutex = &LOGIN_FAILURES[i];
+        let map_mutex = self.failure_map(i);
         if remove {
             if failure.0 != 0 {
                 if let Some((p64, p56, p48)) = self.get_ipv6_prefixes() {
@@ -4443,6 +4461,9 @@ impl Connection {
         } else {
             // Re-read the full IP bucket in case another failed attempt updated it.
             let mut m = map_mutex.lock().unwrap();
+            if self.via_tailcat {
+                crate::tailcat::auth_limit::prepare_failure_entry(&mut m, &self.ip, time);
+            }
             let current_ip = m.get(&self.ip).copied().unwrap_or((0, 0, 0));
             m.insert(self.ip.clone(), Self::bump_failure_entry(current_ip, time));
         }
@@ -4456,7 +4477,7 @@ impl Connection {
         prefix_num: i8,
         thresh: i32,
     ) -> Option<(((i32, i32, i32), i32), bool)> {
-        let failure_prefix = LOGIN_FAILURES[i]
+        let failure_prefix = self.failure_map(i)
             .lock()
             .unwrap()
             .get(prefix)
@@ -4489,6 +4510,24 @@ impl Connection {
     }
 
     async fn check_failure_with_scope(
+        &mut self,
+        i: usize,
+        scope: FailureScope,
+    ) -> (((i32, i32, i32), i32), bool) {
+        let (failure, allowed) = self.check_source_failure_with_scope(i, scope).await;
+        if allowed
+            && i == 0
+            && self.via_tailcat
+            && !crate::tailcat::auth_limit::allow_password_attempt()
+        {
+            self.send_login_error(crate::tailcat::auth_limit::LOGIN_ERROR)
+                .await;
+            return (failure, false);
+        }
+        (failure, allowed)
+    }
+
+    async fn check_source_failure_with_scope(
         &mut self,
         i: usize,
         scope: FailureScope,
@@ -4542,12 +4581,13 @@ impl Connection {
         }
 
         // checks IPv6 and IPv4 direct addresses
-        let failure = LOGIN_FAILURES[i]
-            .lock()
-            .unwrap()
-            .get(&self.ip)
-            .copied()
-            .unwrap_or((0, 0, 0));
+        let failure = {
+            let mut failures = self.failure_map(i).lock().unwrap();
+            if self.via_tailcat {
+                crate::tailcat::auth_limit::prepare_failure_entry(&mut failures, &self.ip, time);
+            }
+            failures.get(&self.ip).copied().unwrap_or((0, 0, 0))
+        };
 
         let res = if failure.2 > 30 {
             self.send_login_error("Too many wrong attempts").await;

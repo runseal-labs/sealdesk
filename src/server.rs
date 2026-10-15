@@ -10,19 +10,17 @@ use bytes::Bytes;
 pub use connection::*;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use hbb_common::config::Config2;
-use hbb_common::tcp::{self, new_listener};
+use hbb_common::tcp::{self};
 use hbb_common::{
     allow_err,
     anyhow::Context,
     bail,
-    config::{Config, CONNECT_TIMEOUT, RELAY_PORT},
+    config::{Config, CONNECT_TIMEOUT},
     log,
     protobuf::{Enum, Message as _},
     rendezvous_proto::*,
-    socket_client,
     sodiumoxide::crypto::{box_, sign},
     timeout, tokio,
-    websocket::{check_ws, is_ws_endpoint},
     ResultType, Stream,
 };
 use base::message_proto::*;
@@ -88,6 +86,7 @@ type ConnMap = HashMap<i32, ConnInner>;
 
 #[derive(Clone, Default)]
 pub struct ConnectionMeta {
+    pub via_tailcat: bool,
     pub control_permissions: Option<ControlPermissions>,
     pub controlled_context: Option<ControlledContext>,
 }
@@ -179,37 +178,6 @@ pub fn new() -> ServerPtr {
     Arc::new(RwLock::new(server))
 }
 
-async fn accept_connection_(
-    server: ServerPtr,
-    socket: Stream,
-    secure: bool,
-    meta: ConnectionMeta,
-    slot: crate::rendezvous_mediator::PunchSlot,
-) -> ResultType<()> {
-    let local_addr = socket.local_addr();
-    drop(socket);
-    // even we drop socket, below still may fail if not use reuse_addr,
-    // there is TIME_WAIT before socket really released, so sometimes we
-    // see "Only one usage of each socket address is normally permitted" on windows sometimes,
-    let listener = new_listener(local_addr, true).await?;
-    log::info!("Server listening on: {}", &listener.local_addr()?);
-    if let Ok((stream, addr)) = timeout(CONNECT_TIMEOUT, listener.accept()).await? {
-        // The peer is in: the place goes back before the session runs, as every punch's does.
-        drop(slot);
-        stream.set_nodelay(true).ok();
-        let stream_addr = stream.local_addr()?;
-        create_tcp_connection(
-            server,
-            Stream::from(stream, stream_addr),
-            addr,
-            secure,
-            meta,
-        )
-        .await?;
-    }
-    Ok(())
-}
-
 pub async fn create_tcp_connection(
     server: ServerPtr,
     stream: Stream,
@@ -217,6 +185,9 @@ pub async fn create_tcp_connection(
     secure: bool,
     meta: ConnectionMeta,
 ) -> ResultType<()> {
+    if meta.via_tailcat && !crate::tailcat::host::enabled() {
+        bail!("TailDesk host mode is disabled");
+    }
     let mut stream = stream;
     // The address the connection layer keys on, whitelist and admission alike.
     let addr = hbb_common::try_into_v4(addr);
@@ -350,77 +321,6 @@ async fn identity_handshake(stream: &mut Stream, secure: bool) -> ResultType<()>
         }
     }
 
-    Ok(())
-}
-
-pub(crate) async fn accept_connection(
-    server: ServerPtr,
-    socket: Stream,
-    peer_addr: SocketAddr,
-    secure: bool,
-    meta: ConnectionMeta,
-    slot: crate::rendezvous_mediator::PunchSlot,
-) {
-    if let Err(err) = accept_connection_(server, socket, secure, meta, slot).await {
-        log::warn!("Failed to accept connection from {}: {}", peer_addr, err);
-    }
-}
-
-pub async fn create_relay_connection(
-    server: ServerPtr,
-    relay_server: String,
-    uuid: String,
-    peer_addr: SocketAddr,
-    secure: bool,
-    ipv4: bool,
-    meta: ConnectionMeta,
-) {
-    if let Err(err) = create_relay_connection_(
-        server,
-        relay_server,
-        uuid.clone(),
-        peer_addr,
-        secure,
-        ipv4,
-        meta,
-    )
-    .await
-    {
-        log::error!(
-            "Failed to create relay connection for {} with uuid {}: {}",
-            peer_addr,
-            uuid,
-            err
-        );
-    }
-}
-
-async fn create_relay_connection_(
-    server: ServerPtr,
-    relay_server: String,
-    uuid: String,
-    peer_addr: SocketAddr,
-    secure: bool,
-    ipv4: bool,
-    meta: ConnectionMeta,
-) -> ResultType<()> {
-    // The proxy's address family does not constrain the relay target.
-    let relay_server = crate::check_port(relay_server, RELAY_PORT);
-    let use_ws_proxy = Config::is_proxy() && is_ws_endpoint(&check_ws(&relay_server));
-    let mut stream = socket_client::connect_tcp(
-        socket_client::ipv4_to_ipv6(relay_server, ipv4 || use_ws_proxy),
-        CONNECT_TIMEOUT,
-    )
-    .await?;
-    let mut msg_out = RendezvousMessage::new();
-    let licence_key = crate::get_key(true).await;
-    msg_out.set_request_relay(RequestRelay {
-        licence_key,
-        uuid,
-        ..Default::default()
-    });
-    stream.send(&msg_out).await?;
-    create_tcp_connection(server, stream, peer_addr, secure, meta).await?;
     Ok(())
 }
 
@@ -728,7 +628,7 @@ pub async fn start_server(is_server: bool, no_server: bool) {
                                 if Config::set(config) {
                                     log::info!("config synced");
                                 }
-                                if Config2::set(config2) {
+                                if crate::tailcat::host::sync_config(config2) {
                                     log::info!("config2 synced");
                                 }
                             }
@@ -847,8 +747,6 @@ async fn sync_and_watch_config_dir(sync_done_tx: Option<tokio::sync::oneshot::Se
                                 Data::SyncConfig(Some(configs)) => {
                                     let (config, config2) = *configs;
                                     let _chk = crate::ipc::CheckIfRestart::new();
-                                    #[cfg(target_os = "macos")]
-                                    let _chk_pk = crate::CheckIfResendPk::new();
                                     if !config.is_empty() {
                                         if cfg0.0 != config {
                                             cfg0.0 = config.clone();
@@ -857,7 +755,7 @@ async fn sync_and_watch_config_dir(sync_done_tx: Option<tokio::sync::oneshot::Se
                                         }
                                         if cfg0.1 != config2 {
                                             cfg0.1 = config2.clone();
-                                            Config2::set(config2);
+                                            crate::tailcat::host::sync_config(config2);
                                             log::info!("sync config2 from root");
                                         }
                                     } else {

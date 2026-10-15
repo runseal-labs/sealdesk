@@ -942,6 +942,10 @@ async fn handle(data: Data, stream: &mut Connection) {
                 let value;
                 if name == "id" {
                     value = Some(Config::get_id());
+                } else if name == base::config::keys::OPTION_TAILDESK_HOST_MODE {
+                    value = Some(crate::tailcat::host::mode().to_owned());
+                } else if name == base::config::keys::OPTION_STOP_SERVICE {
+                    value = Some(Config::get_option(&name));
                 } else if name == "temporary-password" {
                     value = Some(password::temporary_password());
                 } else if name == "permanent-password-storage-and-salt" {
@@ -1006,6 +1010,18 @@ async fn handle(data: Data, stream: &mut Connection) {
                     }
                 } else if name == "temporary-password" {
                     password::update_temporary_password();
+                } else if name == base::config::keys::OPTION_TAILDESK_RESET_ADDRESS {
+                    let result = if value == "Y" {
+                        crate::tailcat::host::reset_key()
+                    } else {
+                        Err(hbb_common::anyhow::anyhow!("重置地址请求无效"))
+                    };
+                    let error = result
+                        .err()
+                        .map(|error| error.to_string())
+                        .unwrap_or_default();
+                    allow_err!(stream.send(&Data::Config((name, Some(error)))).await);
+                    return;
                 } else if name == "permanent-password" {
                     if Config::is_disable_change_permanent_password() {
                         log::warn!("Changing permanent password is disabled");
@@ -1018,6 +1034,12 @@ async fn handle(data: Data, stream: &mut Connection) {
                     // reading back any secret.
                     let ack = if updated { "Y" } else { "N" }.to_owned();
                     allow_err!(stream.send(&Data::Config((name.clone(), Some(ack)))).await);
+                } else if name == base::config::keys::OPTION_TAILDESK_HOST_MODE {
+                    if matches!(value.as_str(), "host" | "control") {
+                        crate::tailcat::host::set_mode(value);
+                    } else {
+                        updated = false;
+                    }
                 } else if name == "salt" {
                     Config::set_salt(&value);
                 } else if name == "voice-call-input" {
@@ -1043,7 +1065,7 @@ async fn handle(data: Data, stream: &mut Connection) {
                 if let Some(v) = value.get("privacy-mode-impl-key") {
                     crate::privacy_mode::switch(v);
                 }
-                Config::set_options(value);
+                crate::tailcat::host::set_options(value);
                 allow_err!(stream.send(&Data::Options(None)).await);
             }
         },
@@ -1055,7 +1077,7 @@ async fn handle(data: Data, stream: &mut Connection) {
             let (config, config2) = *configs;
             let _chk = CheckIfRestart::new();
             Config::set(config);
-            Config2::set(config2);
+            crate::tailcat::host::sync_config(config2);
             allow_err!(stream.send(&Data::SyncConfig(None)).await);
         }
         Data::SyncConfig(None) => {
@@ -1668,6 +1690,17 @@ async fn get_config_async(name: &str, ms_timeout: u64) -> ResultType<Option<Stri
 pub async fn set_config_async(name: &str, value: String) -> ResultType<()> {
     let mut c = connect(1000, "").await?;
     c.send_config(name, value).await?;
+    if name == base::config::keys::OPTION_TAILDESK_RESET_ADDRESS {
+        if let Some(Data::Config((response_name, Some(error)))) = c.next_timeout(1_000).await? {
+            if response_name == name {
+                if error.is_empty() {
+                    return Ok(());
+                }
+                bail!("重置地址失败：{error}");
+            }
+        }
+        bail!("未收到重置地址确认；请确认被控服务状态后重试");
+    }
     Ok(())
 }
 
@@ -1884,7 +1917,7 @@ async fn get_options_(ms_timeout: u64) -> ResultType<HashMap<String, String>> {
     let mut c = connect(ms_timeout, "").await?;
     c.send(&Data::Options(None)).await?;
     if let Some(Data::Options(Some(value))) = c.next_timeout(ms_timeout).await? {
-        Config::set_options(value.clone());
+        crate::tailcat::host::set_options(value.clone());
         Ok(value)
     } else {
         Ok(Config::get_options())
@@ -1926,7 +1959,7 @@ pub async fn set_options(value: HashMap<String, String>) -> ResultType<()> {
         // do not put below before connect, because we need to check should_exit
         c.next_timeout(1000).await.ok();
     }
-    Config::set_options(value);
+    crate::tailcat::host::set_options(value);
     Ok(())
 }
 

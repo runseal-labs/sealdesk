@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 
+import '../../common/taildesk_startup.dart';
+
 import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -24,6 +26,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:window_size/window_size.dart' as window_size;
 import '../widgets/button.dart';
+import 'taildesk_native_home_page.dart';
 
 class DesktopHomePage extends StatefulWidget {
   const DesktopHomePage({Key? key}) : super(key: key);
@@ -37,6 +40,7 @@ const borderColor = Color(0xFF2F65BA);
 class _DesktopHomePageState extends State<DesktopHomePage>
     with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
   final _leftPaneScrollController = ScrollController();
+  final _taildeskInitialInput = TailDeskStartup.takeTarget();
 
   @override
   bool get wantKeepAlive => true;
@@ -58,6 +62,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    if (bind.mainGetAppNameSync() == 'TailDesk') {
+      return _buildBlock(
+          child: TailDeskNativeHomePage(initialInput: _taildeskInitialInput));
+    }
     final isIncomingOnly = bind.isIncomingOnly();
     return _buildBlock(
         child: Row(
@@ -776,7 +784,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     }
 
     rustDeskWinManager.setMethodHandler((call, fromWindowId) async {
-      if (!isChattyMethod(call.method)) {
+      if (!isChattyMethod(call.method) && call.method != kWindowConnect) {
         debugPrint(
           "[Main] call ${call.method} with args ${call.arguments} from window $fromWindowId");
       }

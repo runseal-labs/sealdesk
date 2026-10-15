@@ -751,6 +751,10 @@ impl InvokeUiSession for FlutterHandler {
         );
     }
 
+    fn update_tailcat_path(&self, direct: bool) {
+        self.push_event("tailcat_path", &[("direct", &direct.to_string())], &[]);
+    }
+
     fn set_fingerprint(&self, fingerprint: String) {
         self.push_event("fingerprint", &[("fingerprint", &fingerprint)], &[]);
     }
@@ -1415,7 +1419,9 @@ pub fn session_start_(
             let session = (*session).clone();
             std::thread::spawn(move || {
                 let round = session.connection_round_state.lock().unwrap().new_round();
-                io_loop(session, round);
+                let started = std::time::Instant::now();
+                io_loop(session.clone(), round);
+                session.auto_reconnect_after_loss(round, started);
             });
         }
         Ok(())

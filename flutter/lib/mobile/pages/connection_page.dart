@@ -17,6 +17,7 @@ import '../../consts.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
 import 'home_page.dart';
+import '../taildesk_scan.dart';
 
 /// Connection page for connecting to a remote peer.
 class ConnectionPage extends StatefulWidget implements PageShape {
@@ -47,6 +48,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
   final AllPeersLoader _allPeersLoader = AllPeersLoader();
 
   StreamSubscription? _uniLinksSubscription;
+  bool _taildeskScanning = false;
 
   // https://github.com/flutter/flutter/issues/157244
   Iterable<Peer> _autocompleteOpts = [];
@@ -87,6 +89,21 @@ class _ConnectionPageState extends State<ConnectionPage> {
           if (!bind.isCustomClient() && !isIOS)
             Obx(() => _buildUpdateUI(stateGlobal.updateUrl.value)),
           _buildRemoteIDTextField(),
+          if (!isWeb && bind.mainGetAppNameSync() == 'TailDesk')
+            OutlinedButton.icon(
+              icon: const Icon(Icons.qr_code_scanner),
+              label: const Text('扫码连接 TailDesk'),
+              onPressed: _taildeskScanning
+                  ? null
+                  : () async {
+                      setState(() => _taildeskScanning = true);
+                      try {
+                        await scanAndConnectTailDesk(context);
+                      } finally {
+                        if (mounted) setState(() => _taildeskScanning = false);
+                      }
+                    },
+            ),
         ])),
         SliverFillRemaining(
           hasScrollBody: true,

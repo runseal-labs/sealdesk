@@ -164,6 +164,15 @@ pub fn refresh_options() {
 pub fn get_option<T: AsRef<str>>(key: T) -> String {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
+        if key.as_ref() == keys::OPTION_TAILDESK_HOST_MODE {
+            return match crate::tailcat::host::query_mode() {
+                Ok(mode) => mode,
+                Err(error) => {
+                    log::trace!("TailDesk mode query failed: {error}");
+                    String::new()
+                }
+            };
+        }
         let map = OPTIONS.lock().unwrap();
         if let Some(v) = map.get(key.as_ref()) {
             v.to_owned()
@@ -246,6 +255,21 @@ pub fn get_builtin_option(key: &str) -> String {
 
 #[inline]
 pub fn set_local_option(key: String, value: String) {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if key == keys::OPTION_TAILDESK_MODE {
+        let mode = value.clone();
+        match std::thread::spawn(move || crate::tailcat::host::request_mode(&mode)).join() {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                log::warn!("TailDesk mode change failed: {error}");
+                return;
+            }
+            Err(_) => {
+                log::error!("TailDesk mode change worker failed");
+                return;
+            }
+        }
+    }
     LocalConfig::set_option(key.clone(), value);
 }
 

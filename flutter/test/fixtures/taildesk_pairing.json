@@ -1,0 +1,44 @@
+[
+  {
+    "label": "canonical",
+    "input": "TAILDESK:V:1;A:tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-;P:secret;N:ros2go-gpu;E:200;;",
+    "now": 100,
+    "expected": {"address": "tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-", "password": "secret", "name": "ros2go-gpu", "expires_at": 200}
+  },
+  {
+    "label": "optional fields omitted",
+    "input": "TAILDESK:A:tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-;V:1;;",
+    "now": 100,
+    "expected": {"address": "tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-", "password": null, "name": null, "expires_at": null}
+  },
+  {
+    "label": "empty optional fields",
+    "input": "TAILDESK:V:1;A:tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-;P:;N:;;",
+    "now": 100,
+    "expected": {"address": "tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-", "password": "", "name": "", "expires_at": null}
+  },
+  {
+    "label": "prefix case and unknown escaped fields",
+    "input": "  taildesk:X:future\\;field;N:电脑🖥;E:200;A:tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-;V:1;X:again;;  ",
+    "now": 100,
+    "expected": {"address": "tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-", "password": null, "name": "电脑🖥", "expires_at": 200}
+  },
+  {
+    "label": "all five escaped characters",
+    "input": "TAILDESK:V:1;A:tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-;P:a\\;b\\:\\,\\\"\\\\;N:卧室\\;电脑;;",
+    "now": 100,
+    "expected": {"address": "tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-", "password": "a;b:,\"\\", "name": "卧室;电脑", "expires_at": null}
+  },
+  {"label": "expiry equality", "input": "TAILDESK:V:1;A:tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-;E:100;;", "now": 100},
+  {"label": "missing address", "input": "TAILDESK:V:1;;", "now": 100},
+  {"label": "lowercase version field", "input": "TAILDESK:v:1;A:tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-;;", "now": 100},
+  {"label": "unsupported version", "input": "TAILDESK:V:2;A:tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-;;", "now": 100},
+  {"label": "duplicate password", "input": "TAILDESK:V:1;A:tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-;P:first;P:second;;", "now": 100},
+  {"label": "invalid escape", "input": "TAILDESK:V:1;A:tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-;P:bad\\x;;", "now": 100},
+  {"label": "escaped key", "input": "TAILDESK:V:1;A\\:tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-;;", "now": 100},
+  {"label": "truncated terminator", "input": "TAILDESK:V:1;A:tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-;", "now": 100},
+  {"label": "trailing data", "input": "TAILDESK:V:1;A:tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-;;trailing", "now": 100},
+  {"label": "invalid expiry", "input": "TAILDESK:V:1;A:tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-;E:+200;;", "now": 100},
+  {"label": "overflow expiry", "input": "TAILDESK:V:1;A:tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-;E:18446744073709551616;;", "now": 100},
+  {"label": "invalid address", "input": "TAILDESK:V:1;A:123456789;;", "now": 100}
+]

@@ -816,6 +816,14 @@ class RustdeskImpl {
     return Future.value(mainGetOptionSync(key: key));
   }
 
+  Future<String> mainResetTaildeskAddress({dynamic hint}) async {
+    return '网页端不支持重置被控地址';
+  }
+
+  Future<String> mainGetTaildeskClipboardImage({dynamic hint}) async {
+    throw const FormatException('网页端请使用二维码图片导入');
+  }
+
   String mainGetOptionSync({required String key, dynamic hint}) {
     return js.context.callMethod('getByName', ['option', key]);
   }

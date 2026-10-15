@@ -74,6 +74,7 @@ pub struct Session<T: InvokeUiSession> {
     // Indicate whether the session is reconnected.
     // Used to auto start file transfer after reconnection.
     pub reconnect_count: Arc<AtomicUsize>,
+    pub auto_reconnect: Arc<Mutex<AutoReconnect>>,
     pub last_audit_note: Arc<Mutex<String>>,
     pub audit_guid: Arc<Mutex<String>>,
     // Every cursor shape as the peer sent it, compressed, by the id the UI knows it by. The
@@ -101,6 +102,13 @@ enum ConnectionState {
     Connecting,
     Connected,
     Disconnected,
+}
+
+/// Re-dial state for tailcat sessions that end without the user closing them.
+#[derive(Default)]
+pub struct AutoReconnect {
+    attempts: u32,
+    user_closed: bool,
 }
 
 /// ConnectionRoundState is used to control the reconnecting logic.
@@ -1341,8 +1349,37 @@ impl<T: InvokeUiSession> Session<T> {
         // No need to join the previous thread, because it will exit automatically.
         // And the previous thread will not change important states.
         *lock = Some(std::thread::spawn(move || {
-            io_loop(cloned, round);
+            let started = std::time::Instant::now();
+            io_loop(cloned.clone(), round);
+            cloned.auto_reconnect_after_loss(round, started);
         }));
+    }
+
+    // A tailcat session that ends without the user closing it is re-dialed a few times.
+    pub(crate) fn auto_reconnect_after_loss(&self, round: u32, started: std::time::Instant) {
+        if !crate::tailcat::is_addr(&self.get_id()) {
+            return;
+        }
+        let attempt = {
+            let mut auto = self.auto_reconnect.lock().unwrap();
+            if auto.user_closed {
+                return;
+            }
+            if started.elapsed() >= std::time::Duration::from_secs(30) {
+                auto.attempts = 0;
+            }
+            if auto.attempts >= 3 {
+                return;
+            }
+            auto.attempts += 1;
+            auto.attempts
+        };
+        std::thread::sleep(std::time::Duration::from_secs(2 * attempt as u64));
+        if self.connection_round_state.lock().unwrap().round != round {
+            return;
+        }
+        log::info!("tailcat session ended unexpectedly, reconnecting (attempt {attempt})");
+        self.reconnect(false);
     }
 
     #[cfg(not(feature = "flutter"))]
@@ -1434,6 +1471,7 @@ impl<T: InvokeUiSession> Session<T> {
     }
 
     pub fn close(&self) {
+        self.auto_reconnect.lock().unwrap().user_closed = true;
         self.send(Data::Close);
     }
 
@@ -1724,6 +1762,13 @@ pub trait InvokeUiSession: Send + Sync + Clone + 'static + Sized + Default {
     fn close_success(&self);
     fn update_quality_status(&self, qs: QualityStatus);
     fn set_connection_type(&self, is_secured: bool, direct: bool, stream_type: &str);
+    fn update_tailcat_path(&self, direct: bool) {
+        self.set_connection_type(
+            true,
+            direct,
+            if direct { "Tailcat/P2P" } else { "Tailcat/DERP" },
+        );
+    }
     fn set_fingerprint(&self, fingerprint: String);
     fn job_error(&self, id: i32, err: String, file_num: i32);
     fn job_done(&self, id: i32, file_num: i32);

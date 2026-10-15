@@ -38,6 +38,10 @@ lazy_static::lazy_static! {
 }
 
 fn initialize(app_dir: &str, custom_client_config: &str) {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        *config::APP_NAME.write().unwrap() = crate::tailcat::APP_NAME.to_owned();
+    }
     flutter::async_tasks::start_flutter_async_runner();
     // `APP_DIR` is set in `main_get_data_dir_ios()` on iOS.
     #[cfg(not(target_os = "ios"))]
@@ -63,14 +67,11 @@ fn initialize(app_dir: &str, custom_client_config: &str) {
         hbb_common::init_log(false, "");
         #[cfg(feature = "mediacodec")]
         scrap::mediacodec::check_mediacodec();
-        crate::common::test_rendezvous_server();
-        crate::common::test_nat_type();
     }
     #[cfg(target_os = "ios")]
     {
         use hbb_common::env_logger::*;
         init_from_env(Env::default().filter_or(DEFAULT_FILTER_ENV, "debug"));
-        crate::common::test_nat_type();
     }
     #[cfg(any(target_os = "android", target_os = "ios"))]
     {
@@ -999,6 +1000,36 @@ pub fn main_get_http_status(url: String) -> Option<String> {
 
 pub fn main_get_option(key: String) -> String {
     get_option(key)
+}
+
+pub fn main_reset_taildesk_address() -> String {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        if config::is_disable_settings() {
+            return "当前配置不允许重置地址".to_owned();
+        }
+        match crate::tailcat::host::reset_address() {
+            Ok(()) => String::new(),
+            Err(error) => format!("地址重置未完成，请确认被控服务状态后重试：{error}"),
+        }
+    }
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    "当前平台尚不支持重置地址".to_owned()
+}
+
+// 返回 JSON 字符串：成功为 {"png": "<base64>"}，失败为 {"error": "..."}。
+// flutter_rust_bridge 1.80 无法解析 ResultType<非单元类型>，因此在这里统一编码。
+pub fn main_get_taildesk_clipboard_image() -> String {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let result = crate::tailcat::clipboard::read_image();
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    let result: ResultType<Vec<u8>> = Err(hbb_common::anyhow::anyhow!(
+        "当前平台请使用扫码或相册导入二维码"
+    ));
+    match result {
+        Ok(png) => serde_json::json!({ "png": crate::common::encode64(png) }).to_string(),
+        Err(error) => serde_json::json!({ "error": error.to_string() }).to_string(),
+    }
 }
 
 pub fn main_get_option_sync(key: String) -> SyncReturn<String> {
@@ -3020,6 +3051,19 @@ pub mod server_side {
             }
         }
         std::thread::spawn(move || start_server(true));
+    }
+
+    #[no_mangle]
+    pub unsafe extern "system" fn Java_ffi_FFI_setTailcatInterfaces(
+        mut env: JNIEnv,
+        _class: JClass,
+        interfaces: JString,
+    ) {
+        if let Ok(json) = env.get_string(&interfaces) {
+            if let Ok(payload) = std::ffi::CString::new(String::from(json)) {
+                crate::tailcat::set_android_interfaces(&payload);
+            }
+        }
     }
 
     #[no_mangle]

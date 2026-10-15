@@ -206,7 +206,11 @@ impl<T: InvokeUiSession> Remote<T> {
                     .lock()
                     .unwrap()
                     .set_connected();
-                let is_secured = peer.is_secured();
+                // A tailcat tunnel is WireGuard end to end, keyed to the peer's address (its
+                // public key plus a pre-shared key), so it is secured without RustDesk's own key
+                // exchange, which needs the rendezvous server's signature.
+                let is_secured =
+                    peer.is_secured() || crate::tailcat::is_addr(&self.handler.get_id());
                 // Only WebRTC needs refining: its label names the transport that won the race,
                 // not the family ICE ended up nominating, and it is the one path where the two
                 // can disagree with the address the rendezvous observed.
@@ -269,9 +273,19 @@ impl<T: InvokeUiSession> Remote<T> {
                 let mut webrtc_suspect_since: Option<Instant> = None;
                 let mut last_rx_progress = peer.rx_progress();
                 let mut peer_gone = false;
+                let path_handler = self.handler.clone();
+                let path_address = path_handler.get_id();
+                let mut path_monitor = Box::pin(crate::tailcat::watch_path(
+                    &path_address,
+                    move |direct| {
+                        path_handler.update_direct(Some(direct));
+                        path_handler.update_tailcat_path(direct);
+                    },
+                ));
 
                 loop {
                     tokio::select! {
+                        _ = &mut path_monitor, if stream_type == "Tailcat" => {}
                         res = peer.next() => {
                             if let Some(res) = res {
                                 match res {

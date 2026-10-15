@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'common/taildesk_startup.dart';
+
 import 'package:bot_toast/bot_toast.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
@@ -39,7 +41,8 @@ Future<void> main(List<String> args) async {
   earlyAssert();
   WidgetsFlutterBinding.ensureInitialized();
 
-  debugPrint("launch args: $args");
+  debugPrint('launch argument count: ${args.length}');
+  TailDeskStartup.configure(args);
   kBootArgs = List.from(args);
 
   if (!isDesktop) {
