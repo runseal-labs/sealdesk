@@ -8,15 +8,56 @@ import 'package:flutter/services.dart';
 import 'package:sealdesk/common/sealdesk_pairing.dart';
 import 'package:sealdesk/common/sealdesk_qr_image.dart';
 import 'package:sealdesk/desktop/pages/sealdesk_home_page.dart';
+import 'package:sealdesk/generated_bridge.dart';
+import 'package:sealdesk/models/platform_model.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 const address = 'tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-';
 
+class _I18nBinding extends Fake implements SealdeskImpl {
+  String language = 'zh';
+
+  @override
+  String translate(
+      {required String name, required String locale, dynamic hint}) {
+    if (language == 'en') return name;
+    const values = {
+      'Load QR image': '载入二维码图片',
+      'Drop one QR image at a time': '请一次拖入一张二维码图片',
+      'Choose how to use SealDesk. Your choice will be remembered.':
+          '请选择使用方式，下次启动会记住你的选择',
+      'Share this device': '共享本机',
+      'Connect to a device': '连接设备',
+      'Copy pairing code': '复制配对码',
+      'Refresh password': '刷新密码',
+      'Reset address': '重置地址',
+      'Confirm reset': '确认重置',
+      'Hide QR code': '遮挡二维码',
+      'Show QR code': '显示二维码',
+      'Sharing stopped': '共享已停止',
+      'Waiting for connection': '等待连接',
+      'Updating QR code...': '正在更新二维码…',
+      'Resetting address...': '正在重置地址…',
+      'This disconnects the current session and invalidates all old QR codes. Share the new code with the other person.': '这会断开当前被控会话，并使所有旧二维码失效。请将新二维码重新分享给对方。',
+      'QR code hidden': '二维码已遮挡',
+      'Unable to get pairing code, please try again': '无法获取二维码，请重试',
+      'Connecting...': '正在连接…',
+      'Connect': '连接',
+      'Cancel': '取消',
+      'Paste text': '粘贴文本',
+    };
+    return values[name] ?? name;
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  final binding = _I18nBinding();
+  platformFFI.setBindingForTesting(binding);
   String? clipboard;
   setUp(() {
+    binding.language = 'zh';
     clipboard = null;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(SystemChannels.platform, (call) async {
@@ -325,13 +366,24 @@ void main() {
     expect(find.text('请一次拖入一张二维码图片'), findsOneWidget);
   });
 
+  testWidgets('home labels and dynamic status follow language changes',
+      (tester) async {
+    await showPage(tester, mode: 'host');
+    expect(find.text('共享本机'), findsOneWidget);
+    expect(find.text('等待连接'), findsOneWidget);
+    binding.language = 'en';
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('Share this device'), findsOneWidget);
+    expect(find.text('Waiting for connection'), findsOneWidget);
+  });
+
   testWidgets('first launch chooses and remembers mode before publishing QR',
       (tester) async {
     final saved = <String>[];
     await showPage(tester, mode: '', saveMode: (mode) async => saved.add(mode));
     expect(find.byType(QrImageView), findsNothing);
     expect(find.text('请选择使用方式，下次启动会记住你的选择'), findsOneWidget);
-    await tester.tap(find.text('被控此设备'));
+    await tester.tap(find.text('共享本机'));
     await tester.pump();
     expect(saved, ['host']);
     expect(find.byType(QrImageView), findsOneWidget);
@@ -340,14 +392,14 @@ void main() {
   testWidgets('failed mode switch keeps the current mode and reports failure',
       (tester) async {
     await showPage(tester, mode: 'control', saveMode: (_) async {
-      throw const FormatException('未能切换被控服务，请稍后重试');
+      throw const FormatException('切换失败，请重试');
     });
-    await tester.tap(find.text('被控此设备'));
+    await tester.tap(find.text('共享本机'));
     await tester.pumpAndSettle();
     expect(find.byType(QrImageView), findsNothing);
-    expect(find.text('未能切换被控服务，请稍后重试'), findsOneWidget);
+    expect(find.text('切换失败，请重试'), findsOneWidget);
     final control =
-        tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '控制其他设备'));
+        tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '连接设备'));
     expect(control.selected, isTrue);
     await tester.pumpWidget(const SizedBox());
   });
@@ -361,16 +413,16 @@ void main() {
       calls++;
       return confirmation.future;
     });
-    await tester.tap(find.text('被控此设备'));
+    await tester.tap(find.text('共享本机'));
     await tester.pump();
-    await tester.tap(find.text('控制其他设备'));
+    await tester.tap(find.text('连接设备'));
     await tester.pump();
     expect(calls, 1);
     expect(find.byType(QrImageView), findsNothing);
     confirmation.complete();
     await tester.pumpAndSettle();
     expect(find.byType(QrImageView), findsOneWidget);
-    await tester.tap(find.text('控制其他设备'));
+    await tester.tap(find.text('连接设备'));
     await tester.pumpAndSettle();
     expect(find.byType(QrImageView), findsNothing);
     await tester.pumpWidget(const SizedBox());
@@ -457,7 +509,7 @@ void main() {
     confirmation.complete();
     await tester.pumpAndSettle();
     expect(find.byType(QrImageView), findsNothing);
-    expect(find.text('正在等待新的安全连接地址…'), findsOneWidget);
+    expect(find.text('正在更新二维码…'), findsOneWidget);
     currentAddress = replacement;
     await tester.pump(const Duration(seconds: 1));
     final renewed = await copyPairing(tester);
@@ -532,7 +584,7 @@ void main() {
     stopped = true;
     await tester.pump(const Duration(seconds: 1));
     expect(find.byType(QrImageView), findsNothing);
-    expect(find.text('被控服务已停止，请启动服务'), findsOneWidget);
+    expect(find.text('共享已停止'), findsOneWidget);
     final copy =
         tester.widget<TextButton>(find.byKey(const ValueKey('sealdesk-copy')));
     expect(copy.onPressed, isNull);
@@ -542,7 +594,7 @@ void main() {
       (tester) async {
     await showPage(tester, loadHost: () async => throw StateError('offline'));
     expect(find.byType(QrImageView), findsNothing);
-    expect(find.text('暂时无法读取被控服务，请确认服务已启动'), findsOneWidget);
+    expect(find.text('无法获取二维码，请重试'), findsOneWidget);
   });
 
   testWidgets(

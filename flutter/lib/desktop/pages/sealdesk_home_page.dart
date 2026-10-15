@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../../common.dart';
 import '../../common/sealdesk_pairing.dart';
 
 class SealDeskHostState {
@@ -62,7 +63,9 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
   SealDeskPairing? _pairing;
   String? _code;
   String? _revokedAddress;
-  String _status = '正在准备安全连接…';
+  String _status = 'Generating pairing code...';
+
+  String get _statusText => translate(_status);
   String? _error;
   bool _hidden = false;
   bool _loading = false;
@@ -93,7 +96,8 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
         } else {
           final loader = widget.loadImageFile;
           if (loader == null) {
-            throw const FormatException('当前版本无法导入二维码图片');
+            throw FormatException(
+                translate('This version cannot import QR images'));
           }
           pairing = await loader(input);
         }
@@ -117,7 +121,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
         setState(() {
           _pairing = null;
           _code = null;
-          _status = '正在等待新的安全连接地址…';
+          _status = 'Updating QR code...';
         });
         return;
       }
@@ -125,7 +129,9 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
         setState(() {
           _pairing = null;
           _code = null;
-          _status = host.stopped ? '被控服务已停止，请启动服务' : '正在准备安全连接…';
+          _status = host.stopped
+              ? translate('Sharing stopped')
+              : translate('Generating pairing code...');
         });
         return;
       }
@@ -146,7 +152,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
       }
       setState(() {
         _status = host.connectedNames.isEmpty
-            ? '等待连接'
+            ? translate('Waiting for connection')
             : '已连接：${host.connectedNames.join('、')}';
       });
     } catch (_) {
@@ -154,7 +160,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
         setState(() {
           _pairing = null;
           _code = null;
-          _status = '暂时无法读取被控服务，请确认服务已启动';
+          _status = 'Unable to get pairing code, please try again';
         });
       }
     } finally {
@@ -170,7 +176,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
         _mode = mode;
         _pairing = null;
         _code = null;
-        _status = '正在准备安全连接…';
+        _status = 'Generating pairing code...';
       });
       await _poll(force: true);
     });
@@ -180,16 +186,17 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
         final confirmed = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('重置被控地址？'),
-            content: const Text('这会断开当前被控会话，并使所有旧二维码失效。请将新二维码重新分享给对方。'),
+            title: Text(translate('Reset device address?')),
+            content: Text(translate(
+                'This disconnects the current session and invalidates all old QR codes. Share the new code with the other person.')),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
-                child: const Text('取消'),
+                child: Text(translate('Cancel')),
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(context, true),
-                child: const Text('确认重置'),
+                child: Text(translate('Confirm reset')),
               ),
             ],
           ),
@@ -199,7 +206,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
           _revokedAddress = _pairing?.address ?? _revokedAddress;
           _pairing = null;
           _code = null;
-          _status = '正在重置地址…';
+          _status = 'Resetting address...';
         });
         await widget.resetAddress!();
         if (mounted) await _poll(force: true);
@@ -246,7 +253,8 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
     );
     final qr = validation.qrCode;
     if (qr == null) {
-      return const Text('配对码过长，无法生成二维码，请复制配对码文本');
+      return Text(translate(
+          'Pairing code is too long for a QR image. Copy the text instead.'));
     }
     final quietZone = (280 * 4 / (qr.moduleCount + 8)).ceilToDouble();
     return QrImageView.withQr(
@@ -270,7 +278,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
           (ModalRoute.of(context)?.isCurrent ?? true),
       onDragDone: (details) => _act(() async {
         if (details.files.length != 1) {
-          throw const FormatException('请一次拖入一张二维码图片');
+          throw FormatException(translate('Drop one QR image at a time'));
         }
         final pairing = await widget.loadImageFile!(details.files.single.path);
         if (mounted) await _joinPairing(pairing);
@@ -286,7 +294,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
                 Text('SealDesk',
                     style: Theme.of(context).textTheme.headlineMedium),
                 const SizedBox(height: 12),
-                const Text('扫码即连，无需账号'),
+                Text(translate('Scan to connect, no account required')),
                 const SizedBox(height: 24),
                 Wrap(
                   spacing: 12,
@@ -294,23 +302,26 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
                   alignment: WrapAlignment.center,
                   children: [
                     ChoiceChip(
-                      label: const Text('被控此设备'),
+                      label: Text(translate('Share this device')),
                       selected: _mode == 'host',
                       onSelected: _busy ? null : (_) => _selectMode('host'),
                     ),
                     ChoiceChip(
-                      label: const Text('控制其他设备'),
+                      label: Text(translate('Connect to a device')),
                       selected: _mode == 'control',
                       onSelected: _busy ? null : (_) => _selectMode('control'),
                     ),
                   ],
                 ),
                 const SizedBox(height: 24),
-                if (_mode.isEmpty) const Text('请选择使用方式，下次启动会记住你的选择'),
+                if (_mode.isEmpty)
+                  Text(translate(
+                      'Choose how to use SealDesk. Your choice will be remembered.')),
                 if (_mode == 'host') ...[
                   ..._buildHost(),
                   const SizedBox(height: 12),
-                  const Text('切换为控制模式会断开当前被控会话'),
+                  Text(translate(
+                      'Switching will disconnect the current session')),
                 ],
                 if (_mode == 'control') ..._buildControl(),
                 if (_error != null)
@@ -330,18 +341,18 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
   }
 
   List<Widget> _buildHost() => [
-        Text(_status, key: const ValueKey('sealdesk-status')),
+        Text(_statusText, key: const ValueKey('sealdesk-status')),
         const SizedBox(height: 16),
         if (_code != null)
           Container(
             color: Colors.white,
             child: _hidden
-                ? const SizedBox(
+                ? SizedBox(
                     width: 280,
                     height: 280,
                     child: Center(
-                      child:
-                          Text('二维码已遮挡', style: TextStyle(color: Colors.black)),
+                      child: Text(translate('QR code hidden'),
+                          style: const TextStyle(color: Colors.black)),
                     ),
                   )
                 : _buildQr(),
@@ -355,7 +366,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
             TextButton.icon(
               key: const ValueKey('sealdesk-copy'),
               icon: const Icon(Icons.copy),
-              label: const Text('复制配对码'),
+              label: Text(translate('Copy pairing code')),
               onPressed: _code == null || _busy
                   ? null
                   : () => _act(() => Clipboard.setData(
@@ -363,7 +374,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
             ),
             TextButton.icon(
               icon: const Icon(Icons.refresh),
-              label: const Text('刷新密码'),
+              label: Text(translate('Refresh password')),
               onPressed: _busy
                   ? null
                   : () => _act(() async {
@@ -375,7 +386,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
               TextButton.icon(
                 key: const ValueKey('sealdesk-reset-address'),
                 icon: const Icon(Icons.restart_alt),
-                label: const Text('重置地址'),
+                label: Text(translate('Reset address')),
                 onPressed:
                     _busy || (_pairing == null && _revokedAddress == null)
                         ? null
@@ -383,13 +394,14 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
               ),
             TextButton.icon(
               icon: Icon(_hidden ? Icons.visibility : Icons.visibility_off),
-              label: Text(_hidden ? '显示二维码' : '遮挡二维码'),
+              label: Text(translate(_hidden ? 'Show QR code' : 'Hide QR code')),
               onPressed: () => setState(() => _hidden = !_hidden),
             ),
           ],
         ),
         const SizedBox(height: 8),
-        const Text('官方客户端将在 10 分钟后拒绝导入此码；撤销旧临时密码的新登录能力需刷新密码。请只分享给可信任的人。'),
+        Text(translate(
+            'QR codes are valid for 10 minutes. Refresh the password to invalidate old codes. Share carefully.')),
       ];
 
   List<Widget> _buildControl() => [
@@ -400,10 +412,10 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
           maxLines: 6,
           autocorrect: false,
           enableSuggestions: false,
-          decoration: const InputDecoration(
-            labelText: '配对码',
-            hintText: '粘贴 SEALDESK: 开头的配对码',
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            labelText: translate('Pairing code'),
+            hintText: translate('Paste a pairing code starting with SEALDESK:'),
+            border: const OutlineInputBorder(),
           ),
         ),
         const SizedBox(height: 16),
@@ -413,19 +425,20 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
             if (widget.pickImage != null)
               TextButton.icon(
                 icon: const Icon(Icons.image),
-                label: const Text('载入二维码图片'),
+                label: Text(translate('Load QR image')),
                 onPressed: _busy ? null : _pickImage,
               ),
             TextButton.icon(
               icon: const Icon(Icons.paste),
-              label: const Text('粘贴文本'),
+              label: Text(translate('Paste text')),
               onPressed: _busy
                   ? null
                   : () => _act(() async {
                         final data =
                             await Clipboard.getData(Clipboard.kTextPlain);
                         if (data?.text == null || data!.text!.isEmpty) {
-                          throw const FormatException('剪贴板中没有配对码文本');
+                          throw FormatException(translate(
+                              'No pairing code text in the clipboard'));
                         }
                         final pairing =
                             SealDeskPairing.parse(data.text!, now: _now());
@@ -436,7 +449,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
               TextButton.icon(
                 key: const ValueKey('sealdesk-paste-image'),
                 icon: const Icon(Icons.content_paste),
-                label: const Text('粘贴二维码图片'),
+                label: Text(translate('Paste QR image')),
                 onPressed: _busy
                     ? null
                     : () => _act(() async {
@@ -446,15 +459,16 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
               ),
             FilledButton.icon(
               icon: const Icon(Icons.link),
-              label: Text(_busy ? '正在连接…' : '连接'),
+              label: Text(translate(_busy ? 'Connecting...' : 'Connect')),
               onPressed: _busy ? null : _connect,
             ),
           ],
         ),
         if (widget.loadImageFile != null)
-          const Padding(
-            padding: EdgeInsets.only(top: 12),
-            child: Text('也可以将一张二维码截图拖入此页面，识别后自动连接'),
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Text(translate(
+                'You can also drop a QR screenshot here to connect automatically')),
           ),
       ];
 }

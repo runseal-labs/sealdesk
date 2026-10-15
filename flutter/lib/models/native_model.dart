@@ -60,7 +60,15 @@ class PlatformFFI {
 
   SealdeskImpl get ffiBind => _ffiBind;
   @visibleForTesting
-  void setBindingForTesting(SealdeskImpl binding) => _ffiBind = binding;
+  void setBindingForTesting(SealdeskImpl binding) {
+    _ffiBind = binding;
+    _ffiBindInitialized = true;
+  }
+
+  @visibleForTesting
+  bool get isBindingReadyForTesting => _ffiBindInitialized;
+
+  bool _ffiBindInitialized = false;
 
   F3? _session_get_rgba;
 
@@ -80,7 +88,8 @@ class PlatformFFI {
   }
 
   bool registerEventHandler(
-      String eventName, String handlerName, HandleEvent handler, {bool replace = false}) {
+      String eventName, String handlerName, HandleEvent handler,
+      {bool replace = false}) {
     debugPrint('registerEventHandler $eventName $handlerName');
     var handlers = _eventHandlers[eventName];
     if (handlers == null) {
@@ -160,6 +169,7 @@ class PlatformFFI {
         debugPrint('Failed to get documents directory: $e');
       }
       _ffiBind = SealdeskImpl(dylib);
+      _ffiBindInitialized = true;
 
       if (isLinux) {
         if (isMain) {

@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+
+import '../../common.dart';
 import 'package:qr_code_scanner/qr_code_scanner.dart';
 
 import '../../common/sealdesk_pairing.dart';
@@ -60,7 +62,8 @@ class _SealDeskScanPageState extends State<SealDeskScanPage>
         return true;
       } catch (_) {
         if (mounted) {
-          setState(() => _error = '摄像头操作失败，请返回后重新打开扫码');
+          setState(() => _error = translate(
+              'Camera operation failed. Go back and reopen the scanner'));
         }
         return false;
       }
@@ -107,7 +110,8 @@ class _SealDeskScanPageState extends State<SealDeskScanPage>
     try {
       if (!paused) return;
       if (!_active || (!fromImage && _permissionDenied)) {
-        throw const FormatException('扫描已暂停，请返回前台后重新扫描');
+        throw FormatException(
+            translate('Scanning is paused. Return to the app and scan again'));
       }
       pairing.encode(now: _now());
       _finished = true;
@@ -135,7 +139,9 @@ class _SealDeskScanPageState extends State<SealDeskScanPage>
     } on FormatException catch (error) {
       if (mounted) setState(() => _error = error.message);
     } catch (_) {
-      if (mounted) setState(() => _error = '无法读取二维码图片，请重新选择');
+      if (mounted)
+        setState(() => _error = translate(
+            'Unable to read the QR image. Please choose another one'));
     } finally {
       if (mounted && !_finished) {
         setState(() => _busy = false);
@@ -146,7 +152,7 @@ class _SealDeskScanPageState extends State<SealDeskScanPage>
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('扫码连接 SealDesk')),
+        appBar: AppBar(title: Text(translate('Scan to connect to SealDesk'))),
         body: Column(children: [
           Expanded(
             child: QRView(
@@ -162,7 +168,10 @@ class _SealDeskScanPageState extends State<SealDeskScanPage>
                 if (!mounted) return;
                 setState(() {
                   _permissionDenied = !granted;
-                  _error = granted ? null : '没有摄像头权限，请在系统设置中允许后重新打开扫码，或载入图片';
+                  _error = granted
+                      ? null
+                      : translate(
+                          'Camera permission is required. Allow it in system settings, then reopen the scanner, or load an image');
                 });
                 if (!granted) _syncCamera();
               },
@@ -170,7 +179,10 @@ class _SealDeskScanPageState extends State<SealDeskScanPage>
           ),
           Padding(
             padding: const EdgeInsets.all(16),
-            child: Text(_busy ? '正在识别并准备连接…' : '请将对方的 SealDesk 配对二维码放入框内'),
+            child: Text(_busy
+                ? translate('Reading and preparing the connection...')
+                : translate(
+                    'Place the other device’s SealDesk QR code in the frame')),
           ),
           if (_error != null)
             Padding(
@@ -181,7 +193,7 @@ class _SealDeskScanPageState extends State<SealDeskScanPage>
             TextButton.icon(
               onPressed: _busy ? null : _pickImage,
               icon: const Icon(Icons.image),
-              label: const Text('载入二维码图片'),
+              label: Text(translate('Load QR image')),
             ),
           const SafeArea(top: false, child: SizedBox(height: 16)),
         ]),

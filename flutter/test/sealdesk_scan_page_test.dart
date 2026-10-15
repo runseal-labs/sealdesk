@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sealdesk/common/sealdesk_pairing.dart';
+import 'package:sealdesk/generated_bridge.dart';
 import 'package:sealdesk/mobile/pages/sealdesk_scan_page.dart';
+import 'package:sealdesk/models/platform_model.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const address = 'tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-';
@@ -13,8 +15,32 @@ const pairing = SealDeskPairing(
     name: '电脑',
     expiresAt: 200);
 
+class _I18nBinding extends Fake implements SealdeskImpl {
+  @override
+  String translate(
+      {required String name, required String locale, dynamic hint}) {
+    const values = {
+      'Load QR image': '载入二维码图片',
+      'Unable to read the QR image. Please choose another one':
+          '无法读取二维码图片，请重新选择',
+      'Camera operation failed. Go back and reopen the scanner':
+          '摄像头操作失败，请返回后重新打开扫码',
+      'Camera permission is required. Allow it in system settings, then reopen the scanner, or load an image':
+          '没有摄像头权限，请在系统设置中允许后重新打开扫码，或载入图片',
+      'Scan to connect to SealDesk': '扫码连接 SealDesk',
+      'Reading and preparing the connection...': '正在识别并准备连接…',
+      'Place the other device’s SealDesk QR code in the frame':
+          '请将对方的 SealDesk 配对二维码放入框内',
+      'Scanning is paused. Return to the app and scan again':
+          '扫描已暂停，请返回前台后重新扫描',
+    };
+    return values[name] ?? name;
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  platformFFI.setBindingForTesting(_I18nBinding());
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   int? cameraId;

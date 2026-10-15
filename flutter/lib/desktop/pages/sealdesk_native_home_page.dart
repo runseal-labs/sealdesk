@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
+import '../../common.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge.dart';
 
 import '../../common.dart';
@@ -50,7 +52,8 @@ class SealDeskNativeHomePage extends StatelessWidget {
 
   Future<SealDeskPairing> _pasteImage() async {
     try {
-      final reply = jsonDecode(await bind.mainGetSealdeskClipboardImage()) as Map<String, dynamic>;
+      final reply = jsonDecode(await bind.mainGetSealdeskClipboardImage())
+          as Map<String, dynamic>;
       final error = reply['error'];
       if (error is String) throw FormatException(error);
       final bytes = base64Decode(reply['png'] as String);
@@ -82,7 +85,7 @@ class SealDeskNativeHomePage extends StatelessWidget {
           final applied = await bind.mainGetOption(key: 'sealdesk-host-mode');
           if (applied != mode ||
               bind.mainGetLocalOption(key: 'sealdesk-mode') != mode) {
-            throw const FormatException('未能切换被控服务，请稍后重试');
+            throw FormatException(translate('Switch failed, please try again'));
           }
         },
         connect: (pairing) async {

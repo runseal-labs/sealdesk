@@ -15,6 +15,8 @@ import 'package:sealdesk/main.dart';
 import 'package:sealdesk/models/peer_model.dart';
 import 'package:sealdesk/models/peer_tab_model.dart';
 import 'package:sealdesk/models/state_model.dart';
+import 'package:sealdesk/models/platform_model.dart';
+import 'package:sealdesk/models/native_model.dart';
 import 'package:sealdesk/utils/multi_window_manager.dart';
 import 'package:sealdesk/utils/platform_channel.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -2358,38 +2360,32 @@ bool handleUriLink({List<String>? cmdArgs, Uri? uri, String? uriString}) {
       case UriLinkType.remoteDesktop:
         Future.delayed(Duration.zero, () {
           rustDeskWinManager.newRemoteDesktop(id!,
-              password: password,
-              switchUuid: switchUuid);
+              password: password, switchUuid: switchUuid);
         });
         break;
       case UriLinkType.fileTransfer:
         Future.delayed(Duration.zero, () {
-          rustDeskWinManager.newFileTransfer(id!,
-              password: password);
+          rustDeskWinManager.newFileTransfer(id!, password: password);
         });
         break;
       case UriLinkType.viewCamera:
         Future.delayed(Duration.zero, () {
-          rustDeskWinManager.newViewCamera(id!,
-              password: password);
+          rustDeskWinManager.newViewCamera(id!, password: password);
         });
         break;
       case UriLinkType.portForward:
         Future.delayed(Duration.zero, () {
-          rustDeskWinManager.newPortForward(id!, false,
-              password: password);
+          rustDeskWinManager.newPortForward(id!, false, password: password);
         });
         break;
       case UriLinkType.rdp:
         Future.delayed(Duration.zero, () {
-          rustDeskWinManager.newPortForward(id!, true,
-              password: password);
+          rustDeskWinManager.newPortForward(id!, true, password: password);
         });
         break;
       case UriLinkType.terminal:
         Future.delayed(Duration.zero, () {
-          rustDeskWinManager.newTerminal(id!,
-              password: password);
+          rustDeskWinManager.newTerminal(id!, password: password);
         });
         break;
     }
@@ -2498,18 +2494,14 @@ List<String>? urlLinkToCmdArgs(Uri uri, {String? rawAuthority}) {
 
     // Determine connection type based on command
     if (command == '--file-transfer') {
-      connect(Get.context!, id,
-          isFileTransfer: true, password: password);
+      connect(Get.context!, id, isFileTransfer: true, password: password);
     } else if (command == '--view-camera') {
-      connect(Get.context!, id,
-          isViewCamera: true, password: password);
+      connect(Get.context!, id, isViewCamera: true, password: password);
     } else if (command == '--terminal') {
-      connect(Get.context!, id,
-          isTerminal: true, password: password);
+      connect(Get.context!, id, isTerminal: true, password: password);
     } else if (command == 'terminal-admin') {
       setEnvTerminalAdmin();
-      connect(Get.context!, id,
-          isTerminal: true, password: password);
+      connect(Get.context!, id, isTerminal: true, password: password);
     } else {
       // Default to remote desktop for '--connect', '--play', or direct connection
       connect(Get.context!, id, password: password);
@@ -2564,8 +2556,7 @@ connectMainDesktop(String id,
         connToken: connToken);
   } else {
     await rustDeskWinManager.newRemoteDesktop(id,
-        password: password,
-        isSharedPassword: isSharedPassword);
+        password: password, isSharedPassword: isSharedPassword);
   }
 }
 
@@ -2643,9 +2634,7 @@ connect(BuildContext context, String id,
           context,
           MaterialPageRoute(
             builder: (BuildContext context) => FileManagerPage(
-                id: id,
-                password: password,
-                isSharedPassword: isSharedPassword),
+                id: id, password: password, isSharedPassword: isSharedPassword),
           ),
         );
       }
@@ -2669,9 +2658,7 @@ connect(BuildContext context, String id,
           context,
           MaterialPageRoute(
             builder: (BuildContext context) => ViewCameraPage(
-                id: id,
-                password: password,
-                isSharedPassword: isSharedPassword),
+                id: id, password: password, isSharedPassword: isSharedPassword),
           ),
         );
       }
@@ -2705,9 +2692,7 @@ connect(BuildContext context, String id,
           context,
           MaterialPageRoute(
             builder: (BuildContext context) => RemotePage(
-                id: id,
-                password: password,
-                isSharedPassword: isSharedPassword),
+                id: id, password: password, isSharedPassword: isSharedPassword),
           ),
         );
       }
@@ -3710,10 +3695,7 @@ Widget loadPowered(BuildContext context) {
       child: Text(
         translate("powered_by_me"),
         overflow: TextOverflow.clip,
-        style: Theme.of(context)
-            .textTheme
-            .bodySmall
-            ?.copyWith(fontSize: 9),
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 9),
       )).marginOnly(top: 6);
 }
 
