@@ -30,38 +30,32 @@ Peer _peer({
 }
 
 void main() {
-  test('merged autocomplete peers keep address book metadata and online state',
-      () {
+  test('merged autocomplete peers keep recent metadata and online state', () {
     final peers = mergeAutocompletePeers(
-      addressBookPeers: [
-        _peer(id: '123456789', alias: 'Office PC', username: 'ab-user'),
+      recentPeers: [
+        _peer(id: '123456789', alias: 'Office PC', username: 'recent-user'),
+        _peer(id: '123456789', online: true),
       ],
-      lanPeers: [
-        _peer(id: '123456789', username: 'lan-user', online: true),
-      ],
+      restRecentPeerIds: ['987654321'],
     );
 
-    expect(peers, hasLength(1));
-    expect(peers.single.id, '123456789');
-    expect(peers.single.alias, 'Office PC');
-    expect(peers.single.username, 'ab-user');
-    expect(peers.single.online, isTrue);
+    expect(peers, hasLength(2));
+    expect(peers.first.id, '123456789');
+    expect(peers.first.alias, 'Office PC');
+    expect(peers.first.username, 'recent-user');
+    expect(peers.first.online, isTrue);
+    expect(peers.last.id, '987654321');
   });
 
-  test('online callback updates currently displayed options', () async {
-    final loader = AllPeersLoader(
-      queryOnlines: (ids) async {},
-      queryOnlineDebounce: Duration(milliseconds: 1),
-    );
-    final displayedOptions = [_peer(id: '123456789')];
+  test('online callback updates loaded peers', () {
+    final loader = AllPeersLoader();
+    loader.peers = [_peer(id: '123456789')];
 
-    loader.queryOnlines(displayedOptions);
     loader.updateOnlineStateForTesting({
       'onlines': '123456789',
       'offlines': '',
     });
 
-    expect(displayedOptions.single.online, isTrue);
-    await Future.delayed(Duration(milliseconds: 2));
+    expect(loader.peers.single.online, isTrue);
   });
 }

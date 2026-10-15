@@ -237,10 +237,7 @@ class PlatformFFI {
       await _ffiBind.mainDeviceId(id: id);
       await _ffiBind.mainDeviceName(name: name);
       await _ffiBind.mainSetHomeDir(home: _homeDir);
-      await _ffiBind.mainInit(
-        appDir: _dir,
-        customClientConfig: '',
-      );
+      await _ffiBind.mainInit(appDir: _dir);
     } catch (e) {
       debugPrintStack(label: 'initialize failed: $e');
     }

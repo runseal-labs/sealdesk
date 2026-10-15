@@ -306,36 +306,6 @@ impl AuthConnType {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(i64)]
-enum ConnAuditPrimaryAuth {
-    None = 0,
-    Click = 1,
-    TemporaryPassword = 2,
-    PermanentPassword = 3,
-    SwitchSides = 4,
-}
-
-impl ConnAuditPrimaryAuth {
-    fn as_i64(self) -> i64 {
-        self as i64
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(i64)]
-enum ConnAuditTwoFactor {
-    None = 0,
-    Totp = 1,
-    TrustedDevice = 2,
-}
-
-impl ConnAuditTwoFactor {
-    fn as_i64(self) -> i64 {
-        self as i64
-    }
-}
-
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[derive(Clone, Debug)]
 enum TerminalUserToken {
@@ -409,8 +379,6 @@ pub struct Connection {
     tx_input: std_mpsc::Sender<MessageInput>,
     // handle input messages
     video_ack_required: bool,
-    server_audit_conn: String,
-    server_audit_file: String,
     controlled_context: Option<ControlledContext>,
     lr: LoginRequest,
     // Authentication retries may update credentials, but not the requested session scope.
@@ -445,10 +413,6 @@ pub struct Connection {
     tx_from_authed: mpsc::UnboundedSender<ipc::Data>,
     printer_data: Vec<(Instant, String, Vec<u8>)>,
     // For post requests that need to be sent sequentially.
-    // eg. post_conn_audit
-    tx_post_seq: mpsc::UnboundedSender<(String, Value)>,
-    conn_audit_primary_auth: ConnAuditPrimaryAuth,
-    conn_audit_two_factor: ConnAuditTwoFactor,
     // Tracks read job IDs delegated to CM process.
     // When a read job is delegated to CM (via FS::ReadFile), the job id is added here.
     // Used to filter stale responses (FileBlockFromCM, FileReadDone, etc.) for
@@ -556,11 +520,6 @@ impl Connection {
         let (tx_video, mut rx_video) = mpsc::unbounded_channel::<(Instant, Arc<Message>)>();
         let (tx_input, _rx_input) = std_mpsc::channel();
         let (tx_from_authed, mut rx_from_authed) = mpsc::unbounded_channel::<ipc::Data>();
-        let mut hbbs_rx = crate::hbbs_http::sync::signal_receiver();
-        let (tx_post_seq, rx_post_seq) = mpsc::unbounded_channel();
-        tokio::spawn(async move {
-            Self::post_seq_loop(rx_post_seq).await;
-        });
 
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         let tx_cloned = tx.clone();
@@ -618,8 +577,6 @@ impl Connection {
             show_my_cursor: false,
             tx_input,
             video_ack_required: false,
-            server_audit_conn: "".to_owned(),
-            server_audit_file: "".to_owned(),
             controlled_context,
             lr: Default::default(),
             login_scope: None,
@@ -652,7 +609,6 @@ impl Connection {
             retina: Retina::default(),
             tx_from_authed,
             printer_data: Vec::new(),
-            tx_post_seq,
             cm_read_job_ids: HashSet::new(),
             terminal_service_id: "".to_owned(),
             terminal_persistent: false,
@@ -660,8 +616,6 @@ impl Connection {
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             terminal_user_token: None,
             terminal_generic_service: None,
-            conn_audit_primary_auth: ConnAuditPrimaryAuth::None,
-            conn_audit_two_factor: ConnAuditTwoFactor::None,
         };
         let addr = hbb_common::try_into_v4(addr);
         if !conn.on_open(addr).await {
@@ -753,7 +707,6 @@ impl Connection {
                 Some(data) = rx_from_cm.recv() => {
                     match data {
                         ipc::Data::Authorize => {
-                            conn.set_conn_audit_primary_auth(ConnAuditPrimaryAuth::Click);
                             conn.require_2fa.take();
                             if !conn.send_logon_response_and_keep_alive().await {
                                 break;
@@ -928,12 +881,6 @@ impl Connection {
                                     let files = files.into_iter().map(|(f, s)| {
                                         (f, s as i64)
                                     }).collect::<Vec<_>>();
-                                    conn.post_file_audit(
-                                        FileAuditType::RemoteSend,
-                                        "",
-                                        files,
-                                        json!({}),
-                                    );
                                 }
                                 _ => {
                                     allow_err!(conn.stream.send(&clip_2_msg(clip)).await);
@@ -1066,13 +1013,6 @@ impl Connection {
                         }
                     } else {
                         conn.file_timer = crate::rustdesk_interval(time::interval_at(Instant::now() + SEC30, SEC30));
-                    }
-                }
-                Ok(conns) = hbbs_rx.recv() => {
-                    if conns.contains(&id) {
-                        conn.send_close_reason_no_retry("Closed manually by web console").await;
-                        conn.on_close("web console", true).await;
-                        break;
                     }
                 }
                 Some((instant, value)) = rx_video.recv() => {
@@ -1236,9 +1176,6 @@ impl Connection {
             raii::AuthedConnID::check_remove_session(conn.inner.id(), conn.session_key());
         }
 
-        conn.post_conn_audit(json!({
-            "action": "close",
-        }));
         if let Some(s) = conn.server.upgrade() {
             let mut s = s.write().unwrap();
             s.remove_connection(&conn.inner);
@@ -1327,13 +1264,6 @@ impl Connection {
         log::debug!("Input thread exited");
     }
 
-    async fn post_seq_loop(mut rx: mpsc::UnboundedReceiver<(String, Value)>) {
-        while let Some((url, v)) = rx.recv().await {
-            allow_err!(Self::post_audit_async(url, v).await);
-        }
-        log::debug!("post_seq_loop exited");
-    }
-
     async fn try_port_forward_loop(
         &mut self,
         rx_from_cm: &mut mpsc::UnboundedReceiver<Data>,
@@ -1342,7 +1272,6 @@ impl Connection {
         if let Some(mut forward) = self.port_forward_socket.take() {
             log::info!("Running port forwarding loop");
             self.stream.set_raw();
-            let mut hbbs_rx = crate::hbbs_http::sync::signal_receiver();
             loop {
                 tokio::select! {
                     Some(data) = rx_from_cm.recv() => {
@@ -1383,12 +1312,6 @@ impl Connection {
                     _ = self.timer.tick() => {
                         if last_recv_time.elapsed() >= H1 {
                             bail!("Timeout");
-                        }
-                    }
-                    Ok(conns) = hbbs_rx.recv() => {
-                        if conns.contains(&self.inner.id) {
-                            // todo: check reconnect
-                            bail!("Closed manually by the web console");
                         }
                     }
                 }
@@ -1439,10 +1362,6 @@ impl Connection {
         {
             self.send_login_error("Your ip is blocked by the peer")
                 .await;
-            self.post_alarm_audit(
-                AlarmAuditType::IpWhitelist, //"ip whitelist",
-                json!({ "ip":addr.ip() }),
-            );
             return false;
         }
         true
@@ -1471,10 +1390,6 @@ impl Connection {
         self.update_failure(failure, false, FAILURE_IDX_ID_WHITELIST);
         self.send_login_error("Your ID is blocked by the peer")
             .await;
-        self.post_alarm_audit(
-            AlarmAuditType::IdWhitelist,
-            json!({ "id": self.lr.my_id.clone(), "ip": self.ip.clone(), "name": self.lr.my_name.clone() }),
-        );
         false
     }
 
@@ -1530,135 +1445,7 @@ impl Connection {
         let mut msg_out = Message::new();
         msg_out.set_hash(self.hash.clone());
         self.send(msg_out).await;
-        self.get_api_server();
-        let mut audit = json!({
-            "ip": addr.ip(),
-            "action": "new",
-        });
-        if let Some(audit_ref) = self.conn_audit_ref() {
-            audit["conn_audit_ref"] = json!(audit_ref);
-        }
-        self.post_conn_audit(audit);
         true
-    }
-
-    fn get_api_server(&mut self) {
-        self.server_audit_conn = crate::get_audit_server(
-            Config::get_option("api-server"),
-            Config::get_option("custom-rendezvous-server"),
-            "conn".to_owned(),
-        );
-        self.server_audit_file = crate::get_audit_server(
-            Config::get_option("api-server"),
-            Config::get_option("custom-rendezvous-server"),
-            "file".to_owned(),
-        );
-    }
-
-    fn conn_audit_ref(&self) -> Option<&str> {
-        let audit_ref = self
-            .controlled_context
-            .as_ref()
-            .map(|c| c.conn_audit_ref.as_str())?;
-        if audit_ref.is_empty() {
-            None
-        } else {
-            Some(audit_ref)
-        }
-    }
-
-    fn post_conn_audit(&self, v: Value) {
-        if self.server_audit_conn.is_empty() {
-            return;
-        }
-        let url = self.server_audit_conn.clone();
-        let mut v = v;
-        v["id"] = json!(Config::get_id());
-        v["uuid"] = json!(crate::encode64(hbb_common::get_uuid()));
-        v["conn_id"] = json!(self.inner.id);
-        v["session_id"] = json!(self.lr.session_id);
-        // Unique per record; the api server dedups retried posts by it.
-        v["nonce"] = json!(uuid::Uuid::new_v4().to_string());
-        allow_err!(self.tx_post_seq.send((url, v)));
-    }
-
-    fn get_files_for_audit(job_type: fs::JobType, mut files: Vec<FileEntry>) -> Vec<(String, i64)> {
-        files
-            .drain(..)
-            .map(|f| {
-                (
-                    if job_type == fs::JobType::Printer {
-                        "Remote print".to_owned()
-                    } else {
-                        f.name
-                    },
-                    f.size as _,
-                )
-            })
-            .collect()
-    }
-
-    fn post_file_audit(
-        &self,
-        r#type: FileAuditType,
-        path: &str,
-        files: Vec<(String, i64)>,
-        info: Value,
-    ) {
-        if self.server_audit_file.is_empty() {
-            return;
-        }
-        let url = self.server_audit_file.clone();
-        let file_num = files.len();
-        let mut files = files;
-        files.sort_by(|a, b| b.1.cmp(&a.1));
-        files.truncate(10);
-        let is_file = files.len() == 1 && files[0].0.is_empty();
-        let mut info = info;
-        info["ip"] = json!(self.ip.clone());
-        info["name"] = json!(self.lr.my_name.clone());
-        info["num"] = json!(file_num);
-        info["files"] = json!(files);
-        let v = json!({
-            "id":json!(Config::get_id()),
-            "uuid":json!(crate::encode64(hbb_common::get_uuid())),
-            "peer_id":json!(self.lr.my_id),
-            "conn_id":json!(self.inner.id()),
-            "type": r#type as i8,
-            "path":path,
-            "is_file":is_file,
-            "info":json!(info).to_string(),
-            "nonce": uuid::Uuid::new_v4().to_string(),
-        });
-        tokio::spawn(async move {
-            allow_err!(Self::post_audit_async(url, v).await);
-        });
-    }
-
-    fn post_alarm_audit(&self, typ: AlarmAuditType, info: Value) {
-        let url = crate::get_audit_server(
-            Config::get_option("api-server"),
-            Config::get_option("custom-rendezvous-server"),
-            "alarm".to_owned(),
-        );
-        if url.is_empty() {
-            return;
-        }
-        let mut v = Value::default();
-        v["id"] = json!(Config::get_id());
-        v["uuid"] = json!(crate::encode64(hbb_common::get_uuid()));
-        v["typ"] = json!(typ as i8);
-        v["info"] = serde_json::Value::String(info.to_string());
-        v["conn_id"] = json!(self.inner.id());
-        v["nonce"] = json!(uuid::Uuid::new_v4().to_string());
-        if typ == AlarmAuditType::IpWhitelist || typ == AlarmAuditType::IdWhitelist {
-            if let Some(audit_ref) = self.conn_audit_ref() {
-                v["conn_audit_ref"] = json!(audit_ref);
-            }
-        }
-        tokio::spawn(async move {
-            allow_err!(Self::post_audit_async(url, v).await);
-        });
     }
 
     fn post_session_scope_violation_alarm(&self, message: &'static str) {
@@ -1666,132 +1453,6 @@ impl Connection {
             .authed_conn_type()
             .map(AuthConnType::as_str)
             .unwrap_or("unknown");
-        self.post_alarm_audit(
-            AlarmAuditType::SessionScopeViolation,
-            json!({
-                "id": self.lr.my_id.clone(),
-                "name": self.lr.my_name.clone(),
-                "ip": &self.ip,
-                "conn_type": conn_type,
-                "message": message,
-            }),
-        );
-    }
-
-    async fn post_audit_async(url: String, v: Value) -> ResultType<String> {
-        // Audit records are compliance evidence; retry transport errors and
-        // 5xx (e.g. a reverse proxy answering while the api server restarts)
-        // so transient failures don't silently drop them. A 4xx is a
-        // deterministic rejection and fails immediately.
-        //
-        // The delays, not the attempt count, are what cover the case this exists
-        // for: a proxy answering 502 during a restart fails fast, so without them
-        // every attempt lands within a few seconds and none outlives the restart.
-        //
-        // The window is bounded on the other side: the api server only remembers a
-        // record's nonce for five minutes, so a retry arriving after that expired
-        // would be stored a second time. Counting attempts cannot bound it - one
-        // attempt is already up to 84s (post_request_ retries the TLS handshake up
-        // to four times at 12s each, then the TCP-proxy fallback adds 36s), and a
-        // suspend between attempts stretches the wall clock without limit. So stop
-        // by elapsed time instead, early enough that the last attempt still lands
-        // inside the server's window.
-        const RETRY_DEADLINE: Duration = Duration::from_secs(120);
-        // One delay per retry, so the attempt count follows from the table and the
-        // two cannot drift apart.
-        const RETRY_BACKOFF_SECS: [u64; 2] = [10, 30];
-        const ATTEMPTS: usize = RETRY_BACKOFF_SECS.len() + 1;
-        let body = v.to_string();
-        let started = Instant::now();
-        let mut attempt = 0usize;
-        loop {
-            attempt += 1;
-            let (retryable, err) =
-                match crate::post_request_with_status(url.clone(), body.clone(), "").await {
-                    Ok((status, text)) => {
-                        if (200..300).contains(&status) {
-                            // Success is an empty body. hbbs reports handler
-                            // failures (e.g. a db write error) as 200 with an
-                            // {"error": ...} body - retryable: the server
-                            // releases the record's nonce when its write fails,
-                            // so trying again is what stores the record. Any
-                            // other nonempty body did not come from the audit
-                            // handler (a proxy interposing a 2xx maintenance
-                            // page, a malformed error) and must not be mistaken
-                            // for storage, so it is retried rather than dropped.
-                            if text.trim().is_empty() {
-                                return Ok(text);
-                            }
-                            let server_err = serde_json::from_str::<Value>(&text)
-                                .ok()
-                                .and_then(|v| v.get("error")?.as_str().map(|s| s.to_owned()))
-                                .filter(|e| !e.is_empty());
-                            let (label, detail) = match &server_err {
-                                Some(e) => ("server error", e.as_str()),
-                                None => ("unexpected response body", text.as_str()),
-                            };
-                            let brief: String = detail.chars().take(128).collect();
-                            (true, format!("{}: {}", label, brief))
-                        } else {
-                            let brief: String = text.chars().take(128).collect();
-                            // 408 and 429 are the transient 4xx: the request timed
-                            // out upstream, or a proxy is shedding load. Every other
-                            // 4xx is a deterministic rejection and retrying it would
-                            // only delay the log line.
-                            let transient = status >= 500 || status == 408 || status == 429;
-                            (transient, format!("status {}: {}", status, brief))
-                        }
-                    }
-                    Err(e) => (true, e.to_string()),
-                };
-            let elapsed = started.elapsed();
-            if !retryable || attempt >= ATTEMPTS || elapsed >= RETRY_DEADLINE {
-                log::error!(
-                    "Audit post dropped (attempt {}/{}, {:?} elapsed): {}",
-                    attempt,
-                    ATTEMPTS,
-                    elapsed,
-                    err
-                );
-                bail!("{}", err);
-            }
-            log::warn!(
-                "Audit post failed (attempt {}/{}): {}",
-                attempt,
-                ATTEMPTS,
-                err
-            );
-            // In range by construction: the guard above returns at ATTEMPTS.
-            time::sleep(Duration::from_secs(RETRY_BACKOFF_SECS[attempt - 1])).await;
-            // Re-checked after the delay so no attempt starts past the deadline;
-            // the check above alone would let one begin up to a backoff later.
-            if started.elapsed() >= RETRY_DEADLINE {
-                log::error!(
-                    "Audit post dropped (attempt {}/{}, deadline passed during backoff): {}",
-                    attempt,
-                    ATTEMPTS,
-                    err
-                );
-                bail!("{}", err);
-            }
-        }
-    }
-
-    fn set_conn_audit_primary_auth(&mut self, method: ConnAuditPrimaryAuth) {
-        self.conn_audit_primary_auth = method;
-    }
-
-    fn set_conn_audit_two_factor(&mut self, two_factor: ConnAuditTwoFactor) {
-        self.conn_audit_two_factor = two_factor;
-    }
-
-    fn normalize_conn_audit_auth_fields(&mut self) {
-        if matches!(
-            self.conn_audit_primary_auth,
-            ConnAuditPrimaryAuth::Click | ConnAuditPrimaryAuth::SwitchSides
-        ) {
-            self.conn_audit_two_factor = ConnAuditTwoFactor::None;
-        }
     }
 
     pub(super) fn normalize_port_forward_target(pf: &mut PortForward) -> (String, bool) {
@@ -1865,33 +1526,6 @@ impl Connection {
             return true;
         }
         if self.require_2fa.is_some() && !self.is_recent_session(true) && !self.from_switch {
-            self.require_2fa.as_ref().map(|totp| {
-                let bot = crate::auth_2fa::TelegramBot::get();
-                let bot = match bot {
-                    Ok(Some(bot)) => bot,
-                    Err(err) => {
-                        log::error!("Failed to get telegram bot: {}", err);
-                        return;
-                    }
-                    _ => return,
-                };
-                let code = totp.generate_current();
-                if let Ok(code) = code {
-                    let text = format!(
-                        "2FA code: {}\n\nA new connection has been established to your device with ID {}. The source IP address is {}.",
-                        code,
-                        Config::get_id(),
-                        self.ip,
-                    );
-                    tokio::spawn(async move {
-                        if let Err(err) =
-                            crate::auth_2fa::send_2fa_code_to_telegram(&text, bot).await
-                        {
-                            log::error!("Failed to send 2fa code to telegram bot: {}", err);
-                        }
-                    });
-                }
-            });
             self.awaiting_2fa = true;
             self.send_login_error(crate::client::REQUIRE_2FA).await;
             // Keep the connection alive so the client can continue with 2FA.
@@ -1940,15 +1574,6 @@ impl Connection {
             .unwrap()
             .get(&self.session_key())
             .map(|s| s.last_recv_time.clone());
-        self.normalize_conn_audit_auth_fields();
-        let mut audit = json!({"peer": ((&self.lr.my_id, &self.lr.my_name)), "type": conn_type});
-        if self.conn_audit_primary_auth != ConnAuditPrimaryAuth::None {
-            audit["primary_auth"] = json!(self.conn_audit_primary_auth.as_i64());
-        }
-        if self.conn_audit_two_factor != ConnAuditTwoFactor::None {
-            audit["two_factor"] = json!(self.conn_audit_two_factor.as_i64());
-        }
-        self.post_conn_audit(audit);
         #[allow(unused_mut)]
         let mut username = crate::platform::get_active_username();
         let mut res = LoginResponse::new();
@@ -2614,7 +2239,6 @@ impl Connection {
         if password::temporary_enabled() {
             let password = password::temporary_password();
             if self.validate_password_plain(&password) {
-                self.set_conn_audit_primary_auth(ConnAuditPrimaryAuth::TemporaryPassword);
                 raii::AuthedConnID::update_or_insert_session(
                     self.session_key(),
                     Some(password),
@@ -2638,7 +2262,6 @@ impl Connection {
                 if local_permanent_password_storage_is_usable_for_auth(&local_storage, &local_salt)
                     && self.validate_password_storage(&local_storage)
                 {
-                    self.set_conn_audit_primary_auth(ConnAuditPrimaryAuth::PermanentPassword);
                     print_fallback();
                     return true;
                 }
@@ -2647,7 +2270,6 @@ impl Connection {
                 if preset_permanent_password_storage_is_usable_for_auth(&hard, &salt)
                     && self.validate_preset_password_storage(&hard, &salt)
                 {
-                    self.set_conn_audit_primary_auth(ConnAuditPrimaryAuth::PermanentPassword);
                     print_fallback();
                     return true;
                 }
@@ -2673,9 +2295,7 @@ impl Connection {
                     || !tfa && self.validate_password_plain(&session.random_password))
             {
                 if tfa {
-                    self.set_conn_audit_two_factor(ConnAuditTwoFactor::Totp);
                 } else {
-                    self.set_conn_audit_primary_auth(ConnAuditPrimaryAuth::TemporaryPassword);
                 }
                 log::info!("is recent session");
                 return true;
@@ -2864,7 +2484,6 @@ impl Connection {
                     && device.platform == lr.my_platform
                 {
                     log::info!("2FA bypassed by trusted devices");
-                    self.set_conn_audit_two_factor(ConnAuditTwoFactor::TrustedDevice);
                     self.require_2fa = None;
                 }
             }
@@ -2884,7 +2503,6 @@ impl Connection {
                     #[cfg(windows)]
                     if !crate::platform::is_prelogin()
                         && !err.to_string().contains(crate::platform::EXPLORER_EXE)
-                        && !crate::hbbs_http::sync::is_pro()
                     {
                         allow_err!(tx_from_cm_clone.send(Data::CmErr(err.to_string())));
                     }
@@ -3001,8 +2619,7 @@ impl Connection {
                 },
             );
 
-            if !crate::common::is_direct_ip_access(&lr.username)
-                && lr.username != Config::get_id()
+            if lr.username != Config::get_id()
                 && !(crate::tailcat::is_addr(&lr.username)
                     && lr.username == Config::get_option(crate::tailcat::OPTION_ADDR))
             {
@@ -3119,7 +2736,6 @@ impl Connection {
                     if res {
                         self.update_failure(failure, true, 1);
                         self.require_2fa.take();
-                        self.set_conn_audit_two_factor(ConnAuditTwoFactor::Totp);
                         raii::AuthedConnID::set_session_2fa(self.session_key());
                         if !self.send_logon_response_and_keep_alive().await {
                             return false;
@@ -3188,7 +2804,6 @@ impl Connection {
                                 return false;
                             }
                             self.from_switch = true;
-                            self.set_conn_audit_primary_auth(ConnAuditPrimaryAuth::SwitchSides);
                             if !self.send_logon_response_and_keep_alive().await {
                                 return false;
                             }
@@ -3451,16 +3066,6 @@ impl Connection {
                 #[cfg(any(target_os = "windows", feature = "unix-file-copy-paste"))]
                 Some(message::Union::Cliprdr(clip)) => {
                     if let Some(cliprdr::Union::Files(files)) = &clip.union {
-                        self.post_file_audit(
-                            FileAuditType::RemoteReceive,
-                            "",
-                            files
-                                .files
-                                .iter()
-                                .map(|f| (f.name.clone(), f.size as i64))
-                                .collect::<Vec<(String, i64)>>(),
-                            json!({}),
-                        );
                     } else if is_file_data_request(&clip)
                         && crate::get_builtin_option(keys::OPTION_ONE_WAY_FILE_TRANSFER) == "Y"
                     {
@@ -3510,16 +3115,6 @@ impl Connection {
                                     if let Some(cliprdr::Union::Files(files)) =
                                         cliprdr.union.as_ref()
                                     {
-                                        self.post_file_audit(
-                                            FileAuditType::RemoteSend,
-                                            "",
-                                            files
-                                                .files
-                                                .iter()
-                                                .map(|f| (f.name.clone(), f.size as i64))
-                                                .collect::<Vec<(String, i64)>>(),
-                                            json!({}),
-                                        );
                                         continue;
                                     }
                                 }
@@ -3773,12 +3368,6 @@ impl Connection {
                                     total_size: r.total_size,
                                     conn_id: self.inner.id(),
                                 });
-                                self.post_file_audit(
-                                    FileAuditType::RemoteReceive,
-                                    &r.path,
-                                    Self::get_files_for_audit(fs::JobType::Generic, r.files),
-                                    json!({}),
-                                );
                                 self.file_transferred = true;
                             }
                             Some(file_action::Union::RemoveDir(d)) => {
@@ -4296,14 +3885,6 @@ impl Connection {
                         );
                         self.send_login_error("Please try 1 minute later").await;
                         sleep(1.).await;
-                        self.post_alarm_audit(
-                            AlarmAuditType::TerminalOsLoginConcurrency,
-                            json!({
-                                "ip": self.ip,
-                                "id": self.lr.my_id.clone(),
-                                "name": self.lr.my_name.clone(),
-                            }),
-                        );
                         return Some(false);
                     }
                     guard.ok()
@@ -4490,14 +4071,6 @@ impl Connection {
                 prefix_num
             ))
             .await;
-            self.post_alarm_audit(
-                AlarmAuditType::ExceedIPv6PrefixAttempts,
-                json!({
-                            "ip": self.ip,
-                            "id": self.lr.my_id.clone(),
-                            "name": self.lr.my_name.clone(),
-                }),
-            );
             Some(((failure_prefix, time), false))
         } else {
             None
@@ -4550,18 +4123,6 @@ impl Connection {
                     // Rare branch and currently temporary response copy; translation can be added later if needed.
                     self.send_login_error(login_error).await;
                 }
-                if let Some(audit) = decision.audit {
-                    // For OS blocked/backoff events, we currently emit one alarm report per blocked attempt.
-                    // TODO: Add unified cumulative/aggregation fields across alarm producers.
-                    self.post_alarm_audit(
-                        audit,
-                        json!({
-                                    "ip": self.ip,
-                                    "id": self.lr.my_id.clone(),
-                                    "name": self.lr.my_name.clone(),
-                        }),
-                    );
-                }
                 false
             };
             return (((0, 0, 0), time), res);
@@ -4591,25 +4152,9 @@ impl Connection {
 
         let res = if failure.2 > 30 {
             self.send_login_error("Too many wrong attempts").await;
-            self.post_alarm_audit(
-                AlarmAuditType::ExceedThirtyAttempts,
-                json!({
-                            "ip": self.ip,
-                            "id": self.lr.my_id.clone(),
-                            "name": self.lr.my_name.clone(),
-                }),
-            );
             false
         } else if time == failure.0 && failure.1 > 6 {
             self.send_login_error("Please try 1 minute later").await;
-            self.post_alarm_audit(
-                AlarmAuditType::SixAttemptsWithinOneMinute,
-                json!({
-                            "ip": self.ip,
-                            "id": self.lr.my_id.clone(),
-                            "name": self.lr.my_name.clone(),
-                }),
-            );
             false
         } else {
             true
@@ -5420,14 +4965,6 @@ impl Connection {
                 self.send(fs::new_dir(id, path_str.clone(), file_entries.clone()))
                     .await;
 
-                // Post audit for file transfer
-                self.post_file_audit(
-                    FileAuditType::RemoteSend,
-                    &path_str,
-                    Self::get_files_for_audit(fs::JobType::Generic, file_entries),
-                    json!({}),
-                );
-
                 // CM will handle the actual file reading and send blocks via IPC
                 self.file_transferred = true;
             }
@@ -5551,12 +5088,6 @@ impl Connection {
         } else {
             path
         };
-        self.post_file_audit(
-            FileAuditType::RemoteSend,
-            &audit_path,
-            Self::get_files_for_audit(job_type, files),
-            json!({}),
-        );
     }
 
     async fn handle_all_files_result(
@@ -6537,26 +6068,6 @@ fn try_activate_screen() {
     });
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum AlarmAuditType {
-    IpWhitelist = 0,
-    ExceedThirtyAttempts = 1,
-    SixAttemptsWithinOneMinute = 2,
-    // ExceedThirtyLoginAttempts = 3,
-    // MultipleLoginsAttemptsWithinOneMinute = 4,
-    // MultipleLoginsAttemptsWithinOneHour = 5,
-    ExceedIPv6PrefixAttempts = 6,
-    TerminalOsLoginBackoff = 7,
-    TerminalOsLoginConcurrency = 8,
-    SessionScopeViolation = 9,
-    IdWhitelist = 10,
-}
-
-pub enum FileAuditType {
-    RemoteSend = 0,
-    RemoteReceive = 1,
-}
-
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct FileActionLog {
@@ -7253,7 +6764,7 @@ mod test {
             .await
             .unwrap();
         let (accepted, addr) = listener.accept().await.unwrap();
-        let served = Stream::Tcp(hbb_common::tcp::FramedStream::from(accepted, addr));
+        let served = Stream(hbb_common::tcp::FramedStream::from(accepted, addr));
         (served, controller, addr)
     }
 
@@ -7334,7 +6845,7 @@ mod test {
             listener.accept()
         );
         let (mut controller, (accepted, addr)) = (controller.unwrap(), accepted.unwrap());
-        let served = Stream::Tcp(hbb_common::tcp::FramedStream::from(accepted, addr));
+        let served = Stream(hbb_common::tcp::FramedStream::from(accepted, addr));
         let handshake = tokio::spawn(async move {
             crate::server::create_tcp_connection(server, served, addr, true, Default::default())
                 .await

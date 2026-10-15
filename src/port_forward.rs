@@ -174,10 +174,9 @@ async fn connect_and_login(
     } else {
         ConnType::PORT_FORWARD
     };
-    let ((mut stream, direct, _pk, _kcp, _stream_type), (feedback, rendezvous_server)) =
+    let ((mut stream, _direct, _pk, _stream_type), _) =
         Client::start(id, key, token, conn_type, interface.clone()).await?;
-    interface.update_direct(Some(direct));
-    if !stream.is_secured() && !crate::common::is_direct_ip_access(id) {
+    if !stream.is_secured() {
         if !confirm_insecure_connection(&interface, ui_receiver).await {
             *close_port_forward = true;
             return Ok(None);
@@ -188,7 +187,6 @@ async fn connect_and_login(
     let mut challenge = None;
     let mut pending_login = None;
 
-    let _keep_it = hc_connection(feedback, rendezvous_server, token).await;
 
     loop {
         tokio::select! {
@@ -415,10 +413,9 @@ async fn connect_and_login_mux(
     } else {
         ConnType::PORT_FORWARD
     };
-    let ((mut stream, direct, _pk, _kcp, _stream_type), (feedback, rendezvous_server)) =
+    let ((mut stream, _direct, _pk, _stream_type), _) =
         Client::start(id, key, token, conn_type, interface.clone()).await?;
-    interface.update_direct(Some(direct));
-    if !stream.is_secured() && !crate::common::is_direct_ip_access(id) {
+    if !stream.is_secured() {
         if !confirm_insecure_connection(&interface, ui_receiver).await {
             *close_port_forward = true;
             return Ok(None);
@@ -431,7 +428,6 @@ async fn connect_and_login_mux(
     let mut challenge = None;
     let mut pending_login = None;
 
-    let _keep_it = hc_connection(feedback, rendezvous_server, token).await;
 
     loop {
         tokio::select! {
@@ -655,8 +651,8 @@ mod login_tests {
         let client = tokio::net::TcpStream::connect(addr).await.unwrap();
         let (server, _) = l.accept().await.unwrap();
         (
-            Stream::Tcp(FramedStream::from(client, addr)),
-            Stream::Tcp(FramedStream::from(server, addr)),
+            Stream(FramedStream::from(client, addr)),
+            Stream(FramedStream::from(server, addr)),
         )
     }
 

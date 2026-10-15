@@ -26,8 +26,6 @@ class TailDeskNativeHomePage extends StatelessWidget {
     final approveMode = await bind.mainGetOption(key: kOptionApproveMode);
     final stopped = await mainGetBoolOption(kOptionStopService);
     final password = await bind.mainGetTemporaryPassword();
-    final status = jsonDecode(await bind.mainGetConnectStatus()) as Map;
-    final connectedCount = status['video_conn_count'] as int? ?? 0;
     final includesPassword =
         method != kUsePermanentPassword && approveMode != 'click';
     return TailDeskHostState(
@@ -35,7 +33,7 @@ class TailDeskNativeHomePage extends StatelessWidget {
       password: includesPassword ? password : null,
       name: Platform.localHostname,
       stopped: stopped,
-      connectedNames: connectedCount > 0 ? ['$connectedCount 个远程桌面会话'] : [],
+      connectedNames: [],
     );
   }
 

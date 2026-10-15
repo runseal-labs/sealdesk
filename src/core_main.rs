@@ -49,7 +49,6 @@ pub fn core_main() -> Option<CoreMainAction> {
     if !crate::common::global_init() {
         return None;
     }
-    crate::load_custom_client();
     #[cfg(windows)]
     if !crate::platform::windows::bootstrap() {
         // return None to terminate the process
@@ -444,20 +443,6 @@ pub fn core_main() -> Option<CoreMainAction> {
                 hbb_common::allow_err!(handler.join());
             }
             return None;
-        } else if args[0] == "--import-config" {
-            if args.len() == 2 {
-                let filepath;
-                let path = std::path::Path::new(&args[1]);
-                if !path.is_absolute() {
-                    let mut cur = std::env::current_dir().unwrap();
-                    cur.push(path);
-                    filepath = cur.to_str().unwrap().to_string();
-                } else {
-                    filepath = path.to_str().unwrap().to_string();
-                }
-                import_config(&filepath);
-            }
-            return None;
         } else if args[0] == "--password" {
             if is_cli_setting_change_disabled() {
                 println!("Settings are disabled!");
@@ -558,37 +543,11 @@ pub fn core_main() -> Option<CoreMainAction> {
             }
             if args.len() == 2 {
                 if crate::platform::is_installed() && is_root() {
-                    let old_id = crate::ipc::get_id();
-                    let mut res = crate::ui_interface::change_id_shared(args[1].to_owned(), old_id);
+                    let mut res = crate::ui_interface::change_id_shared(args[1].to_owned());
                     if res.is_empty() {
                         res = "Done!".to_owned();
                     }
                     println!("{}", res);
-                } else {
-                    println!("Installation and administrative privileges required!");
-                }
-            }
-            return None;
-        } else if args[0] == "--config" {
-            if args.len() == 2 && !args[0].contains("host=") {
-                if crate::platform::is_installed() && is_root() {
-                    // encrypted string used in renaming exe.
-                    let name = if args[1].ends_with(".exe") {
-                        args[1].to_owned()
-                    } else {
-                        format!("{}.exe", args[1])
-                    };
-                    if let Ok(lic) = crate::custom_server::get_custom_server_from_string(&name) {
-                        if !lic.host.is_empty() {
-                            crate::ui_interface::set_option("key".into(), lic.key);
-                            crate::ui_interface::set_option(
-                                "custom-rendezvous-server".into(),
-                                lic.host,
-                            );
-                            crate::ui_interface::set_option("api-server".into(), lic.api);
-                            crate::ui_interface::set_option("relay-server".into(), lic.relay);
-                        }
-                    }
                 } else {
                     println!("Installation and administrative privileges required!");
                 }
@@ -605,162 +564,6 @@ pub fn core_main() -> Option<CoreMainAction> {
                     println!("{}", options.get(&args[1]).unwrap_or(&"".to_owned()));
                 } else if args.len() == 3 {
                     crate::ipc::set_option(&args[1], &args[2]);
-                }
-            } else {
-                println!("Installation and administrative privileges required!");
-            }
-            return None;
-        } else if args[0] == "--assign" {
-            if config::Config::no_register_device() {
-                println!("Cannot assign an unregistrable device!");
-            } else if crate::platform::is_installed() && is_root() {
-                let max = args.len() - 1;
-                let pos = args.iter().position(|x| x == "--token").unwrap_or(max);
-                if pos < max {
-                    let token = args[pos + 1].to_owned();
-                    let id = crate::ipc::get_id();
-                    let uuid = crate::encode64(hbb_common::get_uuid());
-                    let get_value = |c: &str| {
-                        let pos = args.iter().position(|x| x == c).unwrap_or(max);
-                        if pos < max {
-                            Some(args[pos + 1].to_owned())
-                        } else {
-                            None
-                        }
-                    };
-                    let user_name = get_value("--user_name");
-                    let strategy_name = get_value("--strategy_name");
-                    let address_book_name = get_value("--address_book_name");
-                    let address_book_tag = get_value("--address_book_tag");
-                    let address_book_alias = get_value("--address_book_alias");
-                    let address_book_password = get_value("--address_book_password");
-                    let address_book_note = get_value("--address_book_note");
-                    let device_group_name = get_value("--device_group_name");
-                    let note = get_value("--note");
-                    let device_username = get_value("--device_username");
-                    let device_name = get_value("--device_name");
-                    let mut body = serde_json::json!({
-                        "id": id,
-                        "uuid": uuid,
-                    });
-                    let header = "Authorization: Bearer ".to_owned() + &token;
-                    if user_name.is_none()
-                        && strategy_name.is_none()
-                        && address_book_name.is_none()
-                        && device_group_name.is_none()
-                        && note.is_none()
-                        && device_username.is_none()
-                        && device_name.is_none()
-                    {
-                        println!(
-                            r#"At least one of the following options is required:
-  --user_name
-  --strategy_name
-  --address_book_name
-  --device_group_name
-  --note
-  --device_username
-  --device_name"#
-                        );
-                    } else {
-                        if let Some(name) = user_name {
-                            body["user_name"] = serde_json::json!(name);
-                        }
-                        if let Some(name) = strategy_name {
-                            body["strategy_name"] = serde_json::json!(name);
-                        }
-                        if let Some(name) = address_book_name {
-                            body["address_book_name"] = serde_json::json!(name);
-                            if let Some(name) = address_book_tag {
-                                body["address_book_tag"] = serde_json::json!(name);
-                            }
-                            if let Some(name) = address_book_alias {
-                                body["address_book_alias"] = serde_json::json!(name);
-                            }
-                            if let Some(name) = address_book_password {
-                                body["address_book_password"] = serde_json::json!(name);
-                            }
-                            if let Some(name) = address_book_note {
-                                body["address_book_note"] = serde_json::json!(name);
-                            }
-                        }
-                        if let Some(name) = device_group_name {
-                            body["device_group_name"] = serde_json::json!(name);
-                        }
-                        if let Some(name) = note {
-                            body["note"] = serde_json::json!(name);
-                        }
-                        if let Some(name) = device_username {
-                            body["device_username"] = serde_json::json!(name);
-                        }
-                        if let Some(name) = device_name {
-                            body["device_name"] = serde_json::json!(name);
-                        }
-                        let url = crate::ui_interface::get_api_server() + "/api/devices/cli";
-                        match crate::post_request_sync(url, body.to_string(), &header) {
-                            Err(err) => println!("{}", err),
-                            Ok(text) => {
-                                if text.is_empty() {
-                                    println!("Done!");
-                                } else {
-                                    println!("{}", text);
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    println!("--token is required!");
-                }
-            } else {
-                println!("Installation and administrative privileges required!");
-            }
-            return None;
-        } else if args[0] == "--deploy" {
-            if config::Config::no_register_device() {
-                println!("Cannot deploy an unregistrable device!");
-            } else if config::is_outgoing_only() {
-                println!("Cannot deploy Outgoing-only clients.");
-            } else if crate::platform::is_installed() && is_root() {
-                let max = args.len() - 1;
-                let pos = args.iter().position(|x| x == "--token").unwrap_or(max);
-                if pos >= max {
-                    println!("--token is required!");
-                    return None;
-                }
-                let token = args[pos + 1].to_owned();
-                let get_value = |c: &str| {
-                    let pos = args.iter().position(|x| x == c).unwrap_or(max);
-                    if pos < max {
-                        Some(args[pos + 1].to_owned())
-                    } else {
-                        None
-                    }
-                };
-                // An empty --id (e.g. an unset var) would deploy a blank id; the Android flow guards this too (#15146).
-                let new_id = get_value("--id").filter(|s| !s.is_empty());
-                match crate::ui_interface::deploy_device(token, new_id) {
-                    crate::ui_interface::DeployResult::Ok => {
-                        println!("Device deployed.");
-                    }
-                    crate::ui_interface::DeployResult::NotEnabled => {
-                        println!("Server does not require deployment.");
-                        std::process::exit(3);
-                    }
-                    crate::ui_interface::DeployResult::InvalidInput => {
-                        println!("Invalid input.");
-                        std::process::exit(5);
-                    }
-                    crate::ui_interface::DeployResult::IdTaken(id) => {
-                        println!(
-                            "Id `{}` is already used by another machine on the server.",
-                            id
-                        );
-                        std::process::exit(6);
-                    }
-                    crate::ui_interface::DeployResult::Error(err) => {
-                        println!("{}", err);
-                        std::process::exit(1);
-                    }
                 }
             } else {
                 println!("Installation and administrative privileges required!");
@@ -824,32 +627,6 @@ pub fn core_main() -> Option<CoreMainAction> {
     return Some(CoreMainAction::StartUi(args));
 }
 
-fn import_config(path: &str) {
-    use hbb_common::{config::*, get_exe_time, get_modified_time};
-    let path2 = path.replace(".toml", "2.toml");
-    let path2 = std::path::Path::new(&path2);
-    let path = std::path::Path::new(path);
-    log::info!("import config from {:?} and {:?}", path, path2);
-    let config: Config = load_path(path.into());
-    if config.is_empty() {
-        log::info!("Empty source config, skipped");
-        return;
-    }
-    if get_modified_time(&path) > get_modified_time(&Config::file())
-        && get_modified_time(&path) < get_exe_time()
-    {
-        if store_path(Config::file(), config).is_err() {
-            log::info!("config written");
-        }
-    }
-    let config2: Config2 = load_path(path2.into());
-    if get_modified_time(&path2) > get_modified_time(&Config2::file()) {
-        if store_path(Config2::file(), config2).is_err() {
-            log::info!("config2 written");
-        }
-    }
-}
-
 /// invoke a new connection
 ///
 /// [Note]
@@ -872,9 +649,6 @@ fn core_main_invoke_new_connection(mut args: std::env::Args) -> Option<Vec<Strin
                 if let Some(password) = args.next() {
                     param_array.push(format!("password={password}"));
                 }
-            }
-            "--relay" => {
-                param_array.push(format!("relay=true"));
             }
             // inner
             "--switch_uuid" => {
@@ -973,10 +747,7 @@ fn is_user_main_ipc_scope_cli_command(args: &[String]) -> bool {
             | Some("--tc-reset-address")
             | Some("--tc-allow")
             | Some("--set-id")
-            | Some("--config")
             | Some("--option")
-            | Some("--assign")
-            | Some("--deploy")
     )
 }
 

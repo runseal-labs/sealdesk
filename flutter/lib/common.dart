@@ -46,7 +46,6 @@ import 'package:flutter_hbb/native/win32.dart'
     if (dart.library.html) 'package:flutter_hbb/web/win32.dart';
 import 'package:flutter_hbb/native/common.dart'
     if (dart.library.html) 'package:flutter_hbb/web/common.dart';
-import 'package:flutter_hbb/utils/http_service.dart' as http;
 
 final globalKey = GlobalKey<NavigatorState>();
 final navigationBarKey = GlobalKey();
@@ -1618,10 +1617,7 @@ bool option2bool(String option, String value) {
   bool res;
   if (option.startsWith("enable-")) {
     res = value != "N";
-  } else if (option.startsWith("allow-") ||
-      option == kOptionStopService ||
-      option == kOptionDirectServer ||
-      option == kOptionForceAlwaysRelay) {
+  } else if (option.startsWith("allow-") || option == kOptionStopService) {
     res = value == "Y";
   } else {
     // "" is true
@@ -1632,15 +1628,9 @@ bool option2bool(String option, String value) {
 
 String bool2option(String option, bool b) {
   String res;
-  if (option.startsWith('enable-') &&
-      option != kOptionEnableUdpPunch &&
-      option != kOptionEnableIpv6Punch &&
-      option != kOptionEnableWebrtc) {
+  if (option.startsWith('enable-')) {
     res = b ? defaultOptionYes : 'N';
-  } else if (option.startsWith('allow-') ||
-      option == kOptionStopService ||
-      option == kOptionDirectServer ||
-      option == kOptionForceAlwaysRelay) {
+  } else if (option.startsWith('allow-') || option == kOptionStopService) {
     res = b ? 'Y' : defaultOptionNo;
   } else {
     res = b ? 'Y' : 'N';
@@ -2312,7 +2302,6 @@ bool handleUriLink({List<String>? cmdArgs, Uri? uri, String? uriString}) {
   String? id;
   String? password;
   String? switchUuid;
-  bool? forceRelay;
   for (int i = 0; i < args.length; i++) {
     switch (args[i]) {
       case '--connect':
@@ -2360,9 +2349,6 @@ bool handleUriLink({List<String>? cmdArgs, Uri? uri, String? uriString}) {
         switchUuid = args[i + 1];
         i++;
         break;
-      case '--relay':
-        forceRelay = true;
-        break;
       default:
         break;
     }
@@ -2373,38 +2359,37 @@ bool handleUriLink({List<String>? cmdArgs, Uri? uri, String? uriString}) {
         Future.delayed(Duration.zero, () {
           rustDeskWinManager.newRemoteDesktop(id!,
               password: password,
-              switchUuid: switchUuid,
-              forceRelay: forceRelay);
+              switchUuid: switchUuid);
         });
         break;
       case UriLinkType.fileTransfer:
         Future.delayed(Duration.zero, () {
           rustDeskWinManager.newFileTransfer(id!,
-              password: password, forceRelay: forceRelay);
+              password: password);
         });
         break;
       case UriLinkType.viewCamera:
         Future.delayed(Duration.zero, () {
           rustDeskWinManager.newViewCamera(id!,
-              password: password, forceRelay: forceRelay);
+              password: password);
         });
         break;
       case UriLinkType.portForward:
         Future.delayed(Duration.zero, () {
           rustDeskWinManager.newPortForward(id!, false,
-              password: password, forceRelay: forceRelay);
+              password: password);
         });
         break;
       case UriLinkType.rdp:
         Future.delayed(Duration.zero, () {
           rustDeskWinManager.newPortForward(id!, true,
-              password: password, forceRelay: forceRelay);
+              password: password);
         });
         break;
       case UriLinkType.terminal:
         Future.delayed(Duration.zero, () {
           rustDeskWinManager.newTerminal(id!,
-              password: password, forceRelay: forceRelay);
+              password: password);
         });
         break;
     }
@@ -2509,26 +2494,25 @@ List<String>? urlLinkToCmdArgs(Uri uri, {String? rawAuthority}) {
   }
 
   if (isMobile && id != null) {
-    final forceRelay = queryParameters["relay"] != null;
     final password = queryParameters["password"];
 
     // Determine connection type based on command
     if (command == '--file-transfer') {
       connect(Get.context!, id,
-          isFileTransfer: true, forceRelay: forceRelay, password: password);
+          isFileTransfer: true, password: password);
     } else if (command == '--view-camera') {
       connect(Get.context!, id,
-          isViewCamera: true, forceRelay: forceRelay, password: password);
+          isViewCamera: true, password: password);
     } else if (command == '--terminal') {
       connect(Get.context!, id,
-          isTerminal: true, forceRelay: forceRelay, password: password);
+          isTerminal: true, password: password);
     } else if (command == 'terminal-admin') {
       setEnvTerminalAdmin();
       connect(Get.context!, id,
-          isTerminal: true, forceRelay: forceRelay, password: password);
+          isTerminal: true, password: password);
     } else {
       // Default to remote desktop for '--connect', '--play', or direct connection
-      connect(Get.context!, id, forceRelay: forceRelay, password: password);
+      connect(Get.context!, id, password: password);
     }
     return null;
   }
@@ -2555,7 +2539,6 @@ connectMainDesktop(String id,
     required bool isTerminal,
     required bool isTcpTunneling,
     required bool isRDP,
-    bool? forceRelay,
     String? password,
     String? connToken,
     bool? isSharedPassword}) async {
@@ -2563,31 +2546,26 @@ connectMainDesktop(String id,
     await rustDeskWinManager.newFileTransfer(id,
         password: password,
         isSharedPassword: isSharedPassword,
-        connToken: connToken,
-        forceRelay: forceRelay);
+        connToken: connToken);
   } else if (isViewCamera) {
     await rustDeskWinManager.newViewCamera(id,
         password: password,
         isSharedPassword: isSharedPassword,
-        connToken: connToken,
-        forceRelay: forceRelay);
+        connToken: connToken);
   } else if (isTcpTunneling || isRDP) {
     await rustDeskWinManager.newPortForward(id, isRDP,
         password: password,
         isSharedPassword: isSharedPassword,
-        connToken: connToken,
-        forceRelay: forceRelay);
+        connToken: connToken);
   } else if (isTerminal) {
     await rustDeskWinManager.newTerminal(id,
         password: password,
         isSharedPassword: isSharedPassword,
-        connToken: connToken,
-        forceRelay: forceRelay);
+        connToken: connToken);
   } else {
     await rustDeskWinManager.newRemoteDesktop(id,
         password: password,
-        isSharedPassword: isSharedPassword,
-        forceRelay: forceRelay);
+        isSharedPassword: isSharedPassword);
   }
 }
 
@@ -2602,7 +2580,6 @@ connect(BuildContext context, String id,
     bool isTerminal = false,
     bool isTcpTunneling = false,
     bool isRDP = false,
-    bool forceRelay = false,
     String? password,
     String? connToken,
     bool? isSharedPassword}) async {
@@ -2620,9 +2597,6 @@ connect(BuildContext context, String id,
     } catch (_) {}
   }
   id = id.replaceAll(' ', '');
-  final oldId = id;
-  id = await bind.mainHandleRelayId(id: id);
-  forceRelay = id != oldId || forceRelay;
   assert(!(isFileTransfer && isTcpTunneling && isRDP),
       "more than one connect type");
 
@@ -2637,7 +2611,6 @@ connect(BuildContext context, String id,
         isRDP: isRDP,
         password: password,
         isSharedPassword: isSharedPassword,
-        forceRelay: forceRelay,
       );
     } else {
       await rustDeskWinManager.call(WindowType.Main, kWindowConnect, {
@@ -2649,7 +2622,6 @@ connect(BuildContext context, String id,
         'isRDP': isRDP,
         'password': password,
         'isSharedPassword': isSharedPassword,
-        'forceRelay': forceRelay,
         'connToken': connToken,
       });
     }
@@ -2673,8 +2645,7 @@ connect(BuildContext context, String id,
             builder: (BuildContext context) => FileManagerPage(
                 id: id,
                 password: password,
-                isSharedPassword: isSharedPassword,
-                forceRelay: forceRelay),
+                isSharedPassword: isSharedPassword),
           ),
         );
       }
@@ -2700,8 +2671,7 @@ connect(BuildContext context, String id,
             builder: (BuildContext context) => ViewCameraPage(
                 id: id,
                 password: password,
-                isSharedPassword: isSharedPassword,
-                forceRelay: forceRelay),
+                isSharedPassword: isSharedPassword),
           ),
         );
       }
@@ -2713,7 +2683,6 @@ connect(BuildContext context, String id,
             id: id,
             password: password,
             isSharedPassword: isSharedPassword,
-            forceRelay: forceRelay,
           ),
         ),
       );
@@ -2738,8 +2707,7 @@ connect(BuildContext context, String id,
             builder: (BuildContext context) => RemotePage(
                 id: id,
                 password: password,
-                isSharedPassword: isSharedPassword,
-                forceRelay: forceRelay),
+                isSharedPassword: isSharedPassword),
           ),
         );
       }
@@ -3627,22 +3595,6 @@ Future<bool> setServerConfig(
     controllers[2].text = config.apiServer;
     controllers[3].text = config.key;
   }
-  // id
-  if (config.idServer.isNotEmpty && errMsgs != null) {
-    errMsgs[0].value = translate(await bind.mainTestIfValidServer(
-        server: config.idServer, testWithProxy: true));
-    if (errMsgs[0].isNotEmpty) {
-      return false;
-    }
-  }
-  // relay
-  if (config.relayServer.isNotEmpty && errMsgs != null) {
-    errMsgs[1].value = translate(await bind.mainTestIfValidServer(
-        server: config.relayServer, testWithProxy: true));
-    if (errMsgs[1].isNotEmpty) {
-      return false;
-    }
-  }
   // api
   if (config.apiServer.isNotEmpty && errMsgs != null) {
     if (!config.apiServer.startsWith('http://') &&
@@ -3652,20 +3604,12 @@ Future<bool> setServerConfig(
       return false;
     }
   }
-  final oldApiServer = await bind.mainGetApiServer();
-
   // should set one by one
   await bind.mainSetOption(
       key: 'custom-rendezvous-server', value: config.idServer);
   await bind.mainSetOption(key: 'relay-server', value: config.relayServer);
   await bind.mainSetOption(key: 'api-server', value: config.apiServer);
   await bind.mainSetOption(key: 'key', value: config.key);
-  final newApiServer = await bind.mainGetApiServer();
-  if (oldApiServer.isNotEmpty &&
-      oldApiServer != newApiServer &&
-      gFFI.userModel.isLogin) {
-    gFFI.userModel.logOut(apiServer: oldApiServer);
-  }
   return true;
 }
 
@@ -4005,19 +3949,13 @@ bool isChangeIdDisabled() =>
 bool isUnlockPinDisabled() =>
     bind.mainGetBuildinOption(key: kOptionDisableUnlockPin) == 'Y';
 
-bool? _isCustomClient;
-bool get isCustomClient {
-  _isCustomClient ??= bind.isCustomClient();
-  return _isCustomClient!;
-}
-
-get defaultOptionLang => isCustomClient ? 'default' : '';
-get defaultOptionTheme => isCustomClient ? 'system' : '';
-get defaultOptionYes => isCustomClient ? 'Y' : '';
-get defaultOptionNo => isCustomClient ? 'N' : '';
-get defaultOptionWhitelist => isCustomClient ? ',' : '';
-get defaultOptionAccessMode => isCustomClient ? 'custom' : '';
-get defaultOptionApproveMode => isCustomClient ? 'password-click' : '';
+const defaultOptionLang = 'default';
+const defaultOptionTheme = 'system';
+const defaultOptionYes = 'Y';
+const defaultOptionNo = 'N';
+const defaultOptionWhitelist = ',';
+const defaultOptionAccessMode = 'custom';
+const defaultOptionApproveMode = 'password-click';
 
 bool whitelistNotEmpty() {
   // https://rustdesk.com/docs/en/self-host/client-configuration/advanced-settings/#whitelist
@@ -4054,24 +3992,6 @@ disableWindowMovable(int? windowId) {
   }
 }
 
-Widget netWorkErrorWidget() {
-  return Center(
-      child: Column(
-    mainAxisAlignment: MainAxisAlignment.center,
-    crossAxisAlignment: CrossAxisAlignment.center,
-    children: [
-      if (!gFFI.userModel.networkErrorFromServer.value)
-        Text(translate("network_error_tip")),
-      ElevatedButton(
-              onPressed: gFFI.userModel.refreshCurrentUser,
-              child: Text(translate("Retry")))
-          .marginSymmetric(vertical: 16),
-      SelectableText(gFFI.userModel.networkError.value,
-          style: TextStyle(fontSize: 11, color: Colors.red)),
-    ],
-  ));
-}
-
 List<ResizeEdge>? get windowManagerEnableResizeEdges => isWindows
     ? [
         ResizeEdge.topLeft,
@@ -4090,23 +4010,6 @@ List<SubWindowResizeEdge>? get subWindowManagerEnableResizeEdges => isWindows
 
 void earlyAssert() {
   assert('\1' == '1');
-}
-
-void checkUpdate() {
-  if (!isWeb) {
-    if (!bind.isCustomClient()) {
-      platformFFI.registerEventHandler(
-          kCheckSoftwareUpdateFinish, kCheckSoftwareUpdateFinish,
-          (Map<String, dynamic> evt) async {
-        if (evt['url'] is String) {
-          stateGlobal.updateUrl.value = evt['url'];
-        }
-      });
-      Timer(const Duration(seconds: 1), () async {
-        bind.mainGetSoftwareUpdateUrl();
-      });
-    }
-  }
 }
 
 // https://github.com/flutter/flutter/issues/153560#issuecomment-2497160535
@@ -4242,19 +4145,8 @@ String getConnectionText(bool secure, bool direct, String streamType) {
   }
 }
 
-String decode_http_response(http.Response resp) {
-  try {
-    // https://github.com/rustdesk/rustdesk-server-pro/discussions/758
-    return utf8.decode(resp.bodyBytes, allowMalformed: true);
-  } catch (e) {
-    debugPrint('Failed to decode response as UTF-8: $e');
-    // Fallback to bodyString which handles encoding automatically
-    return resp.body;
-  }
-}
-
 bool peerTabShowNote(PeerTabIndex peerTabIndex) {
-  return peerTabIndex == PeerTabIndex.ab || peerTabIndex == PeerTabIndex.group;
+  return true;
 }
 
 // TODO: We should support individual bits combinations in the future.

@@ -86,7 +86,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
       slivers: [
         SliverList(
             delegate: SliverChildListDelegate([
-          if (!bind.isCustomClient() && !isIOS)
+          if (!isIOS)
             Obx(() => _buildUpdateUI(stateGlobal.updateUrl.value)),
           _buildRemoteIDTextField(),
           if (!isWeb && bind.mainGetAppNameSync() == 'TailDesk')
@@ -224,7 +224,6 @@ class _ConnectionPageState extends State<ConnectionPage> {
                                     .contains(textToFind) ||
                                 peer.alias.toLowerCase().contains(textToFind))
                             .toList();
-                        _allPeersLoader.queryOnlines(_autocompleteOpts);
                       }
                       return _autocompleteOpts;
                     },

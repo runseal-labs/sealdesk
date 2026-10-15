@@ -1,9 +1,7 @@
 // main window right pane
-
-import 'dart:async';
-import 'dart:convert';
 import 'dart:math';
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common/widgets/connection_page_title.dart';
 import 'package:flutter_hbb/consts.dart';
@@ -34,7 +32,6 @@ class OnlineStatusWidget extends StatefulWidget {
 /// State for the connection page.
 class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
   final _svcStopped = Get.find<RxBool>(tag: 'stop-service');
-  final _svcIsUsingPublicServer = true.obs;
   Timer? _updateTimer;
 
   double get em => 14.0;
@@ -81,8 +78,7 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
     setupServerWidget() => Flexible(
           child: Offstage(
             offstage: !(!_svcStopped.value &&
-                stateGlobal.svcStatus.value == SvcStatus.ready &&
-                _svcIsUsingPublicServer.value),
+                stateGlobal.svcStatus.value == SvcStatus.ready),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
@@ -131,8 +127,7 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
             ),
             // stop
             if (!isIncomingOnly) startServiceWidget(),
-            // ready && public
-            // No need to show the guide if is custom client.
+            // ready
             if (!isIncomingOnly) setupServerWidget(),
           ],
         );
@@ -168,22 +163,9 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
   }
 
   updateStatus() async {
-    final status =
-        jsonDecode(await bind.mainGetConnectStatus()) as Map<String, dynamic>;
-    final statusNum = status['status_num'] as int;
-    if (statusNum == 0) {
-      stateGlobal.svcStatus.value = SvcStatus.connecting;
-    } else if (statusNum == -1) {
-      stateGlobal.svcStatus.value = SvcStatus.notReady;
-    } else if (statusNum == 1) {
-      stateGlobal.svcStatus.value = SvcStatus.ready;
-    } else {
-      stateGlobal.svcStatus.value = SvcStatus.notReady;
-    }
-    _svcIsUsingPublicServer.value = await bind.mainIsUsingPublicServer();
-    try {
-      stateGlobal.videoConnCount.value = status['video_conn_count'] as int;
-    } catch (_) {}
+    stateGlobal.svcStatus.value = _svcStopped.value
+        ? SvcStatus.notReady
+        : SvcStatus.ready;
   }
 }
 
@@ -400,7 +382,6 @@ class _ConnectionPageState extends State<ConnectionPage>
                                   .contains(textToFind) ||
                               peer.alias.toLowerCase().contains(textToFind))
                           .toList();
-                      _allPeersLoader.queryOnlines(_autocompleteOpts);
                     }
                     return _autocompleteOpts;
                   },
@@ -542,7 +523,7 @@ class _ConnectionPageState extends State<ConnectionPage>
                         return Obx(() => InkWell(
                               child: _menuOpen.value
                                   ? Transform.rotate(
-                                      angle: pi,
+                                      angle: 3.141592653589793,
                                       child: Icon(IconFont.more, size: 14),
                                     )
                                   : Icon(IconFont.more, size: 14),

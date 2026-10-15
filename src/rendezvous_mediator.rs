@@ -12,46 +12,21 @@ use hbb_common::{
 
 use crate::server::{check_zombie, new as new_server, ConnectionMeta, ServerPtr};
 
-/// Kept for the IPC / UI callers of the upstream deploy flow; nothing sets it without a
-/// rendezvous server.
-pub(crate) static NEEDS_DEPLOY: AtomicBool = AtomicBool::new(false);
-
-#[cfg(target_os = "android")]
-pub(crate) fn reset_needs_deploy_notification() {
-    NEEDS_DEPLOY.store(false, std::sync::atomic::Ordering::SeqCst);
-}
-
 pub struct RendezvousMediator;
 
 impl RendezvousMediator {
-    /// Upstream re-registers with the rendezvous servers. The tunnel does not depend on any
-    /// option that can change at runtime, so there is nothing to redo.
-    pub fn restart() {
-        log::info!("server restart (no-op without rendezvous server)");
-    }
-
     pub async fn start_all() {
         if config::is_outgoing_only() {
             loop {
                 sleep(1.).await;
             }
         }
-        crate::hbbs_http::sync::start();
         #[cfg(target_os = "windows")]
         if crate::platform::is_installed() && crate::is_server() {
             crate::updater::start_auto_update();
         }
         check_zombie();
         let server = new_server();
-        #[cfg(target_os = "android")]
-        let start_lan_listening = true;
-        #[cfg(not(any(target_os = "android", target_os = "ios")))]
-        let start_lan_listening = crate::platform::is_installed();
-        if start_lan_listening {
-            std::thread::spawn(move || {
-                allow_err!(super::lan::start_listening());
-            });
-        }
         scrap::codec::test_av1();
         tailcat_server(server).await;
     }

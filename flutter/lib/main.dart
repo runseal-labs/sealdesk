@@ -29,7 +29,6 @@ import 'common.dart';
 import 'consts.dart';
 import 'mobile/pages/home_page.dart';
 import 'mobile/pages/server_page.dart';
-import 'mobile/widgets/deploy_dialog.dart';
 import 'models/platform_model.dart';
 
 /// Basic window and launch properties.
@@ -136,14 +135,9 @@ Future<void> initEnv(String appType) async {
 void runMainApp(bool startService) async {
   // register uni links
   await initEnv(kAppTypeMain);
-  checkUpdate();
-  // trigger connection status updater
-  await bind.mainCheckConnectStatus();
   if (startService) {
     gFFI.serverModel.startService();
   }
-  await Future.wait([gFFI.abModel.loadCache(), gFFI.groupModel.loadCache()]);
-  gFFI.userModel.refreshCurrentUser();
   runApp(App());
 
   bool? alwaysOnTop;
@@ -178,12 +172,9 @@ void runMainApp(bool startService) async {
 
 void runMobileApp() async {
   await initEnv(kAppTypeMain);
-  checkUpdate();
   if (isAndroid) androidChannelInit();
   if (isAndroid) platformFFI.syncAndroidServiceAppDirConfigPath();
   draggablePositions.load();
-  await Future.wait([gFFI.abModel.loadCache(), gFFI.groupModel.loadCache()]);
-  gFFI.userModel.refreshCurrentUser();
   runApp(App());
   await initUniLinks();
 }
@@ -566,14 +557,6 @@ _registerEventHandler() {
     });
     platformFFI.registerEventHandler('language', 'language', (_) async {
       reloadAllWindows();
-    });
-  }
-  if (isAndroid) {
-    platformFFI.registerEventHandler(
-        'android_needs_deploy', 'android_needs_deploy', (_) async {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        showDeployPromptDialog();
-      });
     });
   }
 }

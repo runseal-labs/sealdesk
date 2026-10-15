@@ -12,23 +12,19 @@ import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_hbb/common/widgets/peers_view.dart';
 import 'package:flutter_hbb/consts.dart';
-import 'package:flutter_hbb/models/ab_model.dart';
 import 'package:flutter_hbb/models/chat_model.dart';
 import 'package:flutter_hbb/models/cm_file_model.dart';
 import 'package:flutter_hbb/models/file_model.dart';
-import 'package:flutter_hbb/models/group_model.dart';
 import 'package:flutter_hbb/models/peer_model.dart';
 import 'package:flutter_hbb/models/peer_tab_model.dart';
 import 'package:flutter_hbb/models/printer_model.dart';
 import 'package:flutter_hbb/models/server_model.dart';
 import 'package:flutter_hbb/models/shortcut_model.dart';
-import 'package:flutter_hbb/models/user_model.dart';
 import 'package:flutter_hbb/models/state_model.dart';
 import 'package:flutter_hbb/models/desktop_render_texture.dart';
 import 'package:flutter_hbb/models/terminal_model.dart';
 import 'package:flutter_hbb/common/shared_state.dart';
 import 'package:flutter_hbb/utils/multi_window_manager.dart';
-import 'package:flutter_hbb/utils/http_service.dart' as http;
 import 'package:tuple/tuple.dart';
 import 'package:image/image.dart' as img2;
 import 'package:flutter_svg/flutter_svg.dart';
@@ -434,15 +430,6 @@ class FfiModel with ChangeNotifier {
         parent.target?.serverModel.updateVoiceCallState(evt);
       } else if (name == 'fingerprint') {
         FingerprintState.find(peerId).value = evt['fingerprint'] ?? '';
-      } else if (name == "sync_peer_hash_password_to_personal_ab") {
-        if (desktopType == DesktopType.main || isWeb || isMobile) {
-          final id = evt['id'];
-          final hash = evt['hash'];
-          if (id != null && hash != null) {
-            gFFI.abModel
-                .changePersonalHashPassword(id.toString(), hash.toString());
-          }
-        }
       } else if (name == "cm_file_transfer_log") {
         if (isDesktop) {
           gFFI.cmFileModel.onFileTransferLog(evt);
@@ -937,7 +924,7 @@ class FfiModel with ChangeNotifier {
       if (_restartReconnectDelayTimer == null) {
         parent.target?.inputModel.setRelativeMouseMode(false);
         _cancelPendingMonitorRestore();
-        bind.sessionReconnect(sessionId: sessionId, forceRelay: false);
+        bind.sessionReconnect(sessionId: sessionId);
         clearPermissions();
         // Retry once more after the silent window so restart reconnect attempts
         // are spaced by the empirical short cadence instead of only updating UI.
@@ -1122,7 +1109,7 @@ class FfiModel with ChangeNotifier {
     // Disable relative mouse mode before reconnecting to ensure cursor is released.
     parent.target?.inputModel.setRelativeMouseMode(false);
     _cancelPendingMonitorRestore();
-    bind.sessionReconnect(sessionId: sessionId, forceRelay: forceRelay);
+    bind.sessionReconnect(sessionId: sessionId);
     clearPermissions();
     dialogManager.dismissAll();
     dialogManager.showLoading(translate('Connecting...'),
@@ -1254,98 +1241,9 @@ class FfiModel with ChangeNotifier {
     }
   }
 
-  void _queryAuditGuid(String peerId) async {
-    try {
-      if (bind.isDisableAccount()) {
-        return;
-      }
-      if (bind
-          .sessionGetAuditServerSync(sessionId: sessionId, typ: "conn/active")
-          .isEmpty) {
-        return;
-      }
-      if (!mainGetLocalBoolOptionSync(
-          kOptionAllowAskForNoteAtEndOfConnection)) {
-        return;
-      }
-      if (bind.sessionGetAuditGuid(sessionId: sessionId).isNotEmpty) {
-        debugPrint('Get cached audit GUID');
-        return;
-      }
-      final url = bind.sessionGetAuditServerSync(
-          sessionId: sessionId, typ: "conn/active");
-      if (url.isEmpty) {
-        return;
-      }
-      final initialConnSessionId =
-          bind.sessionGetConnSessionId(sessionId: sessionId);
-      final connType = switch (parent.target?.connType) {
-        ConnType.defaultConn => 0,
-        ConnType.fileTransfer => 1,
-        ConnType.portForward => 2,
-        ConnType.rdp => 2,
-        ConnType.viewCamera => 3,
-        ConnType.terminal => 4,
-        _ => 0,
-      };
-
-      const retryIntervals = [1, 1, 2, 2, 3, 3];
-
-      for (int attempt = 1; attempt <= retryIntervals.length; attempt++) {
-        final currentConnSessionId =
-            bind.sessionGetConnSessionId(sessionId: sessionId);
-        if (currentConnSessionId != initialConnSessionId) {
-          debugPrint('connSessionId changed, stopping audit GUID query');
-          return;
-        }
-
-        final fullUrl =
-            '$url?id=$peerId&session_id=$currentConnSessionId&conn_type=$connType';
-
-        debugPrint(
-            'Querying audit GUID, attempt $attempt/${retryIntervals.length}');
-        try {
-          var headers = getHttpHeaders();
-          headers['Content-Type'] = "application/json";
-
-          final response = await http.get(
-            Uri.parse(fullUrl),
-            headers: headers,
-          );
-
-          if (response.statusCode == 200) {
-            final guid = jsonDecode(response.body) as String?;
-            if (guid != null && guid.isNotEmpty) {
-              bind.sessionSetAuditGuid(sessionId: sessionId, guid: guid);
-              debugPrint('Successfully retrieved audit GUID');
-              return;
-            }
-          } else {
-            debugPrint(
-                'Failed to query audit GUID. Status: ${response.statusCode}, Body: ${response.body}');
-            return;
-          }
-        } catch (e) {
-          debugPrint('Error querying audit GUID (attempt $attempt): $e');
-        }
-
-        if (attempt < retryIntervals.length) {
-          await Future.delayed(Duration(seconds: retryIntervals[attempt - 1]));
-        }
-      }
-
-      debugPrint(
-          'Failed to retrieve audit GUID after ${retryIntervals.length} attempts');
-    } catch (e) {
-      debugPrint('Error in _queryAuditGuid: $e');
-    }
-  }
-
   /// Handle the peer info event based on [evt].
   handlePeerInfo(Map<String, dynamic> evt, String peerId, bool isCache) async {
     parent.target?.chatModel.voiceCallStatus.value = VoiceCallStatus.notStarted;
-
-    _queryAuditGuid(peerId);
 
     // Map clone is required here, otherwise "evt" may be changed by other threads through the reference.
     // Because this function is asynchronous, there's an "await" in this function.
@@ -4048,9 +3946,6 @@ class FFI {
   late final ServerModel serverModel; // global
   late final ChatModel chatModel; // session
   late final FileModel fileModel; // session
-  late final AbModel abModel; // global
-  late final GroupModel groupModel; // global
-  late final UserModel userModel; // global
   late final PeerTabModel peerTabModel; // global
   late final QualityMonitorModel qualityMonitorModel; // session
   late final RecordingModel recordingModel; // session
@@ -4061,7 +3956,6 @@ class FFI {
   late final ShortcutModel shortcutModel; // session
   late final Peers recentPeersModel; // global
   late final Peers favoritePeersModel; // global
-  late final Peers lanPeersModel; // global
 
   // Terminal model registry for multiple terminals
   final Map<int, TerminalModel> _terminalModels = {};
@@ -4078,10 +3972,7 @@ class FFI {
     serverModel = ServerModel(WeakReference(this));
     chatModel = ChatModel(WeakReference(this));
     fileModel = FileModel(WeakReference(this));
-    userModel = UserModel(WeakReference(this));
     peerTabModel = PeerTabModel(WeakReference(this));
-    abModel = AbModel(WeakReference(this));
-    groupModel = GroupModel(WeakReference(this));
     qualityMonitorModel = QualityMonitorModel(WeakReference(this));
     recordingModel = RecordingModel(WeakReference(this));
     inputModel = InputModel(WeakReference(this));
@@ -4090,15 +3981,13 @@ class FFI {
     textureModel = TextureModel(WeakReference(this));
     shortcutModel = ShortcutModel(WeakReference(this));
     recentPeersModel = Peers(
-        name: PeersModelName.recent,
+        name: LoadEvent.recent,
         loadEvent: LoadEvent.recent,
         getInitPeers: null);
     favoritePeersModel = Peers(
-        name: PeersModelName.favorite,
+        name: LoadEvent.favorite,
         loadEvent: LoadEvent.favorite,
         getInitPeers: null);
-    lanPeersModel = Peers(
-        name: PeersModelName.lan, loadEvent: LoadEvent.lan, getInitPeers: null);
   }
 
   /// Mobile reuse FFI
@@ -4168,7 +4057,6 @@ class FFI {
         isRdp: isRdp,
         isTerminal: isTerminal,
         switchUuid: switchUuid ?? '',
-        forceRelay: forceRelay ?? false,
         password: password ?? '',
         isSharedPassword: isSharedPassword ?? false,
         connToken: connToken,

@@ -28,7 +28,6 @@ use crate::{
     check_port,
     common::input::{MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT, MOUSE_TYPE_DOWN, MOUSE_TYPE_UP},
     is_keyboard_mode_supported,
-    kcp_stream::KcpStream,
     ui_interface::{get_builtin_option, resolve_avatar_url, use_texture_render},
     ui_session_interface::{InvokeUiSession, Session},
 };
@@ -43,14 +42,14 @@ use hbb_common::{
     anyhow::{anyhow, Context},
     bail,
     config::{
-        self, use_ws, Config, LocalConfig, PeerConfig, PeerInfoSerde, Resolution,
-        CONNECT_TIMEOUT, RELAY_PORT, RENDEZVOUS_PORT,
+        self, Config, LocalConfig, PeerConfig, PeerInfoSerde, Resolution,
+        CONNECT_TIMEOUT,
     },
     futures::future::FutureExt,
     get_version_number, log,
     protobuf::{Message as _, MessageField},
-    rand,
     rendezvous_proto::*,
+    rand,
     sha2::{Digest, Sha256},
     socket_client::{connect_tcp, connect_tcp_local},
     sodiumoxide::base64,
@@ -162,8 +161,6 @@ lazy_static::lazy_static! {
     static ref CLIPBOARD_STATE: Arc<Mutex<ClipboardState>> = Arc::new(Mutex::new(ClipboardState::new()));
 }
 
-const PUBLIC_SERVER: &str = "public";
-
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn get_key_state(key: enigo::Key) -> bool {
     use enigo::KeyboardControllable;
@@ -173,10 +170,6 @@ pub fn get_key_state(key: enigo::Key) -> bool {
     }
     ENIGO.lock().unwrap().get_key_state(key)
 }
-
-// A peer decides how many ICE candidates it sends, and the rendezvous route that carries them is
-// reachable without a prior punch, so these sites would otherwise let someone else set how much
-// this machine writes to its log file. One line a minute each, carrying the suppressed count.
 
 impl Client {
     const CLIENT_CLIPBOARD_NAME: &'static str = "client-clipboard";
@@ -188,18 +181,8 @@ impl Client {
         token: &str,
         conn_type: ConnType,
         interface: impl Interface,
-    ) -> ResultType<(
-        (
-            Stream,
-            bool,
-            Option<Vec<u8>>,
-            Option<KcpStream>,
-            &'static str,
-        ),
-        (i32, String),
-    )> {
+    ) -> ResultType<((Stream, bool, Option<Vec<u8>>, &'static str), (i32, String))> {
         debug_assert!(peer == interface.get_id());
-        interface.update_direct(None);
         interface.update_received(false);
         match Self::_start(peer, key, token, conn_type, interface.clone()).await {
             Err(err) => {
@@ -210,19 +193,7 @@ impl Client {
                     return Err(err);
                 }
             }
-            Ok(x) => {
-                // Set x.2 to true only in the connect() function to indicate that direct_failures needs to be updated; everywhere else it should be set to false.
-                if x.2 {
-                    let direct_failures = interface.get_lch().read().unwrap().direct_failures;
-                    let direct = x.0 .1;
-                    if !interface.is_force_relay() && (direct_failures == 0) != direct {
-                        let n = if direct { 0 } else { 1 };
-                        log::info!("direct_failures updated to {}", n);
-                        interface.get_lch().write().unwrap().set_direct_failure(n);
-                    }
-                }
-                Ok((x.0, x.1))
-            }
+            Ok(x) => Ok(x),
         }
     }
 
@@ -233,67 +204,16 @@ impl Client {
         _token: &str,
         conn_type: ConnType,
         interface: impl Interface,
-    ) -> ResultType<(
-        (
-            Stream,
-            bool,
-            Option<Vec<u8>>,
-            Option<KcpStream>,
-            &'static str,
-        ),
-        (i32, String),
-        bool,
-    )> {
+    ) -> ResultType<((Stream, bool, Option<Vec<u8>>, &'static str), (i32, String))> {
         if config::is_incoming_only() && !is_switch_sides_back(conn_type, &interface).await {
             bail!("Incoming only mode");
         }
-        // The rendezvous / relay servers are gone: a peer is reached through its tailcat
-        // address (DERP to meet, then direct UDP), or directly by IP on a LAN.
-        if crate::tailcat::is_addr(peer) {
-            let stream = crate::tailcat::connect(peer, CONNECT_TIMEOUT).await?;
-            return Ok((
-                (
-                    stream,
-                    true,
-                    None,
-                    None,
-                    "Tailcat",
-                ),
-                (0, "".to_owned()),
-                false,
-            ));
+        // A peer is reached only through its tailcat address; the tunnel does the rest.
+        if !crate::tailcat::is_addr(peer) {
+            bail!("Unsupported peer {peer:?}: connect with the peer's tailcat address (tc...)");
         }
-        // to-do: remember the port for each peer, so that we can retry easier
-        if hbb_common::is_ip_str(peer) {
-            return Ok((
-                (
-                    connect_tcp_local(check_port(peer, RELAY_PORT + 1), None, CONNECT_TIMEOUT)
-                        .await?,
-                    true,
-                    None,
-                    None,
-                    "TCP",
-                ),
-                (0, "".to_owned()),
-                false,
-            ));
-        }
-        // Allow connect to {domain}:{port}
-        if hbb_common::is_domain_port_str(peer) {
-            return Ok((
-                (
-                    connect_tcp_local(peer, None, CONNECT_TIMEOUT).await?,
-                    true,
-                    None,
-                    None,
-                    "TCP",
-                ),
-                (0, "".to_owned()),
-                false,
-            ));
-        }
-
-        bail!("Unsupported peer {peer:?}: connect with the peer's tailcat address (tc...), or its IP on a LAN");
+        let stream = crate::tailcat::connect(peer, CONNECT_TIMEOUT).await?;
+        Ok(((stream, true, None, "Tailcat"), (0, "".to_owned())))
     }
 
     #[inline]
@@ -1273,21 +1193,12 @@ pub struct LoginConfigHandler {
     // Start time of the restart grace window. On Windows the peer may briefly
     // reconnect before the real reboot disconnect.
     restart_remote_device_at: Option<Instant>,
-    pub force_relay: bool,
-    // force_relay minus the WebSocket transport. ws forces relay for classic punching but says
-    // nothing about ICE, so every WebRTC decision keys off this: policy means Relay-only ICE,
-    // transport may still go direct.
-    pub policy_relay: bool,
-    // The peer-scoped part of it, and the only part that may be written back to the peer.
-    pub peer_relay: bool,
-    pub direct: Option<bool>,
     pub received: bool,
     switch_uuid: Option<String>,
     #[cfg(feature = "flutter")]
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     switch_back_allowed: bool,
     pub save_ab_password_to_recent: bool, // true: connected with ab password
-    pub other_server: Option<(String, String, String)>,
     pub custom_fps: Arc<Mutex<Option<usize>>>,
     pub last_auto_fps: Option<usize>,
     pub adapter_luid: Option<i64>,
@@ -1325,48 +1236,10 @@ impl LoginConfigHandler {
         id: String,
         conn_type: ConnType,
         switch_uuid: Option<String>,
-        mut force_relay: bool,
         adapter_luid: Option<i64>,
         shared_password: Option<String>,
         conn_token: Option<String>,
     ) {
-        let mut id = id;
-        if id.contains("@") {
-            let mut v = id.split("@");
-            let raw_id: &str = v.next().unwrap_or_default();
-            let mut server_key = v.next().unwrap_or_default().split('?');
-            let server = server_key.next().unwrap_or_default();
-            let args = server_key.next().unwrap_or_default();
-            let key = if server == PUBLIC_SERVER {
-                config::RS_PUB_KEY.to_owned()
-            } else {
-                let mut args_map: HashMap<String, &str> = HashMap::new();
-                for arg in args.split('&') {
-                    if let Some(kv) = arg.find('=') {
-                        let k = arg[0..kv].to_lowercase();
-                        let v = &arg[kv + 1..];
-                        args_map.insert(k, v);
-                    }
-                }
-                let key = args_map.remove("key").unwrap_or_default();
-                key.to_owned()
-            };
-
-            // here we can check <id>/r@server
-            let real_id = crate::ui_interface::handle_relay_id(raw_id).to_string();
-            if real_id != raw_id {
-                force_relay = true;
-            }
-            self.other_server = Some((real_id.clone(), server.to_owned(), key));
-            id = format!("{real_id}@{server}");
-        } else {
-            let real_id = crate::ui_interface::handle_relay_id(&id);
-            if real_id != id {
-                force_relay = true;
-                id = real_id.to_owned();
-            }
-        }
-
         self.id = id;
         self.conn_type = conn_type;
         let config = self.load_config();
@@ -1392,22 +1265,6 @@ impl LoginConfigHandler {
         self.session_id = sid;
         self.supported_encoding = Default::default();
         self.clear_restarting_remote_device();
-        // Three scopes: what was decided about this PEER, what this CLIENT is set up as (proxy),
-        // and what its TRANSPORT forces (ws). Only the first may be written back to the peer's
-        // config — persisting the others would make a local setup a permanent peer property.
-        self.peer_relay =
-            config::option2bool("force-always-relay", &self.get_option("force-always-relay"))
-                || force_relay;
-        self.policy_relay = self.peer_relay || Config::is_proxy();
-        self.force_relay = self.policy_relay || use_ws();
-        if let Some((real_id, server, key)) = &self.other_server {
-            let other_server_key = self.get_option("other-server-key");
-            if !other_server_key.is_empty() && key.is_empty() {
-                self.other_server = Some((real_id.to_owned(), server.to_owned(), other_server_key));
-            }
-        }
-
-        self.direct = None;
         self.received = false;
         #[cfg(feature = "flutter")]
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -1580,12 +1437,6 @@ impl LoginConfigHandler {
         } else {
             config.ui_flutter.insert(k, v);
         }
-        self.save_config(config);
-    }
-
-    pub fn set_direct_failure(&mut self, value: i32) {
-        let mut config = self.load_config();
-        config.direct_failures = value;
         self.save_config(config);
     }
 
@@ -1793,7 +1644,7 @@ impl LoginConfigHandler {
             msg.image_quality = q.into();
         } else if q == "custom" {
             let config = self.load_config();
-            let allow_more = !crate::using_public_server() || self.direct == Some(true);
+            let allow_more = true;
             let quality = if config.custom_image_quality.is_empty() {
                 50
             } else {
@@ -2109,20 +1960,6 @@ impl LoginConfigHandler {
                 log::debug!("remove password of {}", self.id);
             }
         }
-        if let Some((_, b, c)) = self.other_server.as_ref() {
-            if b != PUBLIC_SERVER {
-                config
-                    .options
-                    .insert("other-server-key".to_owned(), c.clone());
-            }
-        }
-        // peer_relay only — see `initialize`: neither the proxy nor the WebSocket transport is a
-        // fact about this peer, and writing one here makes it permanent.
-        if self.peer_relay {
-            config
-                .options
-                .insert("force-always-relay".to_owned(), "Y".to_owned());
-        }
         #[cfg(feature = "flutter")]
         {
             // sync connected password to personal ab automatically if it is not shared password
@@ -2191,12 +2028,7 @@ impl LoginConfigHandler {
         password: Vec<u8>,
     ) -> Message {
         let my_id = Config::get_id();
-        let (my_id, pure_id) = if let Some((id, _, _)) = self.other_server.as_ref() {
-            let server = Config::get_rendezvous_server();
-            (format!("{my_id}@{server}"), id.clone())
-        } else {
-            (my_id, self.id.clone())
-        };
+        let (my_id, pure_id) = (my_id, self.id.clone());
         let mut avatar = get_builtin_option(keys::OPTION_AVATAR);
         if avatar.is_empty() {
             avatar = serde_json::from_str::<serde_json::Value>(&LocalConfig::get_option(
@@ -3320,14 +3152,6 @@ pub trait Interface: Send + Clone + 'static + Sized {
         self.get_lch().read().unwrap().id.clone()
     }
 
-    fn is_force_relay(&self) -> bool {
-        self.get_lch().read().unwrap().force_relay
-    }
-
-    fn is_policy_relay(&self) -> bool {
-        self.get_lch().read().unwrap().policy_relay
-    }
-
     fn get_switch_code(&self) -> String {
         match self.get_lch().read().unwrap().switch_uuid.clone() {
             Some(u) if !u.is_empty() => {
@@ -3340,10 +3164,6 @@ pub trait Interface: Send + Clone + 'static + Sized {
 
     fn swap_modifier_mouse(&self, _msg: &mut base::protos::message::MouseEvent) {}
 
-    fn update_direct(&self, direct: Option<bool>) {
-        self.get_lch().write().unwrap().direct = direct;
-    }
-
     fn update_received(&self, received: bool) {
         self.get_lch().write().unwrap().received = received;
     }
@@ -3352,9 +3172,9 @@ pub trait Interface: Send + Clone + 'static + Sized {
         let title = "Connection Error";
         let text = err.to_string();
         let lch = self.get_lch();
-        let (is_restarting, direct, received) = {
+        let (is_restarting, received) = {
             let lc = lch.read().unwrap();
-            (lc.is_restarting_remote_device(), lc.direct, lc.received)
+            (lc.is_restarting_remote_device(), lc.received)
         };
         if is_restarting {
             log::info!("Restart remote device, suppress connection error: {err}");
@@ -3364,29 +3184,9 @@ pub trait Interface: Send + Clone + 'static + Sized {
             return;
         }
 
-        let mut relay_hint = false;
-        let mut relay_hint_type = "relay-hint";
-        // force relay
         let errno = errno::errno().0;
         log::error!("Connection closed: {err}({errno})");
-        if direct == Some(true)
-            && ((cfg!(windows) && (errno == 10054 || err.contains("10054")))
-                || (!cfg!(windows) && (errno == 104 || err.contains("104")))
-                || (!err.contains("Failed") && err.contains("deadline")))
-        // deadline: https://github.com/rustdesk/rustdesk-server-pro/discussions/325, most likely comes from secure tcp timeout
-        {
-            relay_hint = true;
-            if !received {
-                relay_hint_type = "relay-hint2"
-            }
-        }
-
-        // relay-hint
-        if cfg!(feature = "flutter") && relay_hint {
-            self.msgbox(relay_hint_type, title, &text, "");
-        } else {
-            self.msgbox("error", title, &text, "");
-        }
+        self.msgbox("error", title, &text, "");
     }
 }
 
@@ -3587,24 +3387,19 @@ lazy_static::lazy_static! {
 /// * `title` - The title of the message.
 /// * `text` - The text of the message.
 #[inline]
-pub fn check_if_retry(msgtype: &str, title: &str, text: &str, retry_for_relay: bool) -> bool {
+pub fn check_if_retry(msgtype: &str, title: &str, text: &str) -> bool {
     msgtype == "error"
         && title == "Connection Error"
-        && ((text.contains("10054") || text.contains("104")) && retry_for_relay
-            || (!text.to_lowercase().contains("offline")
-                && !text.to_lowercase().contains("not exist")
-                && (!text.to_lowercase().contains("handshake")
-                    // https://github.com/snapview/tungstenite-rs/blob/e7e060a89a72cb08e31c25a6c7284dc1bd982e23/src/error.rs#L248
-                    || text
-                        .to_lowercase()
-                        .contains("connection reset without closing handshake") && use_ws())
-                && !text.to_lowercase().contains("failed")
-                && !text.to_lowercase().contains("resolve")
-                && !text.to_lowercase().contains("mismatch")
-                && !text.to_lowercase().contains("manually")
-                && !text.to_lowercase().contains("restricted")
-                && !text.to_lowercase().contains("incoming only")
-                && !text.to_lowercase().contains("not allowed")))
+        && (!text.to_lowercase().contains("offline")
+            && !text.to_lowercase().contains("not exist")
+            && !text.to_lowercase().contains("handshake")
+            && !text.to_lowercase().contains("failed")
+            && !text.to_lowercase().contains("resolve")
+            && !text.to_lowercase().contains("mismatch")
+            && !text.to_lowercase().contains("manually")
+            && !text.to_lowercase().contains("restricted")
+            && !text.to_lowercase().contains("incoming only")
+            && !text.to_lowercase().contains("not allowed"))
 }
 
 #[cfg(test)]
@@ -3622,82 +3417,3 @@ mod retry_tests {
     }
 }
 
-pub async fn hc_connection(
-    feedback: i32,
-    rendezvous_server: String,
-    token: &str,
-) -> Option<tokio::sync::mpsc::UnboundedSender<()>> {
-    if feedback == 0 || rendezvous_server.is_empty() || token.is_empty() {
-        return None;
-    }
-    let (tx, rx) = unbounded_channel::<()>();
-    let token = token.to_owned();
-    tokio::spawn(async move {
-        allow_err!(hc_connection_(rendezvous_server, rx, token).await);
-    });
-    Some(tx)
-}
-
-async fn hc_connection_(
-    rendezvous_server: String,
-    mut rx: UnboundedReceiver<()>,
-    token: String,
-) -> ResultType<()> {
-    let mut timer = crate::rustdesk_interval(interval(crate::TIMER_OUT));
-    let mut last_recv_msg = Instant::now();
-    let mut keep_alive = crate::DEFAULT_KEEP_ALIVE;
-
-    let host = check_port(&rendezvous_server, RENDEZVOUS_PORT);
-    let mut conn = connect_tcp(host.clone(), CONNECT_TIMEOUT).await?;
-    let key = crate::get_key(true).await;
-    crate::secure_tcp(&mut conn, &key).await?;
-    let mut msg_out = RendezvousMessage::new();
-    msg_out.set_hc(HealthCheck {
-        token,
-        ..Default::default()
-    });
-    conn.send(&msg_out).await?;
-    loop {
-        tokio::select! {
-            res = rx.recv() => {
-                if res.is_none() {
-                    log::debug!("HC connection is closed as controlling connection exits");
-                    break;
-                }
-            }
-            res = conn.next() => {
-                last_recv_msg = Instant::now();
-                let bytes = res.ok_or_else(|| anyhow!("Rendezvous connection is reset by the peer"))??;
-                if bytes.is_empty() {
-                    conn.send_bytes(bytes::Bytes::new()).await?;
-                    continue; // heartbeat
-                }
-                let msg = RendezvousMessage::parse_from_bytes(&bytes)?;
-                match msg.union {
-                    Some(rendezvous_message::Union::RegisterPkResponse(rpr)) => {
-                        if rpr.keep_alive > 0 {
-                            keep_alive = rpr.keep_alive * 1000;
-                            log::info!("keep_alive: {}ms", keep_alive);
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            _  = timer.tick() => {
-                // https://www.emqx.com/en/blog/mqtt-keep-alive
-                if last_recv_msg.elapsed().as_millis() as u64 > keep_alive as u64 * 3 / 2 {
-                    bail!("HC connection is timeout");
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-pub mod peer_online {
-    /// Upstream asks the rendezvous server which peers are online. There is none here, and a
-    /// tailcat peer is only known to be up once its tunnel answers, so report every peer offline.
-    pub async fn query_online_states<F: FnOnce(Vec<String>, Vec<String>)>(ids: Vec<String>, f: F) {
-        f(vec![], ids)
-    }
-}

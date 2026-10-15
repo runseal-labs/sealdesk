@@ -42,7 +42,7 @@ pub fn effective_window(advertised: u32) -> u32 {
 /// For a tunnel's stream once multiplexing is agreed, on both sides. The
 /// WebSocket and WebRTC codecs carry caps of their own.
 pub fn cap_packet_size(stream: &mut hbb_common::Stream) {
-    if let hbb_common::Stream::Tcp(s) = stream {
+    if let hbb_common::Stream(s) = stream {
         s.0.codec_mut().set_max_packet_length(MAX_PACKET);
     }
 }
@@ -953,8 +953,8 @@ mod tests {
             let client = TcpStream::connect(addr).await.unwrap();
             let (server, _) = l.accept().await.unwrap();
             (
-                Stream::Tcp(FramedStream::from(client, addr)),
-                Stream::Tcp(FramedStream::from(server, addr)),
+                Stream(FramedStream::from(client, addr)),
+                Stream(FramedStream::from(server, addr)),
             )
         }
 
@@ -983,7 +983,7 @@ mod tests {
                 let addr = ours.peer_addr().unwrap();
                 let t = Tunnel::new();
                 t.claim();
-                let _h = t.set_muxed(Stream::Tcp(FramedStream::from(ours, addr)), NoUi::default());
+                let _h = t.set_muxed(Stream(FramedStream::from(ours, addr)), NoUi::default());
                 assert!(matches!(t.claim(), Claim::Muxed(_)));
                 // The codec's three-byte header form, declaring one byte more
                 // than the cap, and nothing behind it: an uncapped codec waits

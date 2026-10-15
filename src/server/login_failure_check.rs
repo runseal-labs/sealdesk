@@ -1,4 +1,3 @@
-use crate::AlarmAuditType;
 use hbb_common::get_time;
 #[cfg(target_os = "windows")]
 use hbb_common::tokio::sync::{Mutex as TokioMutex, OwnedMutexGuard};
@@ -19,7 +18,6 @@ pub(crate) enum FailureScope {
 pub(crate) struct OsCredentialPolicyDecision {
     pub allowed: bool,
     pub login_error: Option<String>,
-    pub audit: Option<AlarmAuditType>,
 }
 
 #[derive(Copy, Clone, Debug, Default)]
@@ -50,13 +48,6 @@ fn state_for_os_credential_scope(
         Some(&OS_CREDENTIAL_LOGIN_FAILURE_STATE)
     } else {
         None
-    }
-}
-
-fn backoff_audit_type_for_scope(scope: FailureScope) -> Option<AlarmAuditType> {
-    match scope {
-        FailureScope::TerminalOsLogin => Some(AlarmAuditType::TerminalOsLoginBackoff),
-        FailureScope::Default => None,
     }
 }
 
@@ -91,18 +82,13 @@ fn allow_decision() -> OsCredentialPolicyDecision {
     OsCredentialPolicyDecision {
         allowed: true,
         login_error: None,
-        audit: None,
     }
 }
 
-fn block_decision(
-    login_error: String,
-    alarm_type: Option<AlarmAuditType>,
-) -> OsCredentialPolicyDecision {
+fn block_decision(login_error: String) -> OsCredentialPolicyDecision {
     OsCredentialPolicyDecision {
         allowed: false,
         login_error: Some(login_error),
-        audit: alarm_type,
     }
 }
 
@@ -133,7 +119,6 @@ pub(crate) fn evaluate_os_credential_policy(
                 "Please try again in {} {}.",
                 remaining_seconds, seconds_label
             ),
-            backoff_audit_type_for_scope(scope),
         )
     } else {
         allow_decision()

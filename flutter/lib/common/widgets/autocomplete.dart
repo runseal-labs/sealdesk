@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common/formatter/id_formatter.dart';
@@ -10,9 +8,6 @@ import 'package:flutter_hbb/common/widgets/peer_card.dart';
 
 @visibleForTesting
 List<Peer> mergeAutocompletePeers({
-  Iterable<Peer> addressBookPeers = const [],
-  Iterable<Peer> groupPeers = const [],
-  Iterable<Peer> lanPeers = const [],
   Iterable<Peer> recentPeers = const [],
   Iterable<String> restRecentPeerIds = const [],
 }) {
@@ -30,15 +25,6 @@ List<Peer> mergeAutocompletePeers({
     }
   }
 
-  for (final peer in addressBookPeers) {
-    addPeer(peer);
-  }
-  for (final peer in groupPeers) {
-    addPeer(peer);
-  }
-  for (final peer in lanPeers) {
-    addPeer(peer);
-  }
   for (final peer in recentPeers) {
     addPeer(peer);
   }
@@ -99,23 +85,9 @@ class AllPeersLoader {
 
   bool _isPeersLoading = false;
   bool _isPeersLoaded = false;
-  Set<String> _lastQueryOnlineIds = {};
-  DateTime _lastQueryOnlineTime = DateTime.fromMillisecondsSinceEpoch(0);
-  Timer? _queryOnlineTimer;
   List<Peer> _lastQueryOnlineOptions = const [];
-  Set<String> _lastOnlineIds = {};
-  Set<String> _lastOfflineIds = {};
-  final Future<void> Function(List<String> ids) _queryOnlines;
-  final Duration _queryOnlineDebounce;
   void Function(VoidCallback)? _setState;
   bool _isCleared = false;
-
-  final String _listenerKey = 'AllPeersLoader';
-  static const String _cbQueryOnlines = 'callback_query_onlines';
-  static const Duration _queryOnlineInterval = Duration(seconds: 5);
-  static const Duration _defaultQueryOnlineDebounce =
-      Duration(milliseconds: 300);
-  static const int _maxQueryOnlineOptions = 20;
 
   bool get needLoad => !_isPeersLoaded && !_isPeersLoading;
   bool get isPeersLoaded => _isPeersLoaded;
@@ -123,31 +95,36 @@ class AllPeersLoader {
   AllPeersLoader({
     @visibleForTesting Future<void> Function(List<String> ids)? queryOnlines,
     @visibleForTesting Duration? queryOnlineDebounce,
-  })  : _queryOnlines = queryOnlines ?? ((ids) => bind.queryOnlines(ids: ids)),
-        _queryOnlineDebounce =
-            queryOnlineDebounce ?? _defaultQueryOnlineDebounce;
+  });
+
+  void queryOnlines(Iterable<Peer> options) {
+    _lastQueryOnlineOptions = options.toList(growable: false);
+  }
+
+  @visibleForTesting
+  void updateOnlineStateForTesting(Map<String, dynamic> evt) {
+    final onlines = (evt['onlines'] as String?)?.split(',').toSet() ?? {};
+    final offlines = (evt['offlines'] as String?)?.split(',').toSet() ?? {};
+    updateAutocompletePeerOnlineStates(
+      _lastQueryOnlineOptions,
+      onlines: onlines,
+      offlines: offlines,
+    );
+    updateAutocompletePeerOnlineStates(
+      peers,
+      onlines: onlines,
+      offlines: offlines,
+    );
+  }
 
   void init(void Function(VoidCallback) setState) {
     _setState = setState;
     _isCleared = false;
     gFFI.recentPeersModel.addListener(_mergeAllPeers);
-    gFFI.lanPeersModel.addListener(_mergeAllPeers);
-    gFFI.abModel.addPeerUpdateListener(_listenerKey, _mergeAllPeers);
-    gFFI.groupModel.addPeerUpdateListener(_listenerKey, _mergeAllPeers);
-    platformFFI.registerEventHandler(_cbQueryOnlines, _listenerKey,
-        (evt) async {
-      _updateOnlineState(evt);
-    });
   }
 
   void clear() {
     gFFI.recentPeersModel.removeListener(_mergeAllPeers);
-    gFFI.lanPeersModel.removeListener(_mergeAllPeers);
-    gFFI.abModel.removePeerUpdateListener(_listenerKey);
-    gFFI.groupModel.removePeerUpdateListener(_listenerKey);
-    platformFFI.unregisterEventHandler(_cbQueryOnlines, _listenerKey);
-    _queryOnlineTimer?.cancel();
-    _lastQueryOnlineOptions = const [];
     _setState = null;
     _isCleared = true;
   }
@@ -161,12 +138,6 @@ class AllPeersLoader {
     if (gFFI.recentPeersModel.peers.isEmpty) {
       bind.mainLoadRecentPeers();
     }
-    if (gFFI.lanPeersModel.peers.isEmpty) {
-      bind.mainLoadLanPeers();
-    }
-    // No need to care about peers from abModel, and group model.
-    // Because they will pull data in `refreshCurrentUser()` on startup.
-
     final startTime = DateTime.now();
     _mergeAllPeers();
     final diffTime = DateTime.now().difference(startTime).inMilliseconds;
@@ -180,30 +151,13 @@ class AllPeersLoader {
       return;
     }
     peers = mergeAutocompletePeers(
-      addressBookPeers: gFFI.abModel.allPeers(),
-      groupPeers: gFFI.groupModel.peers,
-      lanPeers: gFFI.lanPeersModel.peers,
       recentPeers: gFFI.recentPeersModel.peers,
       restRecentPeerIds: gFFI.recentPeersModel.restPeerIds,
     );
-    _applyLastOnlineState(peers);
     _scheduleSetState(() {
       _isPeersLoading = false;
       _isPeersLoaded = true;
     });
-  }
-
-  void _updateOnlineState(Map<String, dynamic> evt) {
-    if (_isCleared) {
-      return;
-    }
-    _lastOnlineIds = _splitPeerIds(evt['onlines']);
-    _lastOfflineIds = _splitPeerIds(evt['offlines']);
-    final peersChanged = _applyLastOnlineState(peers);
-    final optionsChanged = _applyLastOnlineState(_lastQueryOnlineOptions);
-    if (peersChanged || optionsChanged) {
-      _scheduleSetState(() {});
-    }
   }
 
   void _scheduleSetState(VoidCallback callback) {
@@ -218,59 +172,6 @@ class AllPeersLoader {
     }
   }
 
-  bool _applyLastOnlineState(List<Peer> peers) {
-    return updateAutocompletePeerOnlineStates(
-      peers,
-      onlines: _lastOnlineIds,
-      offlines: _lastOfflineIds,
-    );
-  }
-
-  Set<String> _splitPeerIds(dynamic ids) {
-    if (ids is! String || ids.isEmpty) {
-      return {};
-    }
-    return ids.split(',').where((id) => id.isNotEmpty).toSet();
-  }
-
-  void queryOnlines(Iterable<Peer> options) {
-    if (_isCleared) {
-      return;
-    }
-    _lastQueryOnlineOptions = options.toList(growable: false);
-    final ids = autocompleteOnlineQueryIds(
-      _lastQueryOnlineOptions,
-      limit: _maxQueryOnlineOptions,
-    ).toSet();
-    _queryOnlineTimer?.cancel();
-    _queryOnlineTimer = null;
-    if (ids.isEmpty) {
-      return;
-    }
-    final now = DateTime.now();
-    if (setEquals(ids, _lastQueryOnlineIds) &&
-        now.difference(_lastQueryOnlineTime) < _queryOnlineInterval) {
-      return;
-    }
-
-    _queryOnlineTimer = Timer(_queryOnlineDebounce, () async {
-      try {
-        await _queryOnlines(ids.toList(growable: false));
-        if (_isCleared) {
-          return;
-        }
-        _lastQueryOnlineIds = ids;
-        _lastQueryOnlineTime = DateTime.now();
-      } catch (e) {
-        debugPrint('query autocomplete online state failed: $e');
-      }
-    });
-  }
-
-  @visibleForTesting
-  void updateOnlineStateForTesting(Map<String, dynamic> evt) {
-    _updateOnlineState(evt);
-  }
 }
 
 class AutocompletePeerTile extends StatefulWidget {
@@ -288,14 +189,6 @@ class AutocompletePeerTile extends StatefulWidget {
 }
 
 class AutocompletePeerTileState extends State<AutocompletePeerTile> {
-  List _frontN<T>(List list, int n) {
-    if (list.length <= n) {
-      return list;
-    } else {
-      return list.sublist(0, n);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final double tileRadius = 5;
@@ -400,26 +293,6 @@ class AutocompletePeerTileState extends State<AutocompletePeerTile> {
                     )
                   ],
                 ))));
-    final colors = _frontN(widget.peer.tags, 25)
-        .map((e) => gFFI.abModel.getCurrentAbTagColor(e))
-        .toList();
-    return Tooltip(
-      message: !(isDesktop || isWebDesktop)
-          ? ''
-          : widget.peer.tags.isNotEmpty
-              ? '${translate('Tags')}: ${widget.peer.tags.join(', ')}'
-              : '',
-      child: Stack(children: [
-        child,
-        if (colors.isNotEmpty)
-          Positioned(
-            top: 5,
-            right: 10,
-            child: CustomPaint(
-              painter: TagPainter(radius: 3, colors: colors),
-            ),
-          )
-      ]),
-    );
+    return child;
   }
 }

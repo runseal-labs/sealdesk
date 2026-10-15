@@ -20,7 +20,7 @@ pub(crate) use ipc_drm::DrmConn;
 pub(crate) use ipc_drm::connect_drm;
 
 use crate::{
-    common::{is_server, CheckTestNatType},
+    common::is_server,
     privacy_mode,
     privacy_mode::PrivacyModeState,
     rendezvous_mediator::RendezvousMediator,
@@ -45,7 +45,7 @@ use hbb_common::{
     tokio_util::codec::Framed,
     ResultType,
 };
-use base::config::keys::{self, OPTION_ALLOW_WEBSOCKET};
+use base::config::keys;
 #[cfg(windows)]
 pub(crate) use ipc_auth::authorize_windows_portable_service_ipc_connection;
 #[cfg(windows)]
@@ -360,13 +360,10 @@ pub enum Data {
     #[cfg(windows)]
     SAS,
     UserSid(Option<u32>),
-    OnlineStatus(Option<(i64, bool)>),
     Config((String, Option<String>)),
     Options(Option<HashMap<String, String>>),
-    NatType(Option<i32>),
     ConfirmedKey(Option<(Vec<u8>, Vec<u8>)>),
     RawMessage(Vec<u8>),
-    Socks(Option<config::Socks5Server>),
     FS(FS),
     Test,
     SyncConfig(Option<Box<(Config, Config2)>>),
@@ -376,8 +373,6 @@ pub enum Data {
     #[cfg(target_os = "windows")]
     ClipboardNonFile(Option<(String, Vec<ClipboardNonFile>)>),
     PrivacyModeState((i32, PrivacyModeState, String)),
-    TestRendezvousServer,
-    Deployed,
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     Keyboard(DataKeyboard),
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -496,7 +491,6 @@ pub enum Data {
     TerminalSessionCount(usize),
     #[cfg(target_os = "windows")]
     PortForwardSessionCount(Option<usize>),
-    SocksWs(Option<Box<(Option<config::Socks5Server>, String)>>),
     #[cfg(target_os = "macos")]
     HasNoActiveConns(Option<bool>),
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -771,51 +765,20 @@ pub async fn new_listener(postfix: &str) -> ResultType<Incoming> {
 }
 
 pub struct CheckIfRestart {
-    stop_service: String,
-    rendezvous_servers: Vec<String>,
     audio_input: String,
     voice_call_input: String,
-    ws: String,
-    disable_udp: String,
-    allow_insecure_tls_fallback: String,
-    api_server: String,
 }
 
 impl CheckIfRestart {
     pub fn new() -> CheckIfRestart {
         CheckIfRestart {
-            stop_service: Config::get_option("stop-service"),
-            rendezvous_servers: Config::get_rendezvous_servers(),
             audio_input: Config::get_option("audio-input"),
             voice_call_input: Config::get_option("voice-call-input"),
-            ws: Config::get_option(OPTION_ALLOW_WEBSOCKET),
-            disable_udp: Config::get_option(keys::OPTION_DISABLE_UDP),
-            allow_insecure_tls_fallback: Config::get_option(
-                keys::OPTION_ALLOW_INSECURE_TLS_FALLBACK,
-            ),
-            api_server: Config::get_option("api-server"),
         }
     }
 }
 impl Drop for CheckIfRestart {
     fn drop(&mut self) {
-        // If https proxy is used, we need to restart rendezvous mediator.
-        // No need to check if https proxy is used, because this option does not change frequently
-        // and restarting mediator is safe even https proxy is not used.
-        let allow_insecure_tls_fallback_changed = self.allow_insecure_tls_fallback
-            != Config::get_option(keys::OPTION_ALLOW_INSECURE_TLS_FALLBACK);
-        if allow_insecure_tls_fallback_changed
-            || self.stop_service != Config::get_option("stop-service")
-            || self.rendezvous_servers != Config::get_rendezvous_servers()
-            || self.ws != Config::get_option(OPTION_ALLOW_WEBSOCKET)
-            || self.disable_udp != Config::get_option(keys::OPTION_DISABLE_UDP)
-            || self.api_server != Config::get_option("api-server")
-        {
-            if allow_insecure_tls_fallback_changed {
-                hbb_common::tls::reset_tls_cache();
-            }
-            RendezvousMediator::restart();
-        }
         if self.audio_input != Config::get_option("audio-input") {
             crate::audio_service::restart();
         }
@@ -886,11 +849,6 @@ async fn handle(data: Data, stream: &mut Connection) {
                 std::process::exit(-1); // to make sure --server luauchagent process can restart because SuccessfulExit used
             }
         }
-        Data::OnlineStatus(_) => {
-            let x = config::get_online_state();
-            let confirmed = Config::get_key_confirmed();
-            allow_err!(stream.send(&Data::OnlineStatus(Some((x, confirmed)))).await);
-        }
         Data::ConfirmedKey(None) => {
             let out = if Config::get_key_confirmed() {
                 Some(Config::get_key_pair())
@@ -899,34 +857,6 @@ async fn handle(data: Data, stream: &mut Connection) {
             };
             allow_err!(stream.send(&Data::ConfirmedKey(out)).await);
         }
-        Data::Socks(s) => match s {
-            None => {
-                allow_err!(stream.send(&Data::Socks(Config::get_socks())).await);
-            }
-            Some(data) => {
-                let _nat = CheckTestNatType::new();
-                if data.proxy.is_empty() {
-                    Config::set_socks(None);
-                } else {
-                    Config::set_socks(Some(data));
-                }
-                RendezvousMediator::restart();
-                log::info!("socks updated");
-            }
-        },
-        Data::SocksWs(s) => match s {
-            None => {
-                allow_err!(
-                    stream
-                        .send(&Data::SocksWs(Some(Box::new((
-                            Config::get_socks(),
-                            Config::get_option(OPTION_ALLOW_WEBSOCKET)
-                        )))))
-                        .await
-                );
-            }
-            _ => {}
-        },
         #[cfg(feature = "flutter")]
         Data::VideoConnCount(None) => {
             let n = crate::server::AUTHED_CONNS
@@ -965,24 +895,9 @@ async fn handle(data: Data, stream: &mut Connection) {
                     });
                 } else if name == "salt" {
                     value = Some(Config::get_salt());
-                } else if name == "rendezvous_server" {
-                    value = Some(format!(
-                        "{},{}",
-                        Config::get_rendezvous_server(),
-                        Config::get_rendezvous_servers().join(",")
-                    ));
-                } else if name == "rendezvous_servers" {
-                    value = Some(Config::get_rendezvous_servers().join(","));
                 } else if name == "fingerprint" {
                     value = if Config::get_key_confirmed() {
                         Some(crate::common::pk_to_fingerprint(Config::get_key_pair().1))
-                    } else {
-                        None
-                    };
-                } else if name == "hide_cm" {
-                    value = if crate::hbbs_http::sync::is_pro() || crate::common::is_custom_client()
-                    {
-                        Some(hbb_common::password_security::hide_cm().to_string())
                     } else {
                         None
                     };
@@ -1061,7 +976,6 @@ async fn handle(data: Data, stream: &mut Connection) {
             }
             Some(value) => {
                 let _chk = CheckIfRestart::new();
-                let _nat = CheckTestNatType::new();
                 if let Some(v) = value.get("privacy-mode-impl-key") {
                     crate::privacy_mode::switch(v);
                 }
@@ -1069,10 +983,6 @@ async fn handle(data: Data, stream: &mut Connection) {
                 allow_err!(stream.send(&Data::Options(None)).await);
             }
         },
-        Data::NatType(_) => {
-            let t = Config::get_nat_type();
-            allow_err!(stream.send(&Data::NatType(Some(t))).await);
-        }
         Data::SyncConfig(Some(configs)) => {
             let (config, config2) = *configs;
             let _chk = CheckIfRestart::new();
@@ -1099,19 +1009,11 @@ async fn handle(data: Data, stream: &mut Connection) {
                     .await
             );
         }
-        Data::TestRendezvousServer => {
-            crate::test_rendezvous_server();
-        }
-        Data::Deployed => {
-            crate::rendezvous_mediator::NEEDS_DEPLOY.store(false, Ordering::SeqCst);
-            crate::rendezvous_mediator::RendezvousMediator::restart();
-        }
         #[cfg(feature = "flutter")]
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         Data::SwitchSidesRequest(id) => {
             let uuid = uuid::Uuid::new_v4();
             crate::server::insert_switch_sides_uuid(id, uuid.clone());
-            crate::hbbs_http::sync::register_switch_grant(uuid.to_string());
             allow_err!(
                 stream
                     .send(&Data::SwitchSidesRequest(uuid.to_string()))
@@ -1899,20 +1801,6 @@ pub fn get_id() -> String {
     Config::get_id()
 }
 
-pub async fn get_rendezvous_server(ms_timeout: u64) -> (String, Vec<String>) {
-    if let Ok(Some(v)) = get_config_async("rendezvous_server", ms_timeout).await {
-        let mut urls = v.split(",");
-        let a = urls.next().unwrap_or_default().to_owned();
-        let b: Vec<String> = urls.map(|x| x.to_owned()).collect();
-        (a, b)
-    } else {
-        (
-            Config::get_rendezvous_server(),
-            Config::get_rendezvous_servers(),
-        )
-    }
-}
-
 async fn get_options_(ms_timeout: u64) -> ResultType<HashMap<String, String>> {
     let mut c = connect(ms_timeout, "").await?;
     c.send(&Data::Options(None)).await?;
@@ -1953,114 +1841,12 @@ pub fn set_option(key: &str, value: &str) {
 
 #[tokio::main(flavor = "current_thread")]
 pub async fn set_options(value: HashMap<String, String>) -> ResultType<()> {
-    let _nat = CheckTestNatType::new();
     if let Ok(mut c) = connect(1000, "").await {
         c.send(&Data::Options(Some(value.clone()))).await?;
         // do not put below before connect, because we need to check should_exit
         c.next_timeout(1000).await.ok();
     }
     crate::tailcat::host::set_options(value);
-    Ok(())
-}
-
-#[inline]
-async fn get_nat_type_(ms_timeout: u64) -> ResultType<i32> {
-    let mut c = connect(ms_timeout, "").await?;
-    c.send(&Data::NatType(None)).await?;
-    if let Some(Data::NatType(Some(value))) = c.next_timeout(ms_timeout).await? {
-        Config::set_nat_type(value);
-        Ok(value)
-    } else {
-        Ok(Config::get_nat_type())
-    }
-}
-
-pub async fn get_nat_type(ms_timeout: u64) -> i32 {
-    get_nat_type_(ms_timeout)
-        .await
-        .unwrap_or(Config::get_nat_type())
-}
-
-pub async fn get_rendezvous_servers(ms_timeout: u64) -> Vec<String> {
-    if let Ok(Some(v)) = get_config_async("rendezvous_servers", ms_timeout).await {
-        return v.split(',').map(|x| x.to_owned()).collect();
-    }
-    return Config::get_rendezvous_servers();
-}
-
-#[inline]
-async fn get_socks_(ms_timeout: u64) -> ResultType<Option<config::Socks5Server>> {
-    let mut c = connect(ms_timeout, "").await?;
-    c.send(&Data::Socks(None)).await?;
-    if let Some(Data::Socks(value)) = c.next_timeout(ms_timeout).await? {
-        Config::set_socks(value.clone());
-        Ok(value)
-    } else {
-        Ok(Config::get_socks())
-    }
-}
-
-pub async fn get_socks_async(ms_timeout: u64) -> Option<config::Socks5Server> {
-    get_socks_(ms_timeout).await.unwrap_or(Config::get_socks())
-}
-
-#[tokio::main(flavor = "current_thread")]
-pub async fn get_socks() -> Option<config::Socks5Server> {
-    get_socks_async(1_000).await
-}
-
-#[tokio::main(flavor = "current_thread")]
-pub async fn set_socks(value: config::Socks5Server) -> ResultType<()> {
-    let _nat = CheckTestNatType::new();
-    Config::set_socks(if value.proxy.is_empty() {
-        None
-    } else {
-        Some(value.clone())
-    });
-    connect(1_000, "")
-        .await?
-        .send(&Data::Socks(Some(value)))
-        .await?;
-    Ok(())
-}
-
-async fn get_socks_ws_(ms_timeout: u64) -> ResultType<(Option<config::Socks5Server>, String)> {
-    let mut c = connect(ms_timeout, "").await?;
-    c.send(&Data::SocksWs(None)).await?;
-    if let Some(Data::SocksWs(Some(value))) = c.next_timeout(ms_timeout).await? {
-        Config::set_socks(value.0.clone());
-        Config::set_option(OPTION_ALLOW_WEBSOCKET.to_string(), value.1.clone());
-        Ok(*value)
-    } else {
-        Ok((
-            Config::get_socks(),
-            Config::get_option(OPTION_ALLOW_WEBSOCKET),
-        ))
-    }
-}
-
-#[tokio::main(flavor = "current_thread")]
-pub async fn get_socks_ws() -> (Option<config::Socks5Server>, String) {
-    get_socks_ws_(1_000).await.unwrap_or((
-        Config::get_socks(),
-        Config::get_option(OPTION_ALLOW_WEBSOCKET),
-    ))
-}
-
-pub fn get_proxy_status() -> bool {
-    Config::get_socks().is_some()
-}
-#[tokio::main(flavor = "current_thread")]
-pub async fn test_rendezvous_server() -> ResultType<()> {
-    let mut c = connect(1000, "").await?;
-    c.send(&Data::TestRendezvousServer).await?;
-    Ok(())
-}
-
-#[tokio::main(flavor = "current_thread")]
-pub async fn notify_deployed() -> ResultType<()> {
-    let mut c = connect(1000, "").await?;
-    c.send(&Data::Deployed).await?;
     Ok(())
 }
 

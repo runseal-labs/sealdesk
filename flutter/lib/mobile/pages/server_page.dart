@@ -63,7 +63,7 @@ class _DropDownAction extends StatelessWidget {
           return [
             if (!isChangeIdDisabled())
               PopupMenuItem(
-                enabled: gFFI.serverModel.connectStatus > 0,
+                enabled: gFFI.serverModel.isStart,
                 value: "changeID",
                 child: Text(translate("Change ID")),
               ),
@@ -248,9 +248,8 @@ class ServiceNotRunningNotification extends StatelessWidget {
             ElevatedButton.icon(
                 icon: const Icon(Icons.play_arrow),
                 onPressed: () {
-                  if (gFFI.userModel.userName.value.isEmpty &&
-                      bind.mainGetLocalOption(key: "show-scam-warning") !=
-                          "N") {
+                  if (bind.mainGetLocalOption(key: "show-scam-warning") !=
+                      "N") {
                     showScamWarning(context, serverModel);
                   } else {
                     serverModel.toggleService();
@@ -272,7 +271,7 @@ class ScamWarningDialog extends StatefulWidget {
 }
 
 class ScamWarningDialogState extends State<ScamWarningDialog> {
-  int _countdown = bind.isCustomClient() ? 0 : 12;
+  int _countdown = 12;
   bool show_warning = false;
   late Timer _timer;
   late ServerModel _serverModel;
@@ -479,18 +478,12 @@ class ServerInfo extends StatelessWidget {
     }
 
     Widget ConnectionStateNotification() {
-      if (serverModel.connectStatus == -1) {
+      if (!serverModel.isStart) {
         return Row(children: [
           const Icon(Icons.warning_amber_sharp,
                   color: colorNegative, size: iconSize)
               .marginOnly(right: iconMarginRight),
           Expanded(child: Text(translate('not_ready_status')))
-        ]);
-      } else if (serverModel.connectStatus == 0) {
-        return Row(children: [
-          SizedBox(width: 20, height: 20, child: CircularProgressIndicator())
-              .marginOnly(left: 4, right: iconMarginRight),
-          Expanded(child: Text(translate('connecting_status')))
         ]);
       } else {
         return Row(children: [
@@ -605,7 +598,6 @@ class _PermissionCheckerState extends State<PermissionChecker> {
                 translate("Screen Capture"),
                 serverModel.mediaOk,
                 !serverModel.mediaOk &&
-                        gFFI.userModel.userName.value.isEmpty &&
                         bind.mainGetLocalOption(key: "show-scam-warning") != "N"
                     ? () => showScamWarning(context, serverModel)
                     : serverModel.toggleService),

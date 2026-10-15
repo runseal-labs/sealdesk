@@ -37,22 +37,15 @@ lazy_static::lazy_static! {
     static ref TEXTURE_RENDER_KEY: Arc<AtomicI32> = Arc::new(AtomicI32::new(0));
 }
 
-fn initialize(app_dir: &str, custom_client_config: &str) {
+fn initialize(app_dir: &str) {
     #[cfg(any(target_os = "android", target_os = "ios"))]
     {
         *config::APP_NAME.write().unwrap() = crate::tailcat::APP_NAME.to_owned();
     }
-    flutter::async_tasks::start_flutter_async_runner();
     // `APP_DIR` is set in `main_get_data_dir_ios()` on iOS.
     #[cfg(not(target_os = "ios"))]
     {
         *config::APP_DIR.write().unwrap() = app_dir.to_owned();
-    }
-    // core_main's load_custom_client does not work for flutter since it is only applied to its load_library in main.c
-    if custom_client_config.is_empty() {
-        crate::load_custom_client();
-    } else {
-        crate::read_custom_client(custom_client_config);
     }
     #[cfg(target_os = "android")]
     {
@@ -154,7 +147,6 @@ pub fn session_add_sync(
     is_rdp: bool,
     is_terminal: bool,
     switch_uuid: String,
-    force_relay: bool,
     password: String,
     is_shared_password: bool,
     conn_token: Option<String>,
@@ -168,7 +160,6 @@ pub fn session_add_sync(
         is_rdp,
         is_terminal,
         &switch_uuid,
-        force_relay,
         password,
         is_shared_password,
         conn_token,
@@ -352,9 +343,9 @@ pub fn session_get_is_recording(session_id: SessionID) -> SyncReturn<bool> {
     }
 }
 
-pub fn session_reconnect(session_id: SessionID, force_relay: bool) {
+pub fn session_reconnect(session_id: SessionID) {
     if let Some(session) = sessions::get_session_by_session_id(&session_id) {
-        session.reconnect(force_relay);
+        session.reconnect();
     }
     session_on_waiting_for_image_dialog_show(session_id);
 }
@@ -982,20 +973,12 @@ pub fn main_get_sound_inputs() -> Vec<String> {
     vec![String::from("")]
 }
 
-pub fn main_get_login_device_info() -> SyncReturn<String> {
-    SyncReturn(get_login_device_info_json())
-}
-
 pub fn main_change_id(new_id: String) {
     change_id(new_id)
 }
 
 pub fn main_get_async_status() -> String {
     get_async_job_status()
-}
-
-pub fn main_get_http_status(url: String) -> Option<String> {
-    get_async_http_status(url)
 }
 
 pub fn main_get_option(key: String) -> String {
@@ -1077,27 +1060,7 @@ pub fn main_set_option(key: String, value: String) {
         );
     }
 
-    // If `is_allow_tls_fallback` and https proxy is used, we need to restart rendezvous mediator.
-    // No need to check if https proxy is used, because this option does not change frequently
-    // and restarting mediator is safe even https proxy is not used.
-    let is_allow_tls_fallback = key.eq(keys::OPTION_ALLOW_INSECURE_TLS_FALLBACK);
-    if is_allow_tls_fallback
-        || key.eq("custom-rendezvous-server")
-        || key.eq(keys::OPTION_ALLOW_WEBSOCKET)
-        || key.eq(keys::OPTION_DISABLE_UDP)
-        || key.eq("api-server")
-    {
-        if is_allow_tls_fallback {
-            hbb_common::tls::reset_tls_cache();
-        }
-        set_option(key, value.clone());
-        #[cfg(target_os = "android")]
-        crate::rendezvous_mediator::RendezvousMediator::restart();
-        #[cfg(any(target_os = "android", target_os = "ios"))]
-        crate::common::test_rendezvous_server();
-    } else {
-        set_option(key, value.clone());
-    }
+    set_option(key, value.clone());
 }
 
 pub fn main_get_options() -> String {
@@ -1137,22 +1100,6 @@ pub fn main_set_options(json: String) {
     }
 }
 
-pub fn main_test_if_valid_server(server: String, test_with_proxy: bool) -> String {
-    test_if_valid_server(server, test_with_proxy)
-}
-
-pub fn main_set_socks(proxy: String, username: String, password: String) {
-    set_socks(proxy, username, password)
-}
-
-pub fn main_get_proxy_status() -> bool {
-    get_proxy_status()
-}
-
-pub fn main_get_socks() -> Vec<String> {
-    get_socks()
-}
-
 pub fn main_get_app_name() -> String {
     get_app_name()
 }
@@ -1186,64 +1133,8 @@ pub fn main_get_peer_sync(id: String) -> SyncReturn<String> {
     SyncReturn(serde_json::to_string(&conf).unwrap_or("".to_string()))
 }
 
-pub fn main_get_lan_peers() -> String {
-    serde_json::to_string(&get_lan_peers()).unwrap_or_default()
-}
-
-pub fn main_get_connect_status() -> String {
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    {
-        serde_json::to_string(&get_connect_status()).unwrap_or("".to_string())
-    }
-    #[cfg(any(target_os = "android", target_os = "ios"))]
-    {
-        let mut state = hbb_common::config::get_online_state();
-        if state > 0 {
-            state = 1;
-        }
-        serde_json::json!({ "status_num": state }).to_string()
-    }
-}
-
-pub fn main_check_connect_status() {
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    start_option_status_sync(); // avoid multi calls
-}
-
-pub fn main_is_using_public_server() -> bool {
-    crate::using_public_server()
-}
-
-pub fn main_discover() {
-    discover();
-}
-
-pub fn main_get_api_server() -> String {
-    get_api_server()
-}
-
-pub fn main_deploy_device(token: String, id: String) -> String {
-    #[cfg(target_os = "android")]
-    {
-        let new_id = match id.trim() {
-            "" => None,
-            id => Some(id.to_owned()),
-        };
-        ui_interface::deploy_device(token, new_id).message()
-    }
-    #[cfg(not(target_os = "android"))]
-    {
-        let _ = (token, id);
-        "Deployment is not supported on this platform.".to_owned()
-    }
-}
-
 pub fn main_resolve_avatar_url(avatar: String) -> SyncReturn<String> {
     SyncReturn(resolve_avatar_url(avatar))
-}
-
-pub fn main_http_request(url: String, method: String, body: Option<String>, header: String) {
-    http_request(url, method, body, header)
 }
 
 pub fn main_get_local_option(key: String) -> SyncReturn<String> {
@@ -1557,23 +1448,6 @@ pub fn main_load_recent_peers() {
     }
 }
 
-pub fn main_load_recent_peers_for_ab(filter: String) -> String {
-    let id_filters = serde_json::from_str::<Vec<String>>(&filter).unwrap_or_default();
-    let id_filters = if id_filters.is_empty() {
-        None
-    } else {
-        Some(id_filters)
-    };
-    if !config::APP_DIR.read().unwrap().is_empty() {
-        let peers: Vec<HashMap<&str, String>> = PeerConfig::peers(id_filters)
-            .drain(..)
-            .map(|(id, _, p)| peer_to_map(id, p))
-            .collect();
-        return serde_json::ser::to_string(&peers).unwrap_or("".to_owned());
-    }
-    "".to_string()
-}
-
 pub fn main_load_fav_peers() {
     let push_to_flutter = |peers| {
         let data = HashMap::from([("name", "load_fav_peers".to_owned()), ("peers", peers)]);
@@ -1585,26 +1459,6 @@ pub fn main_load_fav_peers() {
     if !config::APP_DIR.read().unwrap().is_empty() {
         let favs = get_fav();
         let mut recent = PeerConfig::peers(Some(favs.clone()));
-        let mut lan = config::LanPeers::load()
-            .peers
-            .iter()
-            .filter(|d| favs.contains(&d.id) && recent.iter().all(|r| r.0 != d.id))
-            .map(|d| {
-                (
-                    d.id.clone(),
-                    SystemTime::UNIX_EPOCH,
-                    PeerConfig {
-                        info: PeerInfoSerde {
-                            username: d.username.clone(),
-                            hostname: d.hostname.clone(),
-                            platform: d.platform.clone(),
-                        },
-                        ..Default::default()
-                    },
-                )
-            })
-            .collect();
-        recent.append(&mut lan);
         let peers: Vec<HashMap<&str, String>> = recent
             .into_iter()
             .map(|(id, _, p)| peer_to_map(id, p))
@@ -1614,24 +1468,6 @@ pub fn main_load_fav_peers() {
     } else {
         push_to_flutter("".to_owned());
     }
-}
-
-pub fn main_load_lan_peers() {
-    let data = HashMap::from([
-        ("name", "load_lan_peers".to_owned()),
-        (
-            "peers",
-            serde_json::to_string(&get_lan_peers()).unwrap_or_default(),
-        ),
-    ]);
-    let _res = flutter::push_global_event(
-        flutter::APP_TYPE_MAIN,
-        serde_json::ser::to_string(&data).unwrap_or("".to_owned()),
-    );
-}
-
-pub fn main_remove_discovered(id: String) {
-    remove_discovered(id);
 }
 
 fn main_broadcast_message(data: &HashMap<&str, &str>) {
@@ -1666,10 +1502,6 @@ pub fn main_set_user_default_option(key: String, value: String) {
 
 pub fn main_get_user_default_option(key: String) -> SyncReturn<String> {
     SyncReturn(get_user_default_option(key))
-}
-
-pub fn main_handle_relay_id(id: String) -> String {
-    handle_relay_id(&id).to_owned()
 }
 
 pub fn main_is_option_fixed(key: String) -> SyncReturn<bool> {
@@ -1822,10 +1654,6 @@ pub fn main_get_last_remote_id() -> String {
     LocalConfig::get_remote_id()
 }
 
-pub fn main_get_software_update_url() {
-    crate::common::check_software_update();
-}
-
 pub fn main_get_home_dir() -> String {
     fs::get_home_as_string()
 }
@@ -1862,8 +1690,8 @@ pub fn cm_get_clients_length() -> usize {
     crate::ui_cm_interface::get_clients_length()
 }
 
-pub fn main_init(app_dir: String, custom_client_config: String) {
-    initialize(&app_dir, &custom_client_config);
+pub fn main_init(app_dir: String) {
+    initialize(&app_dir);
     crate::keyboard::shortcuts::reload_from_config();
 }
 
@@ -1916,42 +1744,6 @@ pub fn main_start_dbus_server() {
             let _ = start_dbus_server();
         });
     }
-}
-
-pub fn main_save_ab(json: String) {
-    if json.len() > 1024 {
-        std::thread::spawn(|| {
-            config::Ab::store(json);
-        });
-    } else {
-        config::Ab::store(json);
-    }
-}
-
-pub fn main_clear_ab() {
-    config::Ab::remove();
-}
-
-pub fn main_load_ab() -> String {
-    serde_json::to_string(&config::Ab::load()).unwrap_or_default()
-}
-
-pub fn main_save_group(json: String) {
-    if json.len() > 1024 {
-        std::thread::spawn(|| {
-            config::Group::store(json);
-        });
-    } else {
-        config::Group::store(json);
-    }
-}
-
-pub fn main_clear_group() {
-    config::Group::remove();
-}
-
-pub fn main_load_group() -> String {
-    serde_json::to_string(&config::Group::load()).unwrap_or_default()
 }
 
 pub fn session_send_pointer(session_id: SessionID, msg: String) {
@@ -2096,43 +1888,6 @@ pub fn session_restart_remote_device(session_id: SessionID) {
     }
 }
 
-pub fn session_get_audit_server_sync(session_id: SessionID, typ: String) -> SyncReturn<String> {
-    let res = if let Some(session) = sessions::get_session_by_session_id(&session_id) {
-        session.get_audit_server(typ)
-    } else {
-        "".to_owned()
-    };
-    SyncReturn(res)
-}
-
-pub fn session_send_note(session_id: SessionID, note: String) {
-    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
-        session.send_note(note)
-    }
-}
-
-pub fn session_get_last_audit_note(session_id: SessionID) -> SyncReturn<String> {
-    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
-        SyncReturn(session.last_audit_note.lock().unwrap().clone())
-    } else {
-        SyncReturn("".to_owned())
-    }
-}
-
-pub fn session_set_audit_guid(session_id: SessionID, guid: String) {
-    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
-        *session.audit_guid.lock().unwrap() = guid;
-    }
-}
-
-pub fn session_get_audit_guid(session_id: SessionID) -> SyncReturn<String> {
-    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
-        SyncReturn(session.audit_guid.lock().unwrap().clone())
-    } else {
-        SyncReturn("".to_owned())
-    }
-}
-
 pub fn session_get_conn_session_id(session_id: SessionID) -> SyncReturn<String> {
     if let Some(session) = sessions::get_session_by_session_id(&session_id) {
         SyncReturn(session.lc.read().unwrap().session_id.to_string())
@@ -2202,7 +1957,6 @@ pub fn main_stop_service() {
     #[cfg(target_os = "android")]
     {
         config::Config::set_option("stop-service".into(), "Y".into());
-        crate::rendezvous_mediator::RendezvousMediator::restart();
     }
 }
 
@@ -2210,8 +1964,6 @@ pub fn main_start_service() {
     #[cfg(target_os = "android")]
     {
         config::Config::set_option("stop-service".into(), "".into());
-        crate::rendezvous_mediator::reset_needs_deploy_notification();
-        crate::rendezvous_mediator::RendezvousMediator::restart();
     }
 }
 
@@ -2244,12 +1996,6 @@ pub fn main_get_mouse_time() -> f64 {
     {
         0.0
     }
-}
-
-pub fn main_wol(id: String) {
-    // TODO: move send_wol outside.
-    #[cfg(not(any(target_os = "ios")))]
-    crate::lan::send_wol(id)
 }
 
 pub fn main_create_shortcut(_id: String) {
@@ -2372,10 +2118,6 @@ pub fn session_register_gpu_texture(
     ))
 }
 
-pub fn query_onlines(ids: Vec<String>) {
-    let _ = flutter::async_tasks::query_onlines(ids);
-}
-
 pub fn version_to_number(v: String) -> SyncReturn<i64> {
     SyncReturn(hbb_common::get_version_number(&v))
 }
@@ -2479,20 +2221,6 @@ pub fn install_install_options() -> SyncReturn<String> {
     SyncReturn(install_options())
 }
 
-pub fn main_account_auth(op: String, remember_me: bool) {
-    let id = get_id();
-    let uuid = get_uuid();
-    account_auth(op, id, uuid, remember_me);
-}
-
-pub fn main_account_auth_cancel() {
-    account_auth_cancel()
-}
-
-pub fn main_account_auth_result() -> String {
-    account_auth_result()
-}
-
 pub fn main_on_main_window_close() {
     // may called more than one times
     #[cfg(windows)]
@@ -2560,24 +2288,8 @@ pub fn is_outgoing_only() -> SyncReturn<bool> {
     SyncReturn(config::is_outgoing_only())
 }
 
-pub fn is_custom_client() -> SyncReturn<bool> {
-    SyncReturn(crate::common::is_custom_client())
-}
-
 pub fn is_disable_settings() -> SyncReturn<bool> {
     SyncReturn(config::is_disable_settings())
-}
-
-pub fn is_disable_ab() -> SyncReturn<bool> {
-    SyncReturn(config::is_disable_ab())
-}
-
-pub fn is_disable_account() -> SyncReturn<bool> {
-    SyncReturn(config::is_disable_account())
-}
-
-pub fn is_disable_group_panel() -> SyncReturn<bool> {
-    SyncReturn(LocalConfig::get_option("disable-group-panel") == "Y")
 }
 
 // windows only
@@ -2660,14 +2372,6 @@ pub fn main_verify2fa(code: String) -> bool {
 
 pub fn main_has_valid_2fa_sync() -> SyncReturn<bool> {
     SyncReturn(has_valid_2fa())
-}
-
-pub fn main_verify_bot(token: String) -> String {
-    verify_bot(token)
-}
-
-pub fn main_has_valid_bot_sync() -> SyncReturn<bool> {
-    SyncReturn(has_valid_bot())
 }
 
 pub fn main_get_hard_option(key: String) -> SyncReturn<String> {
@@ -2816,7 +2520,7 @@ fn verified_update_artifact_for_release_page_url(
     release_page_url: &str,
 ) -> ResultType<crate::update_metadata::VerifiedUpdateArtifact> {
     #[cfg(target_os = "windows")]
-    let update_msi = crate::platform::windows::is_msi_installed()? && !crate::is_custom_client();
+    let update_msi = crate::platform::windows::is_msi_installed()?;
     #[cfg(target_os = "macos")]
     let update_msi = false;
     let query = crate::updater::current_update_artifact_query(update_msi);
@@ -3034,7 +2738,6 @@ pub mod server_side {
         _class: JClass,
         app_dir: JString,
         home_dir: JString,
-        custom_client_config: JString,
     ) {
         log::debug!("startServer from jvm");
         let mut env = env;
@@ -3043,12 +2746,6 @@ pub mod server_side {
         }
         if let Ok(home_dir) = env.get_string(&home_dir) {
             *config::APP_HOME_DIR.write().unwrap() = home_dir.into();
-        }
-        if let Ok(custom_client_config) = env.get_string(&custom_client_config) {
-            if !custom_client_config.is_empty() {
-                let custom_client_config: String = custom_client_config.into();
-                crate::read_custom_client(&custom_client_config);
-            }
         }
         std::thread::spawn(move || start_server(true));
     }
@@ -3070,8 +2767,6 @@ pub mod server_side {
     pub unsafe extern "system" fn Java_ffi_FFI_startService(_env: JNIEnv, _class: JClass) {
         log::debug!("startService from jvm");
         config::Config::set_option("stop-service".into(), "".into());
-        crate::rendezvous_mediator::reset_needs_deploy_notification();
-        crate::rendezvous_mediator::RendezvousMediator::restart();
     }
 
     #[no_mangle]

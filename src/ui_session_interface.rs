@@ -75,8 +75,6 @@ pub struct Session<T: InvokeUiSession> {
     // Used to auto start file transfer after reconnection.
     pub reconnect_count: Arc<AtomicUsize>,
     pub auto_reconnect: Arc<Mutex<AutoReconnect>>,
-    pub last_audit_note: Arc<Mutex<String>>,
-    pub audit_guid: Arc<Mutex<String>>,
     // Every cursor shape as the peer sent it, compressed, by the id the UI knows it by. The
     // peer sends a shape once, and a window asks for it whenever it has to draw it again.
     #[cfg(feature = "flutter")]
@@ -583,27 +581,6 @@ impl<T: InvokeUiSession> Session<T> {
         lc.mark_restarting_remote_device();
         let msg = lc.restart_remote_device();
         self.send(Data::Message(msg));
-    }
-
-    pub fn get_audit_server(&self, typ: String) -> String {
-        if LocalConfig::get_option("access_token").is_empty() {
-            return "".to_owned();
-        }
-        crate::get_audit_server(
-            Config::get_option("api-server"),
-            Config::get_option("custom-rendezvous-server"),
-            typ,
-        )
-    }
-
-    pub fn send_note(&self, note: String) {
-        let url = self.get_audit_server("conn".to_string());
-        let id = self.get_id();
-        let session_id = self.lc.read().unwrap().session_id;
-        *self.last_audit_note.lock().unwrap() = note.clone();
-        std::thread::spawn(move || {
-            send_note(url, id, session_id, note);
-        });
     }
 
     #[cfg(not(feature = "flutter"))]
@@ -1316,7 +1293,7 @@ impl<T: InvokeUiSession> Session<T> {
         }
     }
 
-    pub fn reconnect(&self, force_relay: bool) {
+    pub fn reconnect(&self) {
         // 1. If current session is connecting, do not reconnect.
         // 2. If the connection is established, send `Data::Close`.
         // 3. If the connection is disconnected, do nothing.
@@ -1333,16 +1310,6 @@ impl<T: InvokeUiSession> Session<T> {
 
         let cloned = self.clone();
 
-        // override only if true
-        if true == force_relay {
-            let mut lc = self.lc.write().unwrap();
-            lc.force_relay = true;
-            // An explicit retry-via-relay is a decision about this peer, not transport
-            // necessity: Relay-only ICE for this round like any force-always-relay session,
-            // and it is the one kind of relay that belongs in the peer's saved config.
-            lc.policy_relay = true;
-            lc.peer_relay = true;
-        }
         self.lc.write().unwrap().peer_info = None;
         self.reconnect_count.fetch_add(1, Ordering::SeqCst);
         let mut lock = self.thread.lock().unwrap();
@@ -1379,7 +1346,7 @@ impl<T: InvokeUiSession> Session<T> {
             return;
         }
         log::info!("tailcat session ended unexpectedly, reconnecting (attempt {attempt})");
-        self.reconnect(false);
+        self.reconnect();
     }
 
     #[cfg(not(feature = "flutter"))]
@@ -1851,10 +1818,7 @@ impl<T: InvokeUiSession> Interface for Session<T> {
     }
 
     fn msgbox(&self, msgtype: &str, title: &str, text: &str, link: &str) {
-        let direct = self.lc.read().unwrap().direct;
-        let received = self.lc.read().unwrap().received;
-        let retry_for_relay = direct == Some(true) && !received;
-        let retry = check_if_retry(msgtype, title, text, retry_for_relay);
+        let retry = check_if_retry(msgtype, title, text);
         self.ui_handler.msgbox(msgtype, title, text, link, retry);
     }
 
@@ -1910,9 +1874,6 @@ impl<T: InvokeUiSession> Interface for Session<T> {
             );
         }
         self.update_privacy_mode();
-        // Clear audit_guid when connection is established successfully
-        *self.audit_guid.lock().unwrap() = String::new();
-        *self.last_audit_note.lock().unwrap() = String::new();
         // Save recent peers, then push event to flutter. So flutter can refresh peer page.
         self.lc.write().unwrap().handle_peer_info(&pi);
         self.set_peer_info(&pi);
@@ -2027,7 +1988,6 @@ pub async fn io_loop<T: InvokeUiSession>(handler: Session<T>, round: u32) {
     let (sender, mut receiver) = mpsc::unbounded_channel::<Data>();
     *handler.sender.write().unwrap() = Some(sender.clone());
     let token = LocalConfig::get_option("access_token");
-    let key = crate::get_key(false).await;
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     if handler.is_port_forward() {
         handler.lc.write().unwrap().port_forward_mux = crate::port_forward::mux_enabled();
@@ -2045,7 +2005,7 @@ pub async fn io_loop<T: InvokeUiSession>(handler: Session<T>, round: u32) {
                 handler.get_option("rdp_password".to_owned()),
             );
             log::info!("Remote rdp port: {}", port);
-            start_one_port_forward(handler, 0, "".to_owned(), port, receiver, &key, &token).await;
+            start_one_port_forward(handler, 0, "".to_owned(), port, receiver, "", &token).await;
         } else if handler.args.len() == 0 {
             let pfs = handler.lc.read().unwrap().port_forwards.clone();
             let mut queues = HashMap::<i32, mpsc::UnboundedSender<Data>>::new();
@@ -2061,7 +2021,6 @@ pub async fn io_loop<T: InvokeUiSession>(handler: Session<T>, round: u32) {
                         let (sender, receiver) = mpsc::unbounded_channel::<Data>();
                         queues.insert(port, sender);
                         let handler = handler.clone();
-                        let key = key.clone();
                         let token = token.clone();
                         tokio::spawn(async move {
                             start_one_port_forward(
@@ -2070,7 +2029,7 @@ pub async fn io_loop<T: InvokeUiSession>(handler: Session<T>, round: u32) {
                                 remote_host,
                                 remote_port,
                                 receiver,
-                                &key,
+                                "",
                                 &token,
                             )
                             .await;
@@ -2108,7 +2067,7 @@ pub async fn io_loop<T: InvokeUiSession>(handler: Session<T>, round: u32) {
                 remote_host,
                 remote_port,
                 receiver,
-                &key,
+                "",
                 &token,
             )
             .await;
@@ -2116,7 +2075,7 @@ pub async fn io_loop<T: InvokeUiSession>(handler: Session<T>, round: u32) {
         return;
     }
     let mut remote = Remote::new(handler, receiver, sender);
-    remote.io_loop(&key, &token, round).await;
+    remote.io_loop("", &token, round).await;
     let _ = remote.sync_jobs_status_to_local().await;
 }
 
@@ -2147,10 +2106,4 @@ async fn start_one_port_forward<T: InvokeUiSession>(
         handler.on_error(&format!("Failed to listen on {}: {}", port, err));
     }
     log::info!("port forward (:{}) exit", port);
-}
-
-#[tokio::main(flavor = "current_thread")]
-async fn send_note(url: String, id: String, sid: u64, note: String) {
-    let body = serde_json::json!({ "id": id, "session_id": sid, "note": note });
-    allow_err!(crate::post_request(url, body.to_string(), "").await);
 }

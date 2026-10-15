@@ -88,11 +88,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final isOutgoingOnly = bind.isOutgoingOnly();
     final children = <Widget>[
       if (!isOutgoingOnly) buildPresetPasswordWarning(),
-      if (bind.isCustomClient())
-        Align(
-          alignment: Alignment.center,
-          child: loadPowered(context),
-        ),
       Align(
         alignment: Alignment.center,
         child: loadLogo(),
@@ -436,8 +431,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 
   Widget buildHelpCards(String updateUrl) {
-    if (!bind.isCustomClient() &&
-        updateUrl.isNotEmpty &&
+    if (updateUrl.isNotEmpty &&
         !isCardClosed &&
         bind.mainUriPrefixSync().contains('rustdesk')) {
       final isToUpdate = (isWindows || isMacOS) && bind.mainIsInstalled();
@@ -790,8 +784,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       }
       if (call.method == kWindowMainWindowOnTop) {
         windowOnTop(null);
-      } else if (call.method == kWindowRefreshCurrentUser) {
-        gFFI.userModel.refreshCurrentUser();
       } else if (call.method == kWindowGetScreenList) {
         return jsonEncode(
             (await window_size.getScreenList()).map(screenToMap).toList());
@@ -810,7 +802,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           isTcpTunneling: call.arguments['isTcpTunneling'],
           isRDP: call.arguments['isRDP'],
           password: call.arguments['password'],
-          forceRelay: call.arguments['forceRelay'],
           connToken: call.arguments['connToken'],
         );
       } else if (call.method == kWindowBumpMouse) {

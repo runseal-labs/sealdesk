@@ -6,7 +6,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common.dart';
 import 'package:flutter_hbb/common/shared_state.dart';
 import 'package:flutter_hbb/common/widgets/dialog.dart';
-import 'package:flutter_hbb/common/widgets/login.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/widgets/remote_toolbar.dart';
 import 'package:flutter_hbb/models/model.dart';
@@ -606,29 +605,6 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi) {
       TTextMenu(
           child: Text(translate('TCP tunneling')),
           onPressed: () => connectWithToken(isTcpTunneling: true)),
-    );
-  }
-  // note
-  if (isDefaultConn && !bind.isDisableAccount()) {
-    v.add(
-      TTextMenu(
-          child: Text(translate('Note')),
-          onPressed: () async {
-            bool isLogin =
-                bind.mainGetLocalOption(key: 'access_token').isNotEmpty;
-            if (!isLogin) {
-              final res = await loginDialog();
-              if (res != true) return;
-              // Desktop: send message to main window to refresh login status
-              // Web: login is required before connection, so no need to refresh
-              // Mobile: same isolate, no need to send message
-              if (isDesktop) {
-                rustDeskWinManager.call(
-                    WindowType.Main, kWindowRefreshCurrentUser, "");
-              }
-            }
-            showAuditDialog(ffi);
-          }),
     );
   }
   // divider

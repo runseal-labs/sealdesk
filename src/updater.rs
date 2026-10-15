@@ -1,7 +1,6 @@
 mod artifact;
 mod download;
 
-use crate::common::do_check_software_update;
 use artifact::verified_update_artifact_from_release_page_url;
 pub(crate) use artifact::{current_update_arch, current_update_format, current_update_platform};
 pub use artifact::{
@@ -200,7 +199,6 @@ fn check_update(manually: bool) -> ResultType<()> {
     if !(manually || config::Config::get_bool_option(keys::OPTION_ALLOW_AUTO_UPDATE)) {
         return Ok(());
     }
-    do_check_software_update()?;
 
     let update_url = crate::common::SOFTWARE_UPDATE_URL.lock().unwrap().clone();
     if update_url.is_empty() {
@@ -556,9 +554,6 @@ pub fn check_update_as_root() -> ResultType<bool> {
                 }
             }
         }
-    }
-    if let Err(e) = do_check_software_update() {
-        bail!("[root-update] Failed to check for software update: {}", e);
     }
     let update_url = crate::common::SOFTWARE_UPDATE_URL.lock().unwrap().clone();
     if update_url.is_empty() {

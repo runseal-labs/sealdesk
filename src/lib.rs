@@ -14,7 +14,6 @@ mod server;
 #[cfg(not(any(target_os = "ios")))]
 pub use self::server::*;
 mod client;
-mod lan;
 #[cfg(not(any(target_os = "ios")))]
 mod rendezvous_mediator;
 pub mod tailcat;
@@ -48,7 +47,6 @@ mod auth_2fa;
 mod clipboard;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub mod core_main;
-mod custom_server;
 mod lang;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod port_forward;
@@ -77,4 +75,3 @@ pub mod privacy_mode;
 #[cfg(windows)]
 pub mod virtual_display_manager;
 
-mod kcp_stream;
