@@ -19,6 +19,10 @@ on:
 
 jobs:
   run-ci:
+    # flutter-build.yml declares contents: write on its SBOM and update-metadata
+    # jobs; a caller must grant at least that or the workflow fails validation.
+    permissions:
+      contents: write
     uses: ./.github/workflows/flutter-build.yml
     with:
       upload-artifact: false
