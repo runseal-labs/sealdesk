@@ -19,6 +19,7 @@ class _SealDeskLanPanelState extends State<SealDeskLanPanel> {
   bool _ready = false;
   String? _error;
   List<dynamic> _peers = [];
+  List<dynamic> _compatAddresses = [];
   @override
   void initState() {
     super.initState();
@@ -52,10 +53,15 @@ class _SealDeskLanPanelState extends State<SealDeskLanPanel> {
           json.isEmpty ? <dynamic>[] : jsonDecode(json) as List<dynamic>;
       final ready =
           host && await bind.mainGetOption(key: 'sealdesk-lan-ready') == 'Y';
+      final compatAddresses = host && ready
+          ? jsonDecode(await bind.mainGetOption(key: 'sealdesk-lan-compat'))
+              as List<dynamic>
+          : <dynamic>[];
       if (mounted && host == widget.host) {
         setState(() {
           _peers = peers;
           _ready = ready;
+          _compatAddresses = compatAddresses;
           _error = null;
         });
       }
@@ -107,6 +113,10 @@ class _SealDeskLanPanelState extends State<SealDeskLanPanel> {
               translate(
                   "Remembered controllers connect automatically. Revoke access to require approval again."),
               style: TextStyle(fontSize: 12)),
+        if (widget.host && _compatAddresses.isNotEmpty)
+          SelectableText(
+              "RustDesk · ${translate('Direct and unencrypted connection')}\n${_compatAddresses.join(' / ')}",
+              textAlign: TextAlign.center),
         if (!widget.host && _peers.isEmpty)
           Text(
               translate("Looking for devices sharing on your local network..."),
@@ -117,7 +127,9 @@ class _SealDeskLanPanelState extends State<SealDeskLanPanel> {
               title: Text(item['name'] as String? ?? ''),
               subtitle: Text(widget.host
                   ? (item['key'] as String).substring(0, 12)
-                  : item['ip'] as String),
+                  : item['protocol'] == 'rustdesk'
+                      ? "RustDesk · ${item['ip']} · ${translate('Direct and unencrypted connection')}"
+                      : "SealDesk · ${item['ip']} · ${translate('Direct and encrypted connection')}"),
               trailing: TextButton(
                   onPressed: () async {
                     if (widget.host) {

@@ -330,6 +330,7 @@ impl TerminalUserToken {
 }
 pub struct Connection {
     via_tailcat: bool,
+    via_legacy_lan: bool,
     lan_peer: Option<String>,
     lan_generation: u64,
     inner: ConnInner,
@@ -516,6 +517,7 @@ impl Connection {
     ) {
         let super::ConnectionMeta {
             via_tailcat,
+            via_legacy_lan,
             lan_peer,
             via_lan: _,
             control_permissions,
@@ -589,6 +591,7 @@ impl Connection {
             multi_ui_session: false,
             ip: "".to_owned(),
             via_tailcat,
+            via_legacy_lan,
             lan_generation: lan_peer.as_deref().map(crate::lan::generation).unwrap_or(0),
             lan_peer,
             disable_audio: false,
@@ -1150,7 +1153,7 @@ impl Connection {
                     }
                 }
                 _ = second_timer.tick() => {
-                    if conn.lan_peer.is_some() && (!crate::tailcat::host::enabled() || !conn.lan_authorization_current()) {
+                    if (conn.lan_peer.is_some() || conn.via_legacy_lan) && (!crate::tailcat::host::enabled() || !conn.lan_authorization_current()) {
                         conn.send_close_reason_no_retry("Sharing stopped").await;
                         conn.on_close("sharing stopped",true).await;
                         break;
@@ -1581,6 +1584,7 @@ impl Connection {
     }
 
     fn lan_authorization_current(&self) -> bool {
+        if self.via_legacy_lan && !crate::tailcat::host::enabled() { return false; }
         self.lan_peer.as_deref().map(|key| crate::lan::generation(key) == self.lan_generation).unwrap_or(true)
     }
 
@@ -2062,6 +2066,13 @@ impl Connection {
     }
 
     fn try_start_cm(&mut self, peer_id: String, name: String, authorized: bool) {
+        let name = if self.via_legacy_lan {
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            let warning = crate::lang::translate("Direct and unencrypted connection".into());
+            #[cfg(any(target_os = "android", target_os = "ios"))]
+            let warning = crate::lang::translate_locale("Direct and unencrypted connection".into(), "");
+            format!("{warning} · {name}")
+        } else { name };
         self.send_to_cm(ipc::Data::Login {
             id: self.inner.id(),
             is_file_transfer: self.file_transfer.is_some(),
@@ -2696,7 +2707,9 @@ impl Connection {
                 },
             );
 
-            if self.lan_peer.is_none() && lr.username != Config::get_id()
+            if self.lan_peer.is_none()
+                && !(self.via_legacy_lan && crate::tailcat::host::enabled() && hbb_common::is_ip_str(&lr.username))
+                && lr.username != Config::get_id()
                 && !(crate::tailcat::is_addr(&lr.username)
                     && lr.username == Config::get_option(crate::tailcat::OPTION_ADDR))
             {

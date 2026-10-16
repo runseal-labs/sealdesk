@@ -10,6 +10,8 @@ class _LanBinding extends Fake implements SealdeskImpl {
   List<Map<String, String>> trusted = [];
   final List<String> revoked = [];
   int discoveryQueries = 0;
+  bool ready = true;
+  List<String> compatAddresses = [];
   @override
   String translate(
           {required String name, required String locale, dynamic hint}) =>
@@ -17,7 +19,8 @@ class _LanBinding extends Fake implements SealdeskImpl {
   @override
   Future<String> mainGetOption({required String key, dynamic hint}) async {
     if (key == 'sealdesk-lan-peers') discoveryQueries++;
-    if (key == 'sealdesk-lan-ready') return 'Y';
+    if (key == 'sealdesk-lan-ready') return ready ? 'Y' : '';
+    if (key == 'sealdesk-lan-compat') return jsonEncode(compatAddresses);
     return jsonEncode(key == 'sealdesk-lan-peers' ? peers : trusted);
   }
 
@@ -35,9 +38,28 @@ void main() {
   final binding = _LanBinding();
   setUp(() {
     platformFFI.setBindingForTesting(binding);
+    binding.ready = true;
+    binding.compatAddresses.clear();
     binding.peers.clear();
     binding.trusted.clear();
     binding.revoked.clear();
+  });
+  testWidgets(
+      'host exposes the plaintext compatibility endpoint only while ready',
+      (tester) async {
+    binding.compatAddresses.add('192.168.1.7:21118');
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SealDeskLanPanel(host: true, connectPeer: (_) async {}))));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Direct and unencrypted connection'),
+        findsOneWidget);
+    expect(find.textContaining('192.168.1.7:21118'), findsOneWidget);
+    binding.ready = false;
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('192.168.1.7:21118'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
   });
   testWidgets('discovered selection retains the host identity in the address',
       (tester) async {
@@ -56,6 +78,30 @@ void main() {
     expect(find.text('Test host'), findsOneWidget);
     await tester.tap(find.text('Connect'));
     expect(connected, address);
+    await tester.pumpWidget(const SizedBox());
+  });
+  testWidgets(
+      'RustDesk peers show plaintext status and keep the direct endpoint',
+      (tester) async {
+    binding.peers.add({
+      'name': 'Original RustDesk',
+      'ip': '192.168.1.9',
+      'address': '192.168.1.9:21118',
+      'protocol': 'rustdesk'
+    });
+    String? connected;
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SealDeskLanPanel(
+                host: false,
+                connectPeer: (address) async {
+                  connected = address;
+                }))));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Direct and unencrypted connection'),
+        findsOneWidget);
+    await tester.tap(find.text('Connect'));
+    expect(connected, '192.168.1.9:21118');
     await tester.pumpWidget(const SizedBox());
   });
   testWidgets(

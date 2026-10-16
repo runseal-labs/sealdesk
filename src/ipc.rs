@@ -921,6 +921,8 @@ async fn handle(data: Data, stream: &mut Connection) {
                     value = Some(Config::get_unlock_pin());
                 } else if name == "sealdesk-lan-trusted" {
                     value = Some(crate::lan::trusted_json());
+                } else if name == "sealdesk-lan-compat" {
+                    value = Some(crate::lan::compat_addresses_json());
                 } else if name == "sealdesk-lan-ready" {
                     value = Some(if crate::lan::ready() { "Y" } else { "N" }.into());
                 } else if name == "trusted-devices" {

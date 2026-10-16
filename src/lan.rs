@@ -23,7 +23,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
-const TCP_PORT: u16 = 21118;
+pub(crate) const TCP_PORT: u16 = 21118;
 const DISCOVERY_PORT: u16 = 21119;
 const DOMAIN: &[u8] = b"sealdesk-lan-v1";
 const FRAME_LIMIT: usize = 4096;
@@ -38,6 +38,7 @@ pub struct Peer {
     pub name: String,
     pub address: String,
     pub ip: String,
+    pub protocol: String,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Trusted {
@@ -156,6 +157,17 @@ fn encrypt(
         },
     )
 }
+pub async fn accept_shared(stream: &mut Stream) -> ResultType<Option<String>> {
+    stream.set_max_packet_length(FRAME_LIMIT);
+    // Original RustDesk waits for Hash; SealDesk declares encryption before any login.
+    // A delayed/malformed SealDesk preface can fail the connection, never downgrade its client.
+    match tokio::time::timeout(Duration::from_millis(500), stream.next()).await {
+        Err(_) => return Ok(None),
+        Ok(Some(Ok(bytes))) if bytes.as_ref() == DOMAIN => {}
+        _ => bail!("Invalid LAN protocol preface"),
+    }
+    accept(stream).await.map(Some)
+}
 pub async fn accept(stream: &mut Stream) -> ResultType<String> {
     stream.set_max_packet_length(FRAME_LIMIT);
     let (our, private) = hello(0, &[])?;
@@ -177,6 +189,7 @@ pub async fn connect(address: &str) -> ResultType<Stream> {
     let local = socket.local_addr()?;
     let mut stream = Stream::from(socket, local);
     stream.set_max_packet_length(FRAME_LIMIT);
+    stream.0.send_raw(DOMAIN.to_vec()).await?;
     let prior = receive(&mut stream).await?;
     let remote: Hello = serde_json::from_slice(&prior)?;
     if verify(&remote, 0, &[])? != expected {
@@ -262,6 +275,14 @@ pub fn forget(key: &str) -> ResultType<()> {
     crate::server::revoke_lan(key);
     Ok(())
 }
+pub fn compat_addresses_json() -> String {
+    let addresses: Vec<String> = if ready() && crate::tailcat::host::enabled() {
+        default_net::get_interfaces().into_iter().flat_map(|iface| iface.ipv4)
+            .filter(|ip| ip.addr.is_private())
+            .map(|ip| SocketAddr::new(ip.addr.into(), TCP_PORT).to_string()).collect()
+    } else { vec![] };
+    serde_json::to_string(&addresses).unwrap_or_else(|_| "[]".into())
+}
 pub fn ready() -> bool {
     READY.load(Ordering::SeqCst)
 }
@@ -278,7 +299,7 @@ pub async fn serve(server: crate::server::ServerPtr) {
     }
 }
 async fn serve_round(server: crate::server::ServerPtr) -> ResultType<()> {
-    let tcp = tokio::net::TcpListener::bind((std::net::Ipv4Addr::UNSPECIFIED, TCP_PORT)).await?;
+    let tcp = tcp::listen_any(TCP_PORT).await?;
     let udp =
         tokio::net::UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, DISCOVERY_PORT)).await?;
     READY.store(true, Ordering::SeqCst);
@@ -294,7 +315,6 @@ async fn serve_round(server: crate::server::ServerPtr) -> ResultType<()> {
             _=tokio::time::sleep(Duration::from_millis(100))=>{},
             incoming=tcp.accept()=>{
                 let (socket,addr)=incoming?;
-                if !private(addr.ip()) { continue; }
                 let local=socket.local_addr()?; let server=server.clone();
                 tokio::spawn(async move {
                     if let Err(e)=crate::server::create_tcp_connection(server,Stream::from(socket,local),addr,false,crate::server::ConnectionMeta{via_lan:true,..Default::default()}).await { log::trace!("LAN connection ended: {e}"); }
@@ -308,7 +328,20 @@ async fn serve_round(server: crate::server::ServerPtr) -> ResultType<()> {
                 let Some(rendezvous_message::Union::PeerDiscovery(query))=msg.union else { continue; };
                 if query.cmd!="ping" { continue; }
                 let (key,_)=identity()?; let key=hex::encode(key.0); if query.id==key { continue; }
-                let mut reply=RendezvousMessage::new(); reply.set_peer_discovery(PeerDiscovery{cmd:"pong".into(),id:key.clone(),hostname:crate::whoami_hostname(),platform:std::env::consts::OS.into(),misc:serde_json::to_string(&Hint{version:1,key,port:TCP_PORT})?,..Default::default()});
+                let mut reply=RendezvousMessage::new();
+                let (id,misc)=if query.misc==String::from_utf8_lossy(DOMAIN) || hex::decode(&query.id).map(|b|b.len()==32).unwrap_or(false) {
+                    (key.clone(),serde_json::to_string(&Hint{version:1,key,port:TCP_PORT})?)
+                } else {
+                    // Original clients dial the discovered ID; advertise a direct endpoint, not a rendezvous ID.
+                    let probe=UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED,0))?;
+                    probe.connect(addr)?;
+                    (SocketAddr::new(probe.local_addr()?.ip(),TCP_PORT).to_string(),String::new())
+                };
+                #[cfg(not(target_os = "ios"))]
+                let platform = hbb_common::whoami::platform().to_string();
+                #[cfg(target_os = "ios")]
+                let platform = "iOS".to_owned();
+                reply.set_peer_discovery(PeerDiscovery{cmd:"pong".into(),id,hostname:crate::whoami_hostname(),platform,misc,..Default::default()});
                 udp.send_to(&reply.write_to_bytes()?,addr).await?; replies+=1;
             }
         }
@@ -336,6 +369,7 @@ fn discover() -> ResultType<Vec<Peer>> {
     query.set_peer_discovery(PeerDiscovery {
         cmd: "ping".into(),
         id: own.clone(),
+        misc: String::from_utf8_lossy(DOMAIN).into_owned(),
         ..Default::default()
     });
     let bytes = query.write_to_bytes()?;
@@ -380,30 +414,9 @@ fn discover() -> ResultType<Vec<Peer>> {
                 let Some(rendezvous_message::Union::PeerDiscovery(reply)) = msg.union else {
                     continue;
                 };
-                if reply.cmd != "pong" || !private(addr.ip()) {
-                    continue;
+                if let Some((id, peer)) = discovered_peer(&reply, addr, &own) {
+                    peers.insert(id, peer);
                 }
-                let Ok(hint) = serde_json::from_str::<Hint>(&reply.misc) else {
-                    continue;
-                };
-                if hint.version != 1
-                    || hint.key == own
-                    || hint.port == 0
-                    || hex::decode(&hint.key)
-                        .map(|b| b.len() != 32)
-                        .unwrap_or(true)
-                {
-                    continue;
-                }
-                let endpoint = SocketAddr::new(addr.ip(), hint.port);
-                peers.insert(
-                    hint.key.clone(),
-                    Peer {
-                        name: reply.hostname.chars().take(128).collect(),
-                        ip: addr.ip().to_string(),
-                        address: format!("lan:{endpoint}/{}", hint.key),
-                    },
-                );
             }
         }
         if peers.len() >= 64 {
@@ -414,9 +427,70 @@ fn discover() -> ResultType<Vec<Peer>> {
     Ok(peers.into_values().collect())
 }
 
+fn discovered_peer(reply: &PeerDiscovery, addr: SocketAddr, own: &str) -> Option<(String, Peer)> {
+    if reply.cmd != "pong" || !private(addr.ip()) {
+        return None;
+    }
+    let (id, address, protocol) = if reply.misc.is_empty() {
+        if !crate::common::is_valid_untrusted_peer_id(&reply.id) {
+            return None;
+        }
+        let endpoint = SocketAddr::new(addr.ip(), TCP_PORT);
+        (format!("rustdesk:{endpoint}"), endpoint.to_string(), "rustdesk")
+    } else {
+        // A malformed SealDesk identity must never fall back to plaintext RustDesk.
+        let hint = serde_json::from_str::<Hint>(&reply.misc).ok()?;
+        if hint.version != 1 || hint.key == own || hint.port == 0
+            || hex::decode(&hint.key).map(|b| b.len() != 32).unwrap_or(true)
+        {
+            return None;
+        }
+        let endpoint = SocketAddr::new(addr.ip(), hint.port);
+        (hint.key.clone(), format!("lan:{endpoint}/{}", hint.key), "sealdesk")
+    };
+    Some((id, Peer {
+        name: reply.hostname.chars().filter(|c| !c.is_control()).take(128).collect(),
+        ip: addr.ip().to_string(),
+        address,
+        protocol: protocol.to_owned(),
+    }))
+}
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn direct_address_support_does_not_expand_broadcast_discovery() {
+        let reply = PeerDiscovery { cmd: "pong".into(), id: "123456789".into(), ..Default::default() };
+        for address in ["100.64.0.16:21119", "169.254.1.7:21119", "8.8.8.8:21119"] {
+            assert!(discovered_peer(&reply, address.parse().unwrap(), "own").is_none());
+        }
+    }
+    #[test]
+    fn original_rustdesk_discovery_uses_source_ip_and_default_port() {
+        let mut reply = PeerDiscovery { cmd: "pong".into(), id: "123456789".into(), hostname: "RustDesk host".into(), ..Default::default() };
+        let source = "192.168.1.7:45678".parse().unwrap();
+        let (_, peer) = discovered_peer(&reply, source, "own").unwrap();
+        assert_eq!(peer.address, "192.168.1.7:21118");
+        assert_eq!(peer.protocol, "rustdesk");
+        reply.id = "bad/id".into();
+        assert!(discovered_peer(&reply, source, "own").is_none());
+        reply.id = "123456789".into();
+        assert!(discovered_peer(&reply, "8.8.8.8:1234".parse().unwrap(), "own").is_none());
+    }
+    #[test]
+    fn sealdesk_discovery_preserves_identity_and_never_downgrades() {
+        let key = hex::encode([7u8; 32]);
+        let mut reply = PeerDiscovery { cmd: "pong".into(), id: key.clone(), misc: serde_json::to_string(&Hint { version: 1, key: key.clone(), port: TCP_PORT }).unwrap(), ..Default::default() };
+        let source = "192.168.1.8:1234".parse().unwrap();
+        let (_, peer) = discovered_peer(&reply, source, "own").unwrap();
+        assert_eq!(peer.address, format!("lan:192.168.1.8:{TCP_PORT}/{key}"));
+        assert_eq!(peer.protocol, "sealdesk");
+        assert!(discovered_peer(&reply, source, &key).is_none());
+        for misc in ["{", "{}", r#"{"version":2,"key":"bad","port":21118}"#] {
+            reply.misc = misc.into();
+            assert!(discovered_peer(&reply, source, "own").is_none());
+        }
+    }
     #[test]
     fn queued_remember_cannot_restore_a_revoked_authorization() {
         let key = hex::encode([0x91; 32]);
@@ -447,7 +521,7 @@ mod tests {
             let (socket, _) = listener.accept().await.unwrap();
             let local = socket.local_addr().unwrap();
             let mut stream = Stream::from(socket, local);
-            assert_eq!(accept(&mut stream).await.unwrap(), expected);
+            assert_eq!(accept_shared(&mut stream).await.unwrap(), Some(expected));
             assert!(stream.is_secured());
             assert_eq!(receive(&mut stream).await.unwrap(), b"desktop payload");
             stream.send_raw(b"encrypted reply".to_vec()).await.unwrap();
@@ -464,13 +538,27 @@ mod tests {
         let server = tokio::spawn(async move {
             let (socket, _) = listener.accept().await.unwrap();
             let local = socket.local_addr().unwrap();
-            assert!(accept(&mut Stream::from(socket, local)).await.is_err());
+            assert!(accept_shared(&mut Stream::from(socket, local)).await.is_err());
         });
         let (wrong, _) = sign::gen_keypair();
         assert!(connect(&format!("lan:{addr}/{}", hex::encode(wrong.0)))
             .await
             .is_err());
         server.await.unwrap();
+    }
+    #[tokio::test]
+    async fn shared_port_accepts_legacy_waiters_but_rejects_bad_encryption_prefaces() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let socket = tokio::net::TcpStream::connect(listener.local_addr().unwrap()).await.unwrap();
+        let (accepted, _) = listener.accept().await.unwrap();
+        let local = accepted.local_addr().unwrap();
+        let mut server = Stream::from(accepted, local);
+        assert!(accept_shared(&mut server).await.unwrap().is_none());
+        assert!(!server.is_secured());
+        let local = socket.local_addr().unwrap();
+        let mut client = Stream::from(socket, local);
+        client.send_raw(b"bad encryption preface".to_vec()).await.unwrap();
+        assert!(accept_shared(&mut server).await.is_err());
     }
     #[tokio::test]
     async fn low_order_ephemeral_key_is_rejected() {

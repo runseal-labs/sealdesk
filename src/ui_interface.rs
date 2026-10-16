@@ -150,7 +150,7 @@ pub fn get_option<T: AsRef<str>>(key: T) -> String {
     if key.as_ref() == "sealdesk-lan-peers" { return crate::lan::discover_json(); }
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
-            if matches!(key.as_ref(),"sealdesk-lan-trusted"|"sealdesk-lan-ready") {
+            if matches!(key.as_ref(),"sealdesk-lan-trusted"|"sealdesk-lan-ready"|"sealdesk-lan-compat") {
             return crate::ipc::get_config(key.as_ref()).ok().flatten().unwrap_or_default();
         }
         if key.as_ref() == "sealdesk-connected-count" {

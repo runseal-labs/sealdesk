@@ -212,6 +212,14 @@ impl Client {
             let stream = hbb_common::tokio::time::timeout(std::time::Duration::from_millis(CONNECT_TIMEOUT), crate::lan::connect(peer)).await??;
             return Ok(((stream, true, None, "LAN"), (0, String::new())));
         }
+        if hbb_common::is_ip_str(peer) {
+            let stream = connect_tcp_local(
+                check_port(peer, i32::from(crate::lan::TCP_PORT)),
+                None,
+                CONNECT_TIMEOUT,
+            ).await?;
+            return Ok(((stream, true, None, "TCP"), (0, String::new())));
+        }
         // A peer is reached only through its tailcat address; the tunnel does the rest.
         if !crate::tailcat::is_addr(peer) {
             bail!("Unsupported peer {peer:?}: connect with the peer's tailcat address (tc...)");
@@ -3236,7 +3244,11 @@ pub async fn confirm_insecure_connection(
     interface.msgbox(
         "insecure-connection-nocancel-hasclose",
         "Insecure Connection",
-        "conn-e2ee-unavailable-tip",
+        if hbb_common::is_ip_str(&interface.get_id()) {
+            "Direct and unencrypted connection"
+        } else {
+            "conn-e2ee-unavailable-tip"
+        },
         "",
     );
     while let Some(data) = receiver.recv().await {
