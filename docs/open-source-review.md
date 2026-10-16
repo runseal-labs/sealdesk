@@ -15,7 +15,9 @@ here.
 - The `main` history scan produced 144 matches. All originating commits precede
   the RustDesk fork baseline. They consist of translations, test/sample strings,
   minified upstream client code, and three Firebase client-configuration API-key
-  entries. These inherited values were not tested for validity or authorization.
+  entries. Their public upstream provenance and current application absence are
+  now confirmed in the [follow-up](license-and-firebase-follow-up.md). They were
+  not used to access services or test authorization.
 - No match was introduced by SealDesk's feature commits.
 - The public remote refs at review time were `main` and `upstream/1.5.1`;
   the tag is an ancestor of main. Old private backup bundles and local candidate
@@ -67,9 +69,11 @@ The original AGPL text remains byte-identical to the upstream baseline. Cargo
 metadata, README, NOTICE, third-party provenance, and direct transport license
 texts identify the licensing boundary without replacing component copyrights.
 
-The vendored hbb_common tree contains no standalone license file; its imported
-revision and source attribution are recorded rather than inventing a separate
-grant. The third-party table is not an exhaustive binary license inventory.
+The vendored hbb_common tree contains no standalone license file. The
+[follow-up](license-and-firebase-follow-up.md) now identifies its public upstream
+base, documents RustDesk's actual submodule handling, and records the unanswered
+rights-holder clarification. This licensing item is not closed. The third-party
+table is not an exhaustive binary license inventory.
 
 The checked Linux package contains the complete project/direct-dependency notice
 asset both in the Flutter bundle and as Debian copyright documentation. The MSI
@@ -90,3 +94,12 @@ this review did not build or run a Windows installer or a fresh Android package.
 Platform runtime acceptance is not inferred from documentation or package-content
 checks. Binary releases still need their actual dependency closure/notices and
 corresponding source revision.
+
+## Follow-up disposition
+
+Firebase client configuration: public upstream provenance verified, inactive
+source remnants removed, and the existing Android test artifact checked.
+hbb_common licensing: exact source and original RustDesk handling verified;
+explicit standalone permission/coverage is still awaiting upstream confirmation.
+See [the evidence](license-and-firebase-follow-up.md) and the
+[unposted request draft](upstream-license-request.md).

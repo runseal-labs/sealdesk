@@ -100,3 +100,6 @@ retain their copyright and attribution. See [NOTICE](NOTICE) and
 [third-party notices](THIRD_PARTY_NOTICES.md) for component licenses and source
 references. SealDesk is an independent fork and is not endorsed by RustDesk or
 Tailscale.
+
+The standalone license scope of vendored hbb_common still needs upstream
+clarification; see the [licensing follow-up](docs/license-and-firebase-follow-up.md).

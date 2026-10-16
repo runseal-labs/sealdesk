@@ -371,30 +371,6 @@ prebuild)
 
 	prepare_flutter "${FLUTTER_VERSION}" "${HOME}/flutter"
 
-	# gms is not in these files now, but we still keep the following line for future reference(maybe).
-
-	sed \
-		-i \
-		-e '/gms/d' \
-		flutter/android/build.gradle \
-		flutter/android/app/build.gradle
-
-	# `firebase_analytics` is not in these files now, but we still keep the following lines.
-
-	sed \
-		-i \
-		-e '/firebase_analytics/d' \
-		flutter/pubspec.yaml
-
-	sed \
-		-i \
-		-e '/  firebase/,/    version/d' \
-		flutter/pubspec.lock
-
-	sed \
-		-i \
-		-e '/firebase/Id' \
-		flutter/lib/main.dart
 
 	;;
 build)

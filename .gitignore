@@ -88,3 +88,7 @@ flutter/web/
 *.deb.sha256
 /tmp/
 /flutter/android/build/
+
+# SealDesk does not configure Firebase clients
+google-services.json
+GoogleService-Info.plist

@@ -87,3 +87,6 @@ SealDesk 使用 **GNU AGPL 第 3 版**，完整保留上游 [LICENCE](LICENCE) �
 RustDesk 与其他上游贡献者的版权和署名继续保留。
 组件许可证及来源见 [NOTICE](NOTICE) 和 [第三方声明](THIRD_PARTY_NOTICES.md)。
 SealDesk 是独立分叉，不代表 RustDesk 或 Tailscale 官方。
+
+vendored hbb_common 的独立授权范围仍需上游确认，依据与待办见
+[许可证复核记录](docs/license-and-firebase-follow-up.md)。
