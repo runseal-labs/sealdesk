@@ -2103,8 +2103,9 @@ extern "C" fn handle_open_urls(
     use cocoa::foundation::{NSArray, NSString, NSURL};
     use std::ffi::CStr;
     unsafe {
-        for i in 0..urls.count() {
-            let theurl = CStr::from_ptr(urls.objectAtIndex(i).absoluteString().UTF8String())
+        for i in 0..NSArray::count(urls) {
+            let url = NSArray::objectAtIndex(urls, i);
+            let theurl = CStr::from_ptr(NSString::UTF8String(NSURL::absoluteString(url)))
                 .to_string_lossy()
                 .into_owned();
             log::debug!("URL received: {}", theurl);
