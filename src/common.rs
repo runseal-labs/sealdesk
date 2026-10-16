@@ -878,6 +878,13 @@ pub fn is_rustdesk() -> bool {
 }
 
 #[inline]
+pub fn is_custom_client() -> bool {
+    // The old check compared with "RustDesk", which is true for every SealDesk build
+    // and would send the Windows installer down the pro custom-client path.
+    get_app_name() != "SealDesk"
+}
+
+#[inline]
 pub fn get_uri_prefix() -> String {
     "sealdesk://".to_owned()
 }

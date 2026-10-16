@@ -1,7 +1,5 @@
 use super::{validate_install_app_name, CursorData, ResultType};
 use crate::{
-    common::PORTABLE_APPNAME_RUNTIME_ENV_KEY,
-    custom_server::*,
     ipc,
     privacy_mode::win_topmost_window::{self, WIN_TOPMOST_INJECTED_PROCESS_EXE},
 };
@@ -1734,13 +1732,6 @@ if exist \"{tmp_path}\\{app_name} Tray.lnk\" del /f /q \"{tmp_path}\\{app_name} 
     );
     let src_exe = cur_exe.clone();
 
-    // potential bug here: if run_cmd cancelled, but config file is changed.
-    if let Some(lic) = get_license() {
-        Config::set_option("key".into(), lic.key);
-        Config::set_option("custom-rendezvous-server".into(), lic.host);
-        Config::set_option("api-server".into(), lic.api);
-    }
-
     let tray_shortcuts = if config::is_outgoing_only() {
         "".to_owned()
     } else {
@@ -2051,18 +2042,13 @@ pub fn remove_custom_client_staging_dir(staging_dir: &Path) -> ResultType<bool> 
     Ok(false)
 }
 
-// Prepare custom client update by copying staged custom.txt to current directory and loading it.
+// Drop a staged pro custom.txt without applying it.
 // Returns:
-// 1. Ok(true) if preparation was successful or no staging directory exists.
-// 2. Ok(false) if custom.txt file exists but has invalid contents or fails security checks
-//    (e.g., is a symlink or has invalid contents).
+// 1. Ok(true) when there is nothing to apply, or a regular custom.txt was ignored.
+// 2. Ok(false) when custom.txt is a symlink.
 // 3. Err if any unexpected error occurs during file operations.
 pub fn prepare_custom_client_update() -> ResultType<bool> {
     let custom_client_staging_dir = get_custom_client_staging_dir();
-    let current_exe = std::env::current_exe()?;
-    let current_exe_dir = current_exe
-        .parent()
-        .ok_or(anyhow!("Cannot get parent directory of current exe"))?;
 
     let staging_dir = custom_client_staging_dir.clone();
     let clear_staging_on_exit = crate::SimpleCallOnReturn {
@@ -2100,35 +2086,9 @@ pub fn prepare_custom_client_update() -> ResultType<bool> {
             return Ok(false);
         }
         if metadata.is_file() {
-            // Copy custom.txt to current directory
-            let local_custom_file_path = current_exe_dir.join("custom.txt");
-            log::debug!(
-                "Copying staged custom file from {:?} to {:?}",
-                custom_txt_path,
-                local_custom_file_path
-            );
-
-            // No need to check symlink before copying.
-            // `load_custom_client()` will fail if the file is not valid.
-            fs::copy(&custom_txt_path, &local_custom_file_path)?;
-            log::info!("Staged custom client file copied to current directory.");
-
-            // Load custom client
-            let is_custom_file_exists =
-                local_custom_file_path.exists() && local_custom_file_path.is_file();
-            crate::load_custom_client();
-
-            // Remove the copied custom.txt file
-            allow_err!(fs::remove_file(&local_custom_file_path));
-
-            // Check if loaded successfully
-            if is_custom_file_exists && !crate::common::is_custom_client() {
-                // The custom.txt file existed, but its contents are invalid.
-                log::error!("Failed to load custom client from custom.txt.");
-                drop(clear_staging_on_exit);
-                // ERROR_INVALID_DATA
-                return Ok(false);
-            }
+            // Signed pro custom.txt (server, API, app name) is no longer applied.
+            // The drop guard still removes the staging directory.
+            log::info!("Ignoring staged custom.txt; custom client config is not applied.");
         } else {
             log::info!("No custom client files found in staging directory.");
         }
@@ -2140,15 +2100,6 @@ pub fn prepare_custom_client_update() -> ResultType<bool> {
     }
 
     Ok(true)
-}
-
-pub fn get_license_from_exe_name() -> ResultType<CustomServer> {
-    let mut exe = std::env::current_exe()?.to_str().unwrap_or("").to_owned();
-    // if defined portable appname entry, replace original executable name with it.
-    if let Ok(portable_exe) = std::env::var(PORTABLE_APPNAME_RUNTIME_ENV_KEY) {
-        exe = portable_exe;
-    }
-    get_custom_server_from_string(&exe)
 }
 
 // We can't directly use `RegKey::set_value` to update the registry value, because it will fail with `ERROR_ACCESS_DENIED`
@@ -2180,10 +2131,6 @@ pub fn is_win_10_or_greater() -> bool {
 }
 
 pub fn bootstrap() -> bool {
-    if let Ok(lic) = get_license_from_exe_name() {
-        *config::EXE_RENDEZVOUS_SERVER.write().unwrap() = lic.host.clone();
-    }
-
     #[cfg(debug_assertions)]
     {
         true
@@ -4072,22 +4019,6 @@ pub fn alloc_console() {
     unsafe {
         alloc_console_and_redirect();
     }
-}
-
-fn get_license() -> Option<CustomServer> {
-    let mut lic: CustomServer = Default::default();
-    if let Ok(tmp) = get_license_from_exe_name() {
-        lic = tmp;
-    } else {
-        // for back compatibility from migrating from <= 1.2.1 to 1.2.2
-        lic.key = get_reg("Key");
-        lic.host = get_reg("Host");
-        lic.api = get_reg("Api");
-    }
-    if lic.key.is_empty() || lic.host.is_empty() {
-        return None;
-    }
-    Some(lic)
 }
 
 pub struct WallPaperRemover {
