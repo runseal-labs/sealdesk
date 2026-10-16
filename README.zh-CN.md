@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="res/sealdesk-icon-approved.png" width="160" alt="SealDesk 海豹抱猫图标">
+</p>
+
 # SealDesk
 
 [English](README.md) | 简体中文
