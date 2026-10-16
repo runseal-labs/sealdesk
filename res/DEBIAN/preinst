@@ -1,15 +1,21 @@
 #!/bin/bash
-
 set -e
 
-case $1 in
+case "$1" in
     install|upgrade)
-		INITSYS=$(ls -al /proc/1/exe | awk -F' ' '{print $NF}' | awk -F'/' '{print $NF}')
-		if [ "systemd" == "${INITSYS}" ]; then
-			service sealdesk stop || true
-      sleep 1
-		fi
+        # Retire service units left by older packages; fresh installs do not create a daemon.
+        if [ -e /etc/systemd/system/sealdesk.service ] || \
+           [ -e /usr/lib/systemd/system/sealdesk.service ] || \
+           [ -e /usr/lib/systemd/user/sealdesk.service ]; then
+            if command -v systemctl >/dev/null 2>&1; then
+                systemctl disable --now sealdesk.service >/dev/null 2>&1 || true
+            fi
+            rm -f /etc/systemd/system/sealdesk.service \
+                /usr/lib/systemd/system/sealdesk.service \
+                /usr/lib/systemd/user/sealdesk.service
+            if command -v systemctl >/dev/null 2>&1; then
+                systemctl daemon-reload >/dev/null 2>&1 || true
+            fi
+        fi
         ;;
 esac
-
-exit 0

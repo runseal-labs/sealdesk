@@ -1,27 +1,8 @@
 #!/bin/bash
-
 set -e
 
-case $1 in
+case "$1" in
     remove|upgrade)
-		INITSYS=$(ls -al /proc/1/exe | awk -F' ' '{print $NF}' | awk -F'/' '{print $NF}')
-		rm -f /usr/bin/sealdesk
-		
-		if [ "systemd" == "${INITSYS}" ]; then
-
-			systemctl stop sealdesk || true
-			systemctl disable sealdesk || true
-			rm /etc/systemd/system/sealdesk.service /usr/lib/systemd/system/sealdesk.service || true
-			
-			# workaround temp dev build between 1.1.9 and 1.2.0
-			serverUser=$(ps -ef | grep -E 'sealdesk +--server' | grep -v 'sudo ' | awk '{print $1}' | head -1)
-			if [ "$serverUser" != "" ] && [ "$serverUser" != "root" ]
-			then
-				systemctl --machine=${serverUser}@.host --user stop sealdesk >/dev/null 2>&1 || true
-			fi
-			rm /usr/lib/systemd/user/sealdesk.service >/dev/null 2>&1 || true
-		fi
+        rm -f /usr/bin/sealdesk
         ;;
 esac
-
-exit 0

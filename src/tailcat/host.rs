@@ -5,7 +5,7 @@ use std::sync::Mutex;
 static RUNNING: Mutex<bool> = Mutex::new(false);
 
 pub(crate) fn enabled() -> bool {
-    Config::get_option(keys::OPTION_SEALDESK_HOST_MODE) != "control"
+    Config::get_option(keys::OPTION_SEALDESK_HOST_MODE) == "host"
         && !option2bool(
             keys::OPTION_STOP_SERVICE,
             &Config::get_option(keys::OPTION_STOP_SERVICE),
@@ -181,6 +181,24 @@ pub(crate) fn request_mode(mode: &str) -> hbb_common::ResultType<()> {
             return Err(anyhow!("切换被控服务超时，请稍后重试"));
         }
         std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+#[cfg(all(target_os = "linux", feature = "flutter"))]
+pub(crate) fn stop_for_exit() {
+    if let Err(error) = request_mode("control") {
+        hbb_common::log::warn!("Could not stop sharing while closing SealDesk: {error}");
+    }
+    let children = std::mem::take(&mut *crate::server::CHILD_PROCESS.lock().unwrap());
+    for mut child in children {
+        if matches!(child.try_wait(), Ok(Some(_))) {
+            continue;
+        }
+        if let Err(error) = child.kill() {
+            hbb_common::log::warn!("Could not stop SealDesk child {}: {error}", child.id());
+        } else if let Err(error) = child.wait() {
+            hbb_common::log::warn!("Could not reap SealDesk child {}: {error}", child.id());
+        }
     }
 }
 

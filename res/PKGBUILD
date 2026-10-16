@@ -27,7 +27,6 @@ package() {
   fi
   mkdir -p "${pkgdir}/usr/bin"
   pushd ${pkgdir} && ln -s /usr/share/sealdesk/sealdesk usr/bin/sealdesk && popd
-  install -Dm 644 $HBB/res/sealdesk.service -t "${pkgdir}/usr/share/sealdesk/files"
   install -Dm 644 $HBB/res/sealdesk.desktop -t "${pkgdir}/usr/share/sealdesk/files"
   install -Dm 644 $HBB/res/sealdesk-link.desktop -t "${pkgdir}/usr/share/sealdesk/files"
   install -Dm 644 $HBB/res/128x128@2x.png "${pkgdir}/usr/share/icons/hicolor/256x256/apps/com.runseal.sealdesk.png"

@@ -2223,6 +2223,8 @@ pub fn install_install_options() -> SyncReturn<String> {
 }
 
 pub fn main_on_main_window_close() {
+    #[cfg(target_os = "linux")]
+    crate::tailcat::host::stop_for_exit();
     // may called more than one times
     #[cfg(windows)]
     crate::portable_service::client::drop_portable_service_shared_memory();

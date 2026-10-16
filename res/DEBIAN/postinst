@@ -1,27 +1,6 @@
 #!/bin/bash
-
 set -e
 
 if [ "$1" = configure ]; then
-
-	INITSYS=$(ls -al /proc/1/exe | awk -F' ' '{print $NF}' | awk -F'/' '{print $NF}')
-	ln -f -s /usr/share/sealdesk/sealdesk /usr/bin/sealdesk
-
-	if [ "systemd" == "$INITSYS" ]; then
-
-		if [ -e /etc/systemd/system/sealdesk.service ]; then
-			rm -f /etc/systemd/system/sealdesk.service /usr/lib/systemd/system/sealdesk.service /usr/lib/systemd/user/sealdesk.service >/dev/null  2>&1
-		fi
-		mkdir -p /usr/lib/systemd/system/
-		cp /usr/share/sealdesk/files/systemd/sealdesk.service /usr/lib/systemd/system/sealdesk.service
-		# try fix error in Ubuntu 18.04
-		# Failed to reload sealdesk.service: Unit sealdesk.service is not loaded properly: Exec format error.
-		# /usr/lib/systemd/system/sealdesk.service:10: Executable path is not absolute: pkill -f "sealdesk --"
-		if [ -e /usr/bin/pkill ]; then
-			sed -i "s|pkill|/usr/bin/pkill|g" /usr/lib/systemd/system/sealdesk.service
-		fi
-		systemctl daemon-reload
-		systemctl enable sealdesk
-		systemctl start sealdesk
-	fi
+    ln -sf /usr/share/sealdesk/sealdesk /usr/bin/sealdesk
 fi

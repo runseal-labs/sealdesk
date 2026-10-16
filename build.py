@@ -746,7 +746,7 @@ def build_flutter_deb(version, features):
     system2('flutter build linux --release')
     system2('mkdir -p tmpdeb/usr/bin/')
     system2('mkdir -p tmpdeb/usr/share/sealdesk')
-    system2('mkdir -p tmpdeb/usr/share/sealdesk/files/systemd/')
+    system2('mkdir -p tmpdeb/usr/share/sealdesk/files/')
     system2('mkdir -p tmpdeb/usr/share/icons/hicolor/256x256/apps/')
     system2('mkdir -p tmpdeb/usr/share/icons/hicolor/scalable/apps/')
     system2('mkdir -p tmpdeb/usr/share/applications/')
@@ -754,8 +754,6 @@ def build_flutter_deb(version, features):
     system2('rm tmpdeb/usr/bin/sealdesk || true')
     system2(
         f'cp -r {flutter_build_dir}/* tmpdeb/usr/share/sealdesk/')
-    system2(
-        'cp ../res/sealdesk.service tmpdeb/usr/share/sealdesk/files/systemd/')
     system2(
         'cp ../res/128x128@2x.png tmpdeb/usr/share/icons/hicolor/256x256/apps/com.runseal.sealdesk.png')
     system2(
@@ -854,7 +852,7 @@ def build_deb_from_folder(version, binary_folder, want_drm=False):
     os.chdir('flutter')
     system2('mkdir -p tmpdeb/usr/bin/')
     system2('mkdir -p tmpdeb/usr/share/sealdesk')
-    system2('mkdir -p tmpdeb/usr/share/sealdesk/files/systemd/')
+    system2('mkdir -p tmpdeb/usr/share/sealdesk/files/')
     system2('mkdir -p tmpdeb/usr/share/icons/hicolor/256x256/apps/')
     system2('mkdir -p tmpdeb/usr/share/icons/hicolor/scalable/apps/')
     system2('mkdir -p tmpdeb/usr/share/applications/')
@@ -862,8 +860,6 @@ def build_deb_from_folder(version, binary_folder, want_drm=False):
     system2('rm tmpdeb/usr/bin/sealdesk || true')
     system2(
         f'cp -r ../{binary_folder}/* tmpdeb/usr/share/sealdesk/')
-    system2(
-        'cp ../res/sealdesk.service tmpdeb/usr/share/sealdesk/files/systemd/')
     system2(
         'cp ../res/128x128@2x.png tmpdeb/usr/share/icons/hicolor/256x256/apps/com.runseal.sealdesk.png')
     system2(
@@ -1141,11 +1137,9 @@ def main():
                 system2(
                     'mv target/release/bundle/deb/sealdesk*.deb ./sealdesk.deb')
                 system2('dpkg-deb -R sealdesk.deb tmpdeb')
-                system2('mkdir -p tmpdeb/usr/share/sealdesk/files/systemd/')
+                system2('mkdir -p tmpdeb/usr/share/sealdesk/files/')
                 system2('mkdir -p tmpdeb/usr/share/icons/hicolor/256x256/apps/')
                 system2('mkdir -p tmpdeb/usr/share/icons/hicolor/scalable/apps/')
-                system2(
-                    'cp res/sealdesk.service tmpdeb/usr/share/sealdesk/files/systemd/')
                 system2(
                     'cp res/128x128@2x.png tmpdeb/usr/share/icons/hicolor/256x256/apps/com.runseal.sealdesk.png')
                 system2(

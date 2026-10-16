@@ -110,24 +110,22 @@ pub fn core_main() -> Option<CoreMainAction> {
             flutter_args = vec!["--control".to_owned(), input.clone()];
         }
     }
-    let startup_mode = sealdesk_launch
-        .as_ref()
-        .map(|launch| launch.mode.as_str().to_owned())
-        .unwrap_or_else(|| config::LocalConfig::get_option(keys::OPTION_SEALDESK_MODE));
+    #[cfg(all(target_os = "linux", feature = "flutter"))]
+    if matches!(args.first().map(String::as_str),
+        Some("--service" | "--server" | "--tray" | "--install-service" | "--uninstall-service"))
+    {
+        return Some(CoreMainAction::ExitFailure(hbb_common::anyhow::anyhow!(
+            "SealDesk runs as a desktop app; open Share this device or use --host"
+        )));
+    }
+    let startup_mode = crate::tailcat::launch::startup_mode(sealdesk_launch.as_ref())
+        .as_str().to_owned();
     no_server = crate::tailcat::launch::controller_only(&startup_mode, no_server);
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    #[cfg(target_os = "windows")]
     if args.is_empty() {
-        #[cfg(target_os = "linux")]
-        let should_check_start_tray = crate::check_process("--server", false);
-        // We can use `crate::check_process("--server", false)` on Windows.
-        // Because `--server` process is the System user's process. We can't get the arguments in `check_process()`.
-        // We can assume that self service running means the server is also running on Windows.
-        #[cfg(target_os = "windows")]
         let should_check_start_tray = crate::platform::is_self_service_running()
             && crate::platform::is_cur_exe_the_installed();
         if should_check_start_tray && !crate::check_process("--tray", true) {
-            #[cfg(target_os = "linux")]
-            hbb_common::allow_err!(crate::platform::check_autostart_config());
             hbb_common::allow_err!(crate::run_me(vec!["--tray"]));
         }
     }
@@ -235,12 +233,12 @@ pub fn core_main() -> Option<CoreMainAction> {
         if let Err(error) = crate::tailcat::host::request_mode(requested) {
             return Some(CoreMainAction::ExitFailure(error));
         }
-        if let Some(launch) = &sealdesk_launch {
-            config::LocalConfig::set_option(
-                keys::OPTION_SEALDESK_MODE.to_owned(),
-                launch.mode.as_str().to_owned(),
-            );
-        }
+        config::LocalConfig::set_option(
+            keys::OPTION_SEALDESK_MODE.to_owned(),
+            requested.to_owned(),
+        );
+        #[cfg(target_os = "linux")]
+        hbb_common::allow_err!(crate::platform::check_autostart_config());
         #[cfg(target_os = "macos")]
         {
             crate::platform::macos::try_remove_temp_update_dir(None);
@@ -419,16 +417,6 @@ pub fn core_main() -> Option<CoreMainAction> {
             return None;
         } else if args[0] == "--server" {
             log::info!("start --server with user {}", crate::username());
-            #[cfg(target_os = "linux")]
-            {
-                hbb_common::allow_err!(crate::platform::check_autostart_config());
-                std::process::Command::new("pkill")
-                    .arg("-f")
-                    .arg(&format!("{} --tray", crate::get_app_name().to_lowercase()))
-                    .status()
-                    .ok();
-                hbb_common::allow_err!(crate::run_me(vec!["--tray"]));
-            }
             #[cfg(windows)]
             crate::privacy_mode::restore_reg_connectivity(true, false);
             #[cfg(any(target_os = "linux", target_os = "windows"))]

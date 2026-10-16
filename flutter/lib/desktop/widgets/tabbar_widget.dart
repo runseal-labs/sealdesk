@@ -475,6 +475,14 @@ class _DesktopTabState extends State<DesktopTab>
     if (await _isLinuxWindowClosed()) return;
 
     await _saveFrame(flush: true);
+    if (isLinux && tabType == DesktopTabType.main &&
+        bind.mainGetAppNameSync() == "SealDesk") {
+      await bind.mainOnMainWindowClose();
+      await rustDeskWinManager.closeAllSubWindows();
+      await windowManager.setPreventClose(false);
+      await windowManager.close();
+      return;
+    }
 
     // hide window on close
     if (isMainWindow) {
