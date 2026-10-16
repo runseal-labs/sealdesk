@@ -1,5 +1,8 @@
 # SealDesk 的 Go 隧道构建
 
+完整应用的构建步骤见 [BUILDING.md](../../BUILDING.md)；这里说明传输库，
+不把原生诊断二进制当作 Flutter 桌面应用。
+
 Rust 的根目录 `build.rs` 在桌面与 iOS 上构建静态库，在 Android 上构建并动态链接
 `libtailcat.so`。Android 的动态库同时复制到 Cargo 对应 target/profile 目录，
 供应用打包流程与 Rust 库一起收集。
@@ -11,7 +14,7 @@ Go 版本以 `go.mod` 为准；目前要求 Go 1.27.1。原生 Flutter 应用还
 在仓库根目录运行：
 
 ```bash
-GO=/path/to/go cargo build --bin rustdesk
+GO=/path/to/go cargo build --locked --lib
 ```
 
 `GO` 省略时使用 PATH 中的 Go。cgo 始终开启，需要目标平台的 C 编译器；
@@ -58,7 +61,7 @@ Windows 完整程序的编译器与链接兼容性仍需要在对应平台实际
 ```bash
 TAILCAT_CC="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang" \
 GO=/path/to/go \
-cargo build --target aarch64-linux-android --features flutter
+cargo build --locked --release --lib --target aarch64-linux-android --features flutter
 ```
 
 该例只说明 cgo 的编译器选择，不负责安装 NDK、生成 Flutter 桥接文件或配置
@@ -147,7 +150,7 @@ python3 tests/check_sealdesk_android_package.py path/to/app-arm64-v8a-release.ap
 ## 撤销旧地址
 
 桌面版本可运行 `sealdesk --tc-reset-address`（本地开发文件名为
-`target/debug/rustdesk`）。该命令会断开当前被控连接，并使所有包含旧 tc 地址的
+`flutter/build/linux/x64/release/bundle/sealdesk`）。该命令会断开当前被控连接，并使所有包含旧 tc 地址的
 配对码失效；原来运行的被控服务随后生成新密钥和地址。原来停止的服务或控制模式
 保持停止，控制端身份密钥和白名单保持不变。请重新获取配对码后分享。
 

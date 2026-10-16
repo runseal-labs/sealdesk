@@ -1,3 +1,5 @@
+> **Inherited RustDesk README.** This file is retained as an upstream reference, not a current SealDesk guide. Use [SealDesk English](../README.md), [简体中文](../README.zh-CN.md), and [fork maintenance](../FORK.md).
+
 <p align="center">
   <img src="../res/logo-header.svg" alt="RustDesk - Ваш удаленый рабочий стол"><br>
   <a href="#первичные-шаги-для-сборки">Первичные шаги для сборки</a> •

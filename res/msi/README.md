@@ -1,3 +1,5 @@
+> **Inherited Windows installer recipe.** Full SealDesk Windows/MSI builds are not yet validated. Start with [BUILDING.md](../../BUILDING.md); installer notices use the project's AGPL text.
+
 # RustDesk msi project
 
 Use Visual Studio 2022 to compile this project.

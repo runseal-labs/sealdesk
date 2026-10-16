@@ -1,123 +1,89 @@
-# SealDesk fork
+# Maintaining the SealDesk fork
 
-SealDesk is a RustDesk-derived application whose supported product scope is
-SealDesk. The fork keeps the remote-desktop session implementation where it is
-needed, but replaces the upstream connection path with Tailcat transport and
-SealDesk pairing. Native desktop LAN sessions additionally use discovery and
-a signed ephemeral key exchange with the retained encrypted Rust stream.
+SealDesk is an independent RustDesk fork focused on user-initiated remote
+desktop sessions. It retains the session, permissions, codecs, input, clipboard,
+and file-transfer implementation where used. It replaces the RustDesk ID-server
+connection path with Tailcat pairing and restores limited discovery/direct-IP
+interoperability.
 
 ## Product boundary
 
-Native desktop peers on the same private LAN can discover sharing hosts without
-Internet access. A host approves the first connection and may remember the
-controller public key and granted permissions. Revocation clears recovery
-credentials and ends that controller's sessions. Only sharing mode binds the
-LAN discovery and encrypted TCP listener; this does not restore upstream ID or
-relay services.
+- Public/Internet connections use `tc...` addresses and `SEALDESK:` pairing
+  codes over Tailcat's encrypted direct or DERP transport.
+- SealDesk local discovery and direct transport work without Internet access,
+  with signed key exchange, encrypted sessions, and host approval.
+- Hosts may remember controller keys and permissions and later revoke them.
+- Original RustDesk peers use their existing discovery/direct-IP protocol and
+  password or click authorization. These compatibility sessions are unencrypted
+  and explicitly identified. SealDesk encrypted-handshake failures do not fall
+  back to the legacy protocol.
+- Both direct protocols share TCP 21118. Direct admission accepts IPv4 and IPv6
+  without subnet classification. Discovery remains private-IPv4 UDP 21119.
+- Incoming sessions are accepted only while sharing is enabled. Linux has no
+  installed systemd daemon, autostart, or tray process.
+- RustDesk hbbs/hbbr registration and relay, account synchronization, and address
+  books are outside this fork's supported product scope.
 
-SealDesk connects a host and a controller with a `tc...` address and a
-`SEALDESK:` pairing code. Tailcat supplies the encrypted transport and direct
-or DERP path. The fork does not use or implement the upstream RustDesk ID
-(`hbbs`) or relay (`hbbr`) services, rendezvous registration, or upstream
-hole-punching/relay path. A SealDesk/SealDesk session is therefore not
-compatible with a stock RustDesk client or server.
+The Tailcat service key is stored in local application configuration. Do not
+describe it as rotating on every launch. Reset the address explicitly when
+revoking it; normal stop/start is a lifecycle action, not credential revocation.
 
-The supported user-facing modes are:
+## Ownership
 
-```text
-sealdesk --host
-sealdesk --control [pairing-code-text | qr-image-path]
-sealdesk --tc-reset-address
-```
+| Area | Fork-owned responsibility |
+| --- | --- |
+| `libs/tailcat-ffi/` | Go encrypted networking and C ABI |
+| `src/tailcat.rs`, `src/tailcat/` | Rust transport, pairing, local channel authentication, lifecycle, recovery |
+| `src/lan.rs` | Discovery, signed encrypted direct transport, shared-port protocol selection |
+| `flutter/lib/**/sealdesk_*` | Pairing, scanner, discovery, and host/controller UI |
+| `libs/base/src/config/keys.rs` | Shared configuration option names |
+| `build.rs`, `build.py`, platform packaging | Native transport integration, branding, application lifecycle |
 
-In a development checkout the executable is currently named `sealdesk` (for
-example, `target/debug/sealdesk`). The product name shown by the SealDesk UI
-and native configuration is SealDesk/SealDesk as implemented in the current
-build; do not assume that a future binary rename has already happened.
+`libs/hbb_common` is vendored, not a Git submodule. Legacy Sciter UI sources
+were removed. Keep integration changes to retained session and platform code
+small; do not remove authentication, permissions, or local IPC merely because
+a transport feature was removed.
 
-## What belongs to this fork
+## Upstream baseline and selective upgrades
 
-Fork-owned code is concentrated in the Tailcat transport and SealDesk UI:
+The original baseline is upstream RustDesk 1.5.1:
+`e910029f510fc9738424984eb3c1e7c63ede0d2a` (local tag `upstream/1.5.1`).
+SealDesk's product version and retained peer-protocol version are independent.
 
-- `libs/tailcat-ffi/` — Go transport library and C ABI.
-- `src/tailcat/` and `src/tailcat.rs` — Rust transport, pairing, launch,
-  host, controller, and security integration.
-- `flutter/lib/common/sealdesk_*`, `flutter/lib/desktop/pages/sealdesk_*`,
-  `flutter/lib/mobile/**sealdesk_*`, and matching tests — pairing, QR, startup,
-  and SealDesk connection UI.
-- Build and CI wiring that compiles and packages the Tailcat library.
+Review upstream security, codec, and platform changes individually. Preserve
+authorship and `cherry picked from` provenance; do not merge removed ID/account
+features back merely to apply an unrelated fix.
 
-The integration hooks in upstream-shaped files should remain thin. The forked
-connection files are maintained by hand because their upstream rendezvous,
-hole-punching, and relay behavior was intentionally removed. The exact file groups and hook rationale are listed in this document.
+### Review checkpoint: 2026-10-16
 
-## Baseline and upgrades
+Reviewed through upstream
+`e400bb75546cebf4f72a5ef3cf6e4a3efa2c3aa7`. This is a review checkpoint,
+not a claim that all intervening changes were merged.
 
-The original fork baseline is upstream RustDesk `1.5.1` (`upstream/1.5.1`,
-commit `e910029f510fc9738424984eb3c1e7c63ede0d2a`). `libs/hbb_common` is vendored
-in this repository; it is no longer a submodule.
-
-Track upstream changes selectively rather than merging or rebasing the whole
-upstream branch. Prioritize security, codecs, and platform fixes. Review each
-patch against SealDesk's retained paths, preserve upstream authorship and add
-`cherry picked from` provenance when backporting. Validate the affected paths
-before accepting a patch. Never restore removed rendezvous, account, or
-server-configuration features merely to apply an upstream patch.
-
-### Upstream review: 2026-10-16
-
-Reviewed through `e400bb75546cebf4f72a5ef3cf6e4a3efa2c3aa7` (10 commits after
-the original baseline). This is a review checkpoint, not a fully merged baseline.
-
-| Upstream commit | Decision | Reason / SealDesk commit |
+| Upstream commit | Decision | Reason |
 | --- | --- | --- |
-| `0d36ac0cb` | Applied | Avoid using a destroyed GTK window during close; `642d5ac26`. |
-| `392188596` | Deferred | Static-frame quality refinement also changes encoder state and upgrades hwcodec to 0.8.0. Requires dedicated codec tests and Linux/Android runtime validation. |
-| `f705902ec` | Deferred | Protected Windows installer temporary directories are relevant to the retained installer. Backport and verify ACL/UAC behavior before a Windows release. |
-| `f1fa432bc` | Deferred | F-Droid bridge-generation fix needs adaptation to SealDesk's library names and build recipe. Current delivery uses the local arm64 build. |
-| `e400bb755` | Deferred | Enforcing the bridge-stage lockfile conflicts with the recipe's extended_text downgrade and the committed lockfile; resolve the dependency mismatch first. |
-| `c0750fb50` | Skipped | WebRTC connection racing has been removed. |
-| `e614de83f` | Skipped | Executable host configuration parsing has been removed. |
-| `538126d42` | Deferred | Portuguese shortcut translations; independent of the prioritized platform fixes. |
-| `9c6d3fcb4` | Deferred | Italian shortcut translations; preserve the upstream translator's changes when importing. |
-| `c230c5713` | Deferred | Dutch shortcut translations need a corrected description that retains the original guidance. |
+| `0d36ac0cb` | Applied | GTK close handling avoids a destroyed window; retained with upstream authorship |
+| `392188596` | Deferred | Encoder-state changes and hwcodec 0.8.0 need separate validation |
+| `f705902ec` | Deferred | Windows installer temporary-directory hardening needs platform validation |
+| `f1fa432bc` | Deferred | F-Droid bridge changes need SealDesk library/build adaptation |
+| `e400bb755` | Deferred | Bridge lockfile enforcement conflicts with the current dependency recipe |
+| `c0750fb50` | Skipped | Removed WebRTC connection-racing path |
+| `e614de83f` | Skipped | Removed executable host-configuration path |
+| `538126d42` | Deferred | Portuguese translations |
+| `9c6d3fcb4` | Deferred | Italian translations |
+| `c230c5713` | Deferred | Dutch translation wording needs review |
 
-The product version and peer protocol compatibility version are independent.
-Updating this review checkpoint does not automatically change either version.
+After the pre-publication history cleanup, fork commits are grouped by feature;
+use upstream source IDs rather than superseded local commit IDs in maintenance
+records.
 
-## Local development
+## Build, checks, and documentation
 
-From the repository root, a native Linux build is:
+See [BUILDING.md](BUILDING.md) for the supported build recipe and
+[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for focused checks.
+A successful library build does not establish GUI, mobile-device, or cross-NAT
+acceptance. Keep those results tied to the tested platform and source revision.
 
-```bash
-GO=/path/to/go cargo build --bin sealdesk
-./target/debug/sealdesk --host
-```
-
-`build.rs` selects the Go target from Cargo's target platform and requires cgo
-and a suitable C compiler. For a Flutter desktop package, use the repository
-wrapper after installing the matching Flutter/platform toolchain:
-
-```bash
-python3 build.py --flutter --hwcodec
-```
-
-The wrapper and CI workflows also contain platform-specific packaging steps;
-those are not interchangeable with a plain Cargo build. Generated Flutter
-bridge files and signing/toolchain setup are environment-specific.
-
-## Verification boundary
-
-The SealDesk unit/transport checks and isolated Flutter tests are the reliable
-local regression surface:
-
-```bash
-GO=/path/to/go cargo test --lib tailcat::
-/path/to/go -C libs/tailcat-ffi test -race ./...
-FLUTTER=/path/to/flutter bash tests/run_sealdesk_flutter_tests.sh
-```
-
-Passing these checks does not claim complete GUI first-frame validation,
-real-device camera validation, every platform package build, or cross-NAT
-success. Those remain platform/integration acceptance work documented in
-`docs/sealdesk-prd.md` and the relevant CI workflows.
+The old multilingual `docs/README-*.md` files are inherited RustDesk references.
+The maintained SealDesk guides are [README.md](README.md) and
+[README.zh-CN.md](README.zh-CN.md).

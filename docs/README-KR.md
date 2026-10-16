@@ -1,3 +1,5 @@
+> **Inherited RustDesk README.** This file is retained as an upstream reference, not a current SealDesk guide. Use [SealDesk English](../README.md), [简体中文](../README.zh-CN.md), and [fork maintenance](../FORK.md).
+
 <p align="center">
   <img src="../res/logo-header.svg" alt="RustDesk - Your remote desktop"><br>
   <a href="#빌드를_위한_원시_단계">빌드</a> •

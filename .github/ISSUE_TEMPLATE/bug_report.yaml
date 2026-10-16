@@ -1,5 +1,5 @@
 name: 🐞 Bug report
-description: Thanks for taking the time to fill out this bug report! Please fill the form in **English**
+description: Report a SealDesk bug in English or Chinese; redact credentials and QR codes.
 labels: ["bug"]
 body:
   - type: textarea
@@ -35,19 +35,19 @@ body:
   - type: input
     id: version
     attributes:
-      label: RustDesk Version(s) on local (controlling) side and remote (controlled) side
-      description: What RustDesk version(s) do you see this bug on? local (controlling) side -> remote (controlled) side.
+      label: SealDesk / RustDesk Version(s) on local (controlling) side and remote (controlled) side
+      description: What SealDesk / RustDesk version(s) do you see this bug on? local (controlling) side -> remote (controlled) side.
       placeholder: |
-        1.1.9 -> 1.1.8
+        SealDesk 0.1.0-alpha.1 -> RustDesk 1.4.9
     validations:
       required: true
   - type: textarea
     id: screenshots
     attributes:
       label: Screenshots
-      description: Please add screenshots to help explain your problem, if applicable, please upload video.
+      description: Optional. Hide pairing codes, tc addresses, passwords, and personal data before attaching screenshots or video.
     validations:
-      required: true
+      required: false
   - type: textarea
     id: context
     attributes:

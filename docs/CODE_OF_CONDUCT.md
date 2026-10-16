@@ -61,7 +61,9 @@ representative at an online or offline event.
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the community leaders responsible for enforcement at
-[info@rustdesk.com](mailto:info@rustdesk.com).
+the SealDesk repository maintainers. Use the contact information on a maintainer's
+GitHub profile to arrange a private channel. For security vulnerabilities, follow
+[the SealDesk security policy](SECURITY.md).
 All complaints will be reviewed and investigated promptly and fairly.
 
 All community leaders are obligated to respect the privacy and security of the

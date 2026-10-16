@@ -1,16 +1,10 @@
-# sealdesk
+# SealDesk Flutter application
 
-A new Flutter project.
+This directory contains SealDesk's desktop/mobile UI. It depends on the native
+Rust/Go libraries and source-matched generated bridge files; it is not a
+standalone Flutter starter project.
 
-## Getting Started
-
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples and guidance on mobile development, and a full API reference.
+Start with [BUILDING.md](../BUILDING.md). User instructions are in the
+[English](../README.md) and [Chinese](../README.zh-CN.md) guides. The desktop
+application lifecycle and direct-connection boundaries are described in
+[FORK.md](../FORK.md).

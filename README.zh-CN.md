@@ -2,102 +2,88 @@
 
 [English](README.md) | 简体中文
 
-SealDesk 是一个远程桌面应用，可以在两台设备之间直接查看和控制屏幕，不用注册账号，也不依赖 RustDesk 的 ID 服务器或中继服务器。
+SealDesk 是从 RustDesk 分叉的远程桌面工具，即用即走。打开“共享本机”，
+控制端扫码连接，不需要账号，也不依赖 RustDesk 的 ID 或中继服务器。
+公网连接由 Tailcat 提供加密直连或 DERP 转发；完全断公网时，也能发现并连接局域网设备。
 
-> **当前为 alpha 预览版。** 功能和配置仍可能变化，目前优先适配 Linux x64 和 Android arm64，其他平台尚未完成验证。请不要用于关键生产环境。
+**当前为 alpha。** 目前优先验证 Linux x64 和 Android arm64；
+其他平台保留了上游代码和构建流程，尚未完成 SealDesk 整体应用验收。
 
-## 它能做什么
+## 连接方式
 
-- **零账号**：不需要登录、注册或自建 ID 服务器。
-- **扫码连接**：被控端显示一个配对二维码（或 `SEALDESK:` 开头的配对码），控制端扫码或粘贴后即可连接。
-- **直连优先**：底层使用 tailcat 传输库建立端到端加密连接，能直连时直连，网络受限时经 DERP 中继转发。
-- **兼容原版 RustDesk**：局域网列表可连接开启了“允许直接 IP 访问”的原版设备，沿用其密码或点击授权。原版 IP 直连不加密，连接前必须确认；SealDesk 自有连接继续加密。
-- **Android 局域网控制**：在原有“发现”标签页选择共享设备，复用加密直连、首次点击授权和已授权控制端自动接受逻辑。
-- **局域网连接**：原生桌面端开启共享后，控制端可在“局域网设备”中选择并请求连接；首次由被控端点击接受。完全断公网、首次打开也可使用，传输仍然加密，不需要配对密码或额外启用 2FA。
-- **记住控制端**：接受时勾选“信任此设备”，后续按已授予的权限自动接受；被控端可撤销授权，断开该控制端并要求重新确认。授权绑定密钥，不依赖设备名或 IP。
-- **常用远程功能**：屏幕查看与控制、键鼠输入、音频、剪贴板和文件传输（沿用 RustDesk 的会话实现）。
+| 方式 | 传输与授权 |
+| --- | --- |
+| SealDesk 配对码 | Tailcat/WireGuard 加密，沿用会话密码或点击授权策略 |
+| SealDesk 局域网发现 | 强制签名与加密传输，首次由被控端点击接受，可记住控制端密钥与权限 |
+| 双向兼容 RustDesk IP 直连 | 沿用原版直连协议和密码／点击授权，**不加密，明确提示** |
 
-SealDesk 与原版 RustDesk 客户端**不互通**。
+兼容范围是发现和 IP 直连，不包括 RustDesk ID 注册、hbbs/hbbr、账号与地址簿同步。
+连接原版 RustDesk 被控端前，需要在对方开启“允许直接 IP 访问”。
 
-## 使用方式
+IP 直连支持 IPv4 和 IPv6，不按网段预先过滤；实际可达性仍受路由、防火墙和显式访问限制影响。
+SealDesk 加密连接和 RustDesk 兼容连接共用 TCP **21118**。
+发现广播使用私有 IPv4 局域网接口上的 UDP **21119**，不会因为支持 IPv6 直连，
+就扩大到 IPv6、公网或 100.64.0.0/10 接口。
 
-1. 在要被控制的设备上打开 SealDesk，进入被控（Host）模式，界面会显示配对二维码和配对码。
-2. 在控制设备上打开 SealDesk，进入控制模式，扫描二维码或粘贴配对码。
-3. 连接建立后即可远程操作。
+## 使用
 
-**安全提示**：配对码就是访问凭证，请像密码一样对待，只发给你信任的人。如果担心配对码或 `tc...` 地址已泄露，请在被控端重置地址，旧的配对码会立即失效：
+1. 在被控端打开 SealDesk，点击“共享本机”。
+2. 控制端扫码、导入二维码图片，或粘贴完整的 `SEALDESK:` 配对码。
+3. 完全断公网时，从“局域网设备”或 Android 的“发现”标签页选择设备，由被控端接受首次请求。
+4. 接受时勾选“信任此设备”，后续按保存的控制端密钥和权限自动接受；
+   “撤销授权”会断开该控制端，并要求下次重新确认。
+
+配对码与 `tc...` 地址包含访问凭据，不要把它们、对应截图或未脱敏日志发到公开 issue。
+二维码过期只是控制端的导入检查，不等于服务端撤权。
+需要撤销密码或地址时，分别刷新密码或重置地址；退出应用本身不代表重置地址。
+
+Linux 安装包只提供普通桌面应用，不安装 systemd 守护服务，也不配置开机自启。
+普通启动进入控制模式；只有“共享本机”开启时接受连接，关闭共享会断开被控会话。
+关闭主窗口会关闭会话窗口并退出，不保留后台进程。
+
+安装 Flutter 桌面版后，可以使用：
 
 ```bash
+sealdesk --host
+sealdesk --control
+sealdesk --control 'SEALDESK:V:1;A:<tc-address>;P:<temporary-password>;N:<name>;;'
+sealdesk --control /path/to/pairing-code.png
 sealdesk --tc-reset-address
 ```
 
-原版 RustDesk 也可以发现并控制 SealDesk：兼容入口为标准 TCP 21118，无需另填端口，沿用原版密码或点击授权，界面明确提示非加密。仅在“共享本机”开启时监听，关闭共享会断开兼容会话；两种协议共用 TCP 21118；SealDesk 先声明加密协议，握手失败直接断开，不回退明文。
+最后一条命令请求运行中的应用断开被控会话、撤销旧地址，并仅在原先开启共享时恢复共享。
+Linux 桌面包不支持旧的 `--service`、`--server`、`--tray` 守护进程入口。
 
-局域网发现使用 UDP 21119，桌面连接共用 TCP 21118；仅在共享本机开启时监听，退出应用后停止。路由器若隔离无线客户端或禁止广播，设备可能无法自动发现。
+## 构建与安装
 
-## 安装
+Linux 和 Android 的构建步骤、原生依赖、桥接产物及仓库外签名配置见
+[BUILDING.md](BUILDING.md)。刚克隆的源码还需要匹配的 Rust/Dart 生成桥接文件，
+不能直接当作完整 Flutter 构建环境。
 
-目前尚未发布正式安装包，alpha 阶段请从源码构建（见下文）。如果拿到了预构建的测试包：
+本地构建的 Linux 包可用 `sudo apt install ./sealdesk-<version>.deb` 安装。
+Android 当前测试目标是 `arm64-v8a` APK。
+正式发布的产物以本仓库 [Releases](https://github.com/runseal-labs/sealdesk/releases) 为准，
+不要把 RustDesk 的安装包当作 SealDesk。
 
-- **Linux x64**：用系统包管理器安装，例如 `sudo apt install ./sealdesk-*.deb`。
-- **Android arm64**：安装 `arm64-v8a` 的 APK（需允许“安装未知来源应用”），被控端按应用内提示授予所需权限。
+## 开发检查
 
-## 从源码构建
-
-### 准备
-
-- Rust（1.75 或更新）
-- Go，版本见 `libs/tailcat-ffi/go.mod`（构建时会通过 cgo 编译 tailcat 并链接进 SealDesk）
-- C 编译器及目标平台的原生依赖
-- 构建 Flutter 界面或 Android 包时还需要对应版本的 Flutter SDK 和 Android NDK
-
-如果所需的 Go 不在 `PATH` 中，可以通过 `GO=/path/to/go` 指定。
-
-### Linux 命令行版本（开发调试）
+在已配置好依赖的构建环境中运行：
 
 ```bash
-git submodule update --init --recursive
-cargo build --bin sealdesk
-
-./target/debug/sealdesk --host                              # 作为被控端
-./target/debug/sealdesk --control 'SEALDESK:V:1;A:...;;'    # 用配对码连接
-```
-
-### Linux 桌面版（Flutter 界面）
-
-```bash
-python3 build.py --flutter --hwcodec
-```
-
-完整的 Flutter 构建还需要项目工具链生成的桥接代码。
-
-### Android arm64
-
-```bash
+cargo test --locked --lib --features linux-pkg-config tailcat::
+cargo test --locked --lib --features linux-pkg-config lan::
+go -C libs/tailcat-ffi test -race ./...
 cd flutter
-bash ndk_arm64.sh        # 编译原生库并放入 jniLibs
-bash build_android.sh    # 打包 APK
+flutter test test/sealdesk_pairing_test.dart test/sealdesk_lan_panel_test.dart
 ```
 
-发布版签名使用仓库外的密钥库和配置文件（默认 `~/.sealdesk/key.properties`，可用 `SEALDESK_KEY_PROPERTIES` 指定）。**不要把密钥库或密码提交进仓库或贴到日志里。** 调试构建不需要签名配置。
+这些检查不代表所有平台与网络环境均已验收。另见
+[贡献说明](docs/CONTRIBUTING.md)、[安全反馈](docs/SECURITY.md)、
+[分叉维护](FORK.md) 和[当前产品范围](docs/sealdesk-prd.md)。
 
-## 相关文档
+## 许可证与来源
 
-- [FORK.md](FORK.md)：分叉边界与维护规则
-- [docs/sealdesk-prd.md](docs/sealdesk-prd.md)：配对流程与产品行为
-- [libs/tailcat-ffi/README.md](libs/tailcat-ffi/README.md)：tailcat 传输库
-
-## Linux 桌面运行方式
-
-Linux 安装包只提供普通桌面应用，不安装、启用或启动 systemd 守护服务。
-需要时从应用菜单或终端运行 `sealdesk`。升级旧包时会停用并移除旧版
-SealDesk 服务单元，不会改用其他后台自启动方式。
-
-普通启动始终处于控制模式，即使上次退出前打开了共享，也需要再次点击“共享本机”
-才接受连接。关闭主窗口会停止共享、关闭会话窗口并退出应用，不保留托盘或后台进程。
-需要显式启动共享时可使用 `sealdesk --host`；Linux 桌面包不支持旧的
-`--service`、`--server`、`--tray` 守护进程入口。
-
-## 许可证
-
-SealDesk 基于 [RustDesk](https://github.com/rustdesk/rustdesk) 分叉开发，沿用其 [AGPL-3.0](LICENCE) 许可证。各依赖组件遵循其各自的许可证。
+SealDesk 使用 **GNU AGPL 第 3 版**，完整保留上游 [LICENCE](LICENCE) 文本。
+RustDesk 与其他上游贡献者的版权和署名继续保留。
+组件许可证及来源见 [NOTICE](NOTICE) 和 [第三方声明](THIRD_PARTY_NOTICES.md)。
+SealDesk 是独立分叉，不代表 RustDesk 或 Tailscale 官方。

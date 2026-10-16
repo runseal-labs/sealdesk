@@ -1,3 +1,5 @@
+> **Inherited RustDesk policy translation.** For SealDesk's current reporting contact, use [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) and [SECURITY.md](SECURITY.md).
+
 
 # コントリビューター規約 行動規範
 

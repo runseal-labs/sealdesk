@@ -1,3 +1,5 @@
+> **Inherited RustDesk contribution guide.** This file is retained as an upstream reference, not a current SealDesk guide. Use [SealDesk English](../README.md), [简体中文](../README.zh-CN.md), and [fork maintenance](../FORK.md).
+
 # 为RustDesk做贡献
 
 Rust欢迎每一位贡献者，如果您有意向为我们做出贡献，请遵循以下指南：
