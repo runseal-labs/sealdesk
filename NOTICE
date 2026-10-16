@@ -1,0 +1,15 @@
+SealDesk
+https://github.com/runseal-labs/sealdesk
+
+SealDesk is a modified version of RustDesk. The SealDesk modifications are
+maintained by the SealDesk contributors (2026). The project is distributed
+under version 3 of the GNU Affero General Public License; see LICENCE.
+
+RustDesk and other upstream authors retain the copyright and attribution
+recorded in source headers, component notices, and the preserved Git history.
+This notice does not replace, remove, or relicense any separately licensed
+component. See THIRD_PARTY_NOTICES.md and the included component license texts.
+
+SealDesk is an independent fork, not an official RustDesk or Tailscale product.
+Those names identify upstream projects and dependencies; they do not imply
+endorsement.
