@@ -15,6 +15,13 @@ for abi_dir in android/app/src/main/jniLibs/*; do
     done
 done
 
+if [ -z "${ANDROID_SIGNING_KEY:-}" ]; then
+    export SEALDESK_ANDROID_ALLOW_UNSIGNED=1
+    echo "ANDROID_SIGNING_KEY is empty; allowing an unsigned release APK"
+else
+    export SEALDESK_ANDROID_ALLOW_UNSIGNED=0
+fi
+
 flutter build apk --target-platform android-arm64,android-arm --${MODE} --obfuscate --split-debug-info ./split-debug-info
 flutter build apk --split-per-abi --target-platform android-arm64,android-arm --${MODE} --obfuscate --split-debug-info ./split-debug-info
 flutter build appbundle --target-platform  android-arm64,android-arm --${MODE} --obfuscate --split-debug-info ./split-debug-info

@@ -1389,8 +1389,26 @@ jobs:
           export PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH
           # Increase Gradle JVM memory for CI builds
           sed -i "s/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx2g/g" ./flutter/android/gradle.properties
-          # temporary use debug sign config
-          sed -i "s/signingConfigs.release/signingConfigs.debug/g" ./flutter/android/app/build.gradle
+          if [ -z "${ANDROID_SIGNING_KEY}" ]; then
+            export SEALDESK_ANDROID_ALLOW_UNSIGNED=1
+            echo "ANDROID_SIGNING_KEY is empty; allowing an unsigned release APK"
+          else
+            export SEALDESK_ANDROID_ALLOW_UNSIGNED=0
+          fi
+          resolve_flutter_apk() {
+            local preferred="$1"
+            local unsigned="${preferred%.apk}-unsigned.apk"
+            if [ -f "$preferred" ]; then
+              printf '%s\n' "$preferred"
+              return 0
+            fi
+            if [ -f "$unsigned" ]; then
+              printf '%s\n' "$unsigned"
+              return 0
+            fi
+            printf 'ERROR: APK not found at %s or %s\n' "$preferred" "$unsigned" >&2
+            return 1
+          }
           case ${{ matrix.job.target }} in
             aarch64-linux-android)
               mkdir -p ./flutter/android/app/src/main/jniLibs/arm64-v8a
@@ -1399,8 +1417,9 @@ jobs:
               # build flutter
               pushd flutter
               flutter build apk "--${{ matrix.job.reltype }}" --target-platform android-arm64 --split-per-abi
-              python3 ../tests/check_sealdesk_android_package.py build/app/outputs/flutter-apk/app-arm64-v8a-${{ matrix.job.reltype }}.apk --abi arm64-v8a
-              mv build/app/outputs/flutter-apk/app-arm64-v8a-${{ matrix.job.reltype }}.apk ../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk
+              apk_path="$(resolve_flutter_apk "build/app/outputs/flutter-apk/app-arm64-v8a-${{ matrix.job.reltype }}.apk")" || exit 1
+              python3 ../tests/check_sealdesk_android_package.py "$apk_path" --abi arm64-v8a
+              mv "$apk_path" "../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
             ;;
             armv7-linux-androideabi)
               mkdir -p ./flutter/android/app/src/main/jniLibs/armeabi-v7a
@@ -1409,8 +1428,9 @@ jobs:
               # build flutter
               pushd flutter
               flutter build apk "--${{ matrix.job.reltype }}" --target-platform android-arm --split-per-abi
-              python3 ../tests/check_sealdesk_android_package.py build/app/outputs/flutter-apk/app-armeabi-v7a-${{ matrix.job.reltype }}.apk --abi armeabi-v7a
-              mv build/app/outputs/flutter-apk/app-armeabi-v7a-${{ matrix.job.reltype }}.apk ../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk
+              apk_path="$(resolve_flutter_apk "build/app/outputs/flutter-apk/app-armeabi-v7a-${{ matrix.job.reltype }}.apk")" || exit 1
+              python3 ../tests/check_sealdesk_android_package.py "$apk_path" --abi armeabi-v7a
+              mv "$apk_path" "../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
             ;;
             x86_64-linux-android)
               mkdir -p ./flutter/android/app/src/main/jniLibs/x86_64
@@ -1419,8 +1439,9 @@ jobs:
               # build flutter
               pushd flutter
               flutter build apk "--${{ matrix.job.reltype }}" --target-platform android-x64 --split-per-abi
-              python3 ../tests/check_sealdesk_android_package.py build/app/outputs/flutter-apk/app-x86_64-${{ matrix.job.reltype }}.apk --abi x86_64
-              mv build/app/outputs/flutter-apk/app-x86_64-${{ matrix.job.reltype }}.apk ../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk
+              apk_path="$(resolve_flutter_apk "build/app/outputs/flutter-apk/app-x86_64-${{ matrix.job.reltype }}.apk")" || exit 1
+              python3 ../tests/check_sealdesk_android_package.py "$apk_path" --abi x86_64
+              mv "$apk_path" "../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
             ;;
             i686-linux-android)
               mkdir -p ./flutter/android/app/src/main/jniLibs/x86
@@ -1429,8 +1450,9 @@ jobs:
               # build flutter
               pushd flutter
               flutter build apk "--${{ matrix.job.reltype }}" --target-platform android-x86 --split-per-abi
-              python3 ../tests/check_sealdesk_android_package.py build/app/outputs/flutter-apk/app-x86-${{ matrix.job.reltype }}.apk --abi x86
-              mv build/app/outputs/flutter-apk/app-x86-${{ matrix.job.reltype }}.apk ../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk
+              apk_path="$(resolve_flutter_apk "build/app/outputs/flutter-apk/app-x86-${{ matrix.job.reltype }}.apk")" || exit 1
+              python3 ../tests/check_sealdesk_android_package.py "$apk_path" --abi x86
+              mv "$apk_path" "../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
             ;;
           esac
           popd
@@ -1603,8 +1625,26 @@ jobs:
           export PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH
           # Increase Gradle JVM memory for CI builds
           sed -i "s/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx2g/g" ./flutter/android/gradle.properties
-          # temporary use debug sign config
-          sed -i "s/signingConfigs.release/signingConfigs.debug/g" ./flutter/android/app/build.gradle
+          if [ -z "${ANDROID_SIGNING_KEY}" ]; then
+            export SEALDESK_ANDROID_ALLOW_UNSIGNED=1
+            echo "ANDROID_SIGNING_KEY is empty; allowing an unsigned release APK"
+          else
+            export SEALDESK_ANDROID_ALLOW_UNSIGNED=0
+          fi
+          resolve_flutter_apk() {
+            local preferred="$1"
+            local unsigned="${preferred%.apk}-unsigned.apk"
+            if [ -f "$preferred" ]; then
+              printf '%s\n' "$preferred"
+              return 0
+            fi
+            if [ -f "$unsigned" ]; then
+              printf '%s\n' "$unsigned"
+              return 0
+            fi
+            printf 'ERROR: APK not found at %s or %s\n' "$preferred" "$unsigned" >&2
+            return 1
+          }
           mv ./flutter/android/app/src/main/jniLibs/arm64-v8a/libsealdesk.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/libsealdesk.so
           cp ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/
           mv ./flutter/android/app/src/main/jniLibs/armeabi-v7a/libsealdesk.so ./flutter/android/app/src/main/jniLibs/armeabi-v7a/libsealdesk.so
@@ -1622,10 +1662,11 @@ jobs:
           if [ "${{ env.reltype }}" = "debug" ]; then
             package_abis+=(--abi x86)
           fi
-          python3 ../tests/check_sealdesk_android_package.py build/app/outputs/flutter-apk/app-${{ env.reltype }}.apk "${package_abis[@]}"
+          apk_path="$(resolve_flutter_apk "build/app/outputs/flutter-apk/app-${{ env.reltype }}.apk")" || exit 1
+          python3 ../tests/check_sealdesk_android_package.py "$apk_path" "${package_abis[@]}"
           popd
           mkdir -p signed-apk
-          mv ./flutter/build/app/outputs/flutter-apk/app-${{ env.reltype }}.apk signed-apk/rustdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk
+          mv "./flutter/${apk_path}" "signed-apk/rustdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk"
 
       # https://github.com/r0adkll/sign-android-release/issues/84#issuecomment-1889636075
       - name: Setup sign tool version variable
