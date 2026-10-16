@@ -2,104 +2,69 @@
 
 English | [简体中文](README.zh-CN.md)
 
-SealDesk is a RustDesk fork for remote desktop sessions you start when needed.
-Share this device, scan its pairing code, and connect without an account or a
-RustDesk ID/relay server. Tailcat provides encrypted direct or DERP transport;
-local devices can also discover and connect without Internet access.
+**No relay to run, zero config, sealed end-to-end. Scan to go.**
 
-**Alpha:** Linux x64 and Android arm64 are the current validation targets.
-Other platforms retain upstream code and build recipes but are not yet validated
-as complete SealDesk applications.
+Open SealDesk on the computer you want to reach and tap **Share this device**.
+Scan the QR code from your phone or another computer. That's it: you're in.
 
-## Connections
+No account. No ID server. No relay to host. No port forwarding.
 
-| Path | Transport and authorization |
-| --- | --- |
-| SealDesk pairing code | Tailcat/WireGuard encryption and the existing session password or approval policy |
-| SealDesk local discovery | Mandatory signed encrypted transport; first-use host approval, optional remembered controller keys and permissions |
-| RustDesk direct-IP compatibility, either direction | The original direct-IP protocol and password/click authorization; **unencrypted**, with an explicit warning |
+> **Alpha.** Linux x64 and Android arm64 are tested. Other platforms still
+> carry upstream RustDesk code but aren't ready yet.
 
-RustDesk compatibility is limited to discovery/direct-IP sessions. SealDesk does
-not implement RustDesk ID registration, hbbs/hbbr, accounts, or address-book sync.
-On an original RustDesk host, enable direct IP access before connecting.
+## How it works
 
-Direct-IP access accepts IPv4 and IPv6 without a built-in subnet allowlist,
-subject to routing, firewalls, and any explicitly configured access restrictions.
-TCP **21118** is shared by SealDesk encrypted and RustDesk-compatible sessions.
-Discovery uses IPv4 UDP **21119** on private LAN interfaces; adding IPv6 direct
-access does not expand discovery to IPv6, public, or 100.64.0.0/10 interfaces.
+- **Scan to go.** The QR code holds everything the controller needs: the
+  address, the keys, and a temporary password. Nothing to type, nothing to set up.
+- **Sealed end-to-end.** Every session runs inside WireGuard. Keys live only on
+  your two devices.
+- **Zero relay to run.** Devices punch straight through NAT when they can. When
+  they can't, a public DERP node forwards packets it cannot read. You never run
+  or configure a server.
+- **Works offline too.** On the same LAN, devices find each other automatically,
+  even without Internet access. Approve the first request, tick **Trust this
+  device**, and it connects straight in next time.
 
-## Use
+## Quick start
 
-1. Open SealDesk on the host and select **Share this device**.
-2. On the controller, scan or import the QR image, or paste the complete
-   `SEALDESK:` pairing code.
-3. Without Internet access, select the host under **LAN devices** or Android's
-   **Discovered** tab and accept the first request on the host.
-4. Select **Trust this device** to remember the controller key and permissions.
-   **Revoke access** disconnects it and requires approval again.
+1. Install SealDesk on both devices
+   ([Releases](https://github.com/runseal-labs/sealdesk/releases)).
+2. Host: **Share this device**.
+3. Controller: scan the QR code, or paste the `SEALDESK:` code.
 
-Pairing codes and `tc...` addresses contain access credentials. Do not post them,
-screenshots of them, or unredacted logs in issues. QR import expiry is a client
-check, not server-side revocation. Refresh the password or reset the address to
-revoke the corresponding credential; exiting alone is not an address reset.
+Done sharing? Stop sharing and every session closes. Nothing keeps running in
+the background.
 
-Linux installs as a normal desktop application, without a systemd daemon or
-autostart. Normal launches start in control mode. Only sharing mode accepts
-incoming sessions; stopping sharing disconnects them. Closing the main window
-closes session windows and exits without leaving a background process.
-
-With a Flutter desktop build installed:
+### Command line (Linux)
 
 ```bash
-sealdesk --host
-sealdesk --control
-sealdesk --control 'SEALDESK:V:1;A:<tc-address>;P:<temporary-password>;N:<name>;;'
-sealdesk --control /path/to/pairing-code.png
-sealdesk --tc-reset-address
+sealdesk --host                     # start sharing
+sealdesk --control 'SEALDESK:...'   # connect with a pairing code
+sealdesk --control code.png         # or with a QR image
+sealdesk --tc-reset-address         # revoke the current address
 ```
 
-The last command asks the running application to close host sessions, revoke the
-old address, and resume sharing only if it was enabled. The Linux desktop package
-rejects legacy `--service`, `--server`, and `--tray` daemon entry points.
+## Keep your code private
 
-## Build and install
+A pairing code is a key to your computer. Don't post it, screenshot it, or
+paste it into an issue. To revoke one, refresh the password or reset the
+address. Quitting the app alone doesn't revoke it.
 
-See [BUILDING.md](BUILDING.md) for the Linux and Android build steps, required
-native dependencies, bridge artifacts, and external Android signing setup.
-A fresh checkout is not a self-contained Flutter build: it needs the matching
-generated Rust/Dart bridge files and platform toolchains.
+## Talking to RustDesk
 
-For a locally built Linux package, use
-`sudo apt install ./sealdesk-<version>.deb`. Android testing uses the
-`arm64-v8a` APK. See the repository's
-[Releases](https://github.com/runseal-labs/sealdesk/releases) for any published
-artifacts; do not use RustDesk downloads as SealDesk builds.
+SealDesk can reach original RustDesk hosts over direct IP (TCP 21118), and
+vice versa. That path uses RustDesk's legacy protocol and is **not encrypted**.
+SealDesk warns you before connecting. RustDesk IDs, hbbs/hbbr, and accounts
+are not supported.
 
-## Development
+## Build
 
-From a configured build environment:
+See [BUILDING.md](BUILDING.md). Contributions are welcome: read
+[CONTRIBUTING](docs/CONTRIBUTING.md) and [SECURITY](docs/SECURITY.md) first.
 
-```bash
-cargo test --locked --lib --features linux-pkg-config tailcat::
-cargo test --locked --lib --features linux-pkg-config lan::
-go -C libs/tailcat-ffi test -race ./...
-cd flutter
-flutter test test/sealdesk_pairing_test.dart test/sealdesk_lan_panel_test.dart
-```
+## License
 
-These checks do not establish support for every desktop, mobile, or NAT setup.
-See [Contributing](docs/CONTRIBUTING.md), [Security](docs/SECURITY.md),
-[Fork maintenance](FORK.md), and the [current product scope](docs/sealdesk-prd.md).
-
-## License and attribution
-
-SealDesk is distributed under **GNU AGPL version 3**; the full, unchanged upstream
-license text is in [LICENCE](LICENCE). RustDesk and other upstream contributors
-retain their copyright and attribution. See [NOTICE](NOTICE) and
-[third-party notices](THIRD_PARTY_NOTICES.md) for component licenses and source
-references. SealDesk is an independent fork and is not endorsed by RustDesk or
-Tailscale.
-
-The standalone license scope of vendored hbb_common still needs upstream
-clarification; see the [licensing follow-up](docs/license-and-firebase-follow-up.md).
+AGPL-3.0, same as upstream. SealDesk is an independent fork of
+[RustDesk](https://github.com/rustdesk/rustdesk) and is not endorsed by RustDesk
+or Tailscale. See [NOTICE](NOTICE), [third-party notices](THIRD_PARTY_NOTICES.md),
+and [FORK.md](FORK.md).

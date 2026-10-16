@@ -2,91 +2,50 @@
 
 [English](README.md) | 简体中文
 
-SealDesk 是从 RustDesk 分叉的远程桌面工具，即用即走。打开“共享本机”，
-控制端扫码连接，不需要账号，也不依赖 RustDesk 的 ID 或中继服务器。
-公网连接由 Tailcat 提供加密直连或 DERP 转发；完全断公网时，也能发现并连接局域网设备。
+**无需自建中继、零配置、端到端加密。扫码即连。**
 
-**当前为 alpha。** 目前优先验证 Linux x64 和 Android arm64；
-其他平台保留了上游代码和构建流程，尚未完成 SealDesk 整体应用验收。
+在想被远程的电脑上打开 SealDesk，点「共享此设备」，用手机或另一台电脑扫一下二维码，就连上了。
 
-## 连接方式
+不用注册账号，不用 ID 服务器，不用自建中继，也不用做端口映射。
 
-| 方式 | 传输与授权 |
-| --- | --- |
-| SealDesk 配对码 | Tailcat/WireGuard 加密，沿用会话密码或点击授权策略 |
-| SealDesk 局域网发现 | 强制签名与加密传输，首次由被控端点击接受，可记住控制端密钥与权限 |
-| 双向兼容 RustDesk IP 直连 | 沿用原版直连协议和密码／点击授权，**不加密，明确提示** |
+> **Alpha 阶段。** 目前只验证了 Linux x64 和 Android arm64，其他平台还保留着 RustDesk 上游的代码，暂时不能用。
 
-兼容范围是发现和 IP 直连，不包括 RustDesk ID 注册、hbbs/hbbr、账号与地址簿同步。
-连接原版 RustDesk 被控端前，需要在对方开启“允许直接 IP 访问”。
+## 原理
 
-IP 直连支持 IPv4 和 IPv6，不按网段预先过滤；实际可达性仍受路由、防火墙和显式访问限制影响。
-SealDesk 加密连接和 RustDesk 兼容连接共用 TCP **21118**。
-发现广播使用私有 IPv4 局域网接口上的 UDP **21119**，不会因为支持 IPv6 直连，
-就扩大到 IPv6、公网或 100.64.0.0/10 接口。
+- **扫码即连。** 二维码里装着连接需要的一切：地址、密钥和临时密码。不用手输，也不用配置。
+- **端到端加密。** 所有会话都跑在 WireGuard 里，密钥只存在你自己的两台设备上。
+- **不用自建中继。** 能打洞就直连；打不通时由公共 DERP 节点转发数据包，而它看不到内容。你不需要部署或配置任何服务器。
+- **没网也能用。** 同一局域网内的设备会自动互相发现，断网也能连。第一次连接在被控端点同意，勾选「信任此设备」，以后直接连。
 
-## 使用
+## 快速开始
 
-1. 在被控端打开 SealDesk，点击“共享本机”。
-2. 控制端扫码、导入二维码图片，或粘贴完整的 `SEALDESK:` 配对码。
-3. 完全断公网时，从“局域网设备”或 Android 的“发现”标签页选择设备，由被控端接受首次请求。
-4. 接受时勾选“信任此设备”，后续按保存的控制端密钥和权限自动接受；
-   “撤销授权”会断开该控制端，并要求下次重新确认。
+1. 两台设备都装上 SealDesk（[Releases](https://github.com/runseal-labs/sealdesk/releases)）。
+2. 被控端：点「共享此设备」。
+3. 控制端：扫二维码，或粘贴 `SEALDESK:` 开头的配对码。
 
-配对码与 `tc...` 地址包含访问凭据，不要把它们、对应截图或未脱敏日志发到公开 issue。
-二维码过期只是控制端的导入检查，不等于服务端撤权。
-需要撤销密码或地址时，分别刷新密码或重置地址；退出应用本身不代表重置地址。
+用完停止共享，所有会话随之断开，后台不会留下任何进程。
 
-Linux 安装包只提供普通桌面应用，不安装 systemd 守护服务，也不配置开机自启。
-普通启动进入控制模式；只有“共享本机”开启时接受连接，关闭共享会断开被控会话。
-关闭主窗口会关闭会话窗口并退出，不保留后台进程。
-
-安装 Flutter 桌面版后，可以使用：
+### 命令行（Linux）
 
 ```bash
-sealdesk --host
-sealdesk --control
-sealdesk --control 'SEALDESK:V:1;A:<tc-address>;P:<temporary-password>;N:<name>;;'
-sealdesk --control /path/to/pairing-code.png
-sealdesk --tc-reset-address
+sealdesk --host                     # 开始共享
+sealdesk --control 'SEALDESK:...'   # 用配对码连接
+sealdesk --control code.png         # 或用二维码图片
+sealdesk --tc-reset-address         # 作废当前地址
 ```
 
-最后一条命令请求运行中的应用断开被控会话、撤销旧地址，并仅在原先开启共享时恢复共享。
-Linux 桌面包不支持旧的 `--service`、`--server`、`--tray` 守护进程入口。
+## 保管好配对码
 
-## 构建与安装
+配对码就是你电脑的钥匙。别公开发布、别截图外传，也别贴进 issue。要作废它，就刷新密码或重置地址；光退出程序并不会让它失效。
 
-Linux 和 Android 的构建步骤、原生依赖、桥接产物及仓库外签名配置见
-[BUILDING.md](BUILDING.md)。刚克隆的源码还需要匹配的 Rust/Dart 生成桥接文件，
-不能直接当作完整 Flutter 构建环境。
+## 和 RustDesk 互通
 
-本地构建的 Linux 包可用 `sudo apt install ./sealdesk-<version>.deb` 安装。
-Android 当前测试目标是 `arm64-v8a` APK。
-正式发布的产物以本仓库 [Releases](https://github.com/runseal-labs/sealdesk/releases) 为准，
-不要把 RustDesk 的安装包当作 SealDesk。
+SealDesk 可以通过 IP 直连（TCP 21118）连接原版 RustDesk，反过来也行。这条路走的是 RustDesk 的旧协议，**不加密**，连接前 SealDesk 会提醒你。不支持 RustDesk ID、hbbs/hbbr 和账号。
 
-## 开发检查
+## 构建
 
-在已配置好依赖的构建环境中运行：
+见 [BUILDING.md](BUILDING.md)。欢迎贡献，提交前请先读 [CONTRIBUTING](docs/CONTRIBUTING.md) 和 [SECURITY](docs/SECURITY.md)。
 
-```bash
-cargo test --locked --lib --features linux-pkg-config tailcat::
-cargo test --locked --lib --features linux-pkg-config lan::
-go -C libs/tailcat-ffi test -race ./...
-cd flutter
-flutter test test/sealdesk_pairing_test.dart test/sealdesk_lan_panel_test.dart
-```
+## 许可证
 
-这些检查不代表所有平台与网络环境均已验收。另见
-[贡献说明](docs/CONTRIBUTING.md)、[安全反馈](docs/SECURITY.md)、
-[分叉维护](FORK.md) 和[当前产品范围](docs/sealdesk-prd.md)。
-
-## 许可证与来源
-
-SealDesk 使用 **GNU AGPL 第 3 版**，完整保留上游 [LICENCE](LICENCE) 文本。
-RustDesk 与其他上游贡献者的版权和署名继续保留。
-组件许可证及来源见 [NOTICE](NOTICE) 和 [第三方声明](THIRD_PARTY_NOTICES.md)。
-SealDesk 是独立分叉，不代表 RustDesk 或 Tailscale 官方。
-
-vendored hbb_common 的独立授权范围仍需上游确认，依据与待办见
-[许可证复核记录](docs/license-and-firebase-follow-up.md)。
+与上游一致，采用 AGPL-3.0。SealDesk 是 [RustDesk](https://github.com/rustdesk/rustdesk) 的独立分支，与 RustDesk、Tailscale 均无隶属或背书关系。详见 [NOTICE](NOTICE)、[第三方声明](THIRD_PARTY_NOTICES.md) 和 [FORK.md](FORK.md)。
