@@ -973,6 +973,11 @@ def build_flutter_arch_manjaro(version, features):
 def build_flutter_windows(version, features, skip_portable_pack):
     if not skip_cargo:
         system2(f'cargo build --locked --features {features} --lib --release')
+        # MSVC names the cdylib after the crate (sealdesk.dll); the runner,
+        # CMake install rule and Dart loader expect libsealdesk.dll.
+        if os.path.exists("target/release/sealdesk.dll"):
+            shutil.copy2("target/release/sealdesk.dll",
+                         "target/release/libsealdesk.dll")
         if not os.path.exists("target/release/libsealdesk.dll"):
             print("cargo build failed, please check rust source code.")
             exit(-1)

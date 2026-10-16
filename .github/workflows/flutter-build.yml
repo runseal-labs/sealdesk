@@ -323,6 +323,52 @@ jobs:
         shell: bash
         run: echo "SODIUM_LIB_DIR=$VCPKG_ROOT/installed/${{ matrix.job.vcpkg-triplet }}/lib" >> "$GITHUB_ENV"
 
+      # build.rs builds libs/tailcat-ffi with cgo. MSVC cl.exe is not a cgo compiler.
+      # x64 uses UCRT64 gcc, same as sealdesk-transport.yml. Arm64 must not use that
+      # gcc: cgo then assembles runtime/cgo/gcc_arm64.S with an x86 assembler.
+      # CLANGARM64 is MSYS2's llvm-mingw clang and targets aarch64 Windows.
+      - name: Install Go
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00
+        with:
+          go-version-file: libs/tailcat-ffi/go.mod
+          cache-dependency-path: libs/tailcat-ffi/go.sum
+
+      - name: Install Windows cgo compiler
+        id: msys2
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e
+        with:
+          msystem: ${{ matrix.job.arch == 'aarch64' && 'CLANGARM64' || 'UCRT64' }}
+          update: true
+          install: ${{ matrix.job.arch == 'aarch64' && 'mingw-w64-clang-aarch64-clang' || 'mingw-w64-ucrt-x86_64-gcc' }}
+
+      - name: Select Windows cgo compiler
+        shell: bash
+        env:
+          MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
+          TARGET_ARCH: ${{ matrix.job.arch }}
+        run: |
+          set -euo pipefail
+          root=${MSYS2_LOCATION//\\//}
+          case "$TARGET_ARCH" in
+            aarch64)
+              compiler="$root/clangarm64/bin/clang.exe"
+              ;;
+            x86_64)
+              compiler="$root/ucrt64/bin/gcc.exe"
+              ;;
+            *)
+              echo "::error::no cgo compiler mapping for $TARGET_ARCH"
+              exit 1
+              ;;
+          esac
+          if [[ ! -f "$compiler" ]]; then
+            echo "::error::cgo compiler not found: $compiler"
+            exit 1
+          fi
+          # Absolute path so cgo does not pick Git's x86 gcc, and so this
+          # compiler is not prepended to PATH ahead of MSVC.
+          printf 'TAILCAT_CC=%s\n' "$compiler" >> "$GITHUB_ENV"
+
       - name: Build rustdesk
         run: |
           # Windows: build RustDesk
@@ -828,6 +874,12 @@ jobs:
           rustup default
           cargo -V
           rustc -V
+
+      - name: Install Go
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00
+        with:
+          go-version-file: libs/tailcat-ffi/go.mod
+          cache-dependency-path: libs/tailcat-ffi/go.sum
 
       - name: Build rustdesk
         run: |
@@ -1831,6 +1883,30 @@ jobs:
               export JOBS=""
             fi
             echo $JOBS
+            # build.rs runs go/cgo inside this container. setup-go on the host
+            # is not visible here; install the go.mod version, same pin as
+            # actions/setup-go's go-version-file.
+            go_mod=/workspace/libs/tailcat-ffi/go.mod
+            go_version=$(awk '/^go / { print $2; exit }' "$go_mod")
+            if [[ -z "$go_version" ]]; then
+              echo "::error::could not read the Go version from $go_mod"
+              exit 1
+            fi
+            case "$(uname -m)" in
+              x86_64) go_arch=amd64 ;;
+              aarch64) go_arch=arm64 ;;
+              *)
+                echo "::error::no Go toolchain for $(uname -m)"
+                exit 1
+                ;;
+            esac
+            curl -fsSL "https://dl.google.com/go/go${go_version}.linux-${go_arch}.tar.gz" -o /tmp/go.tgz
+            rm -rf /usr/local/go
+            tar -C /usr/local -xzf /tmp/go.tgz
+            rm -f /tmp/go.tgz
+            export PATH="/usr/local/go/bin:${PATH}"
+            export GO=/usr/local/go/bin/go
+            go version
             cargo build --locked --lib $JOBS --features hwcodec,flutter,unix-file-copy-paste --release
             cargo test --locked --release $JOBS --features flutter --example session_close
             rm -rf target/release/deps target/release/build
@@ -2176,6 +2252,30 @@ jobs:
             #
             # A cargo test FILTER that matches nothing exits 0, so a rename would turn this into a
             # green no-op. Assert each command actually ran something.
+            # build.rs runs go/cgo inside this container. setup-go on the host
+            # is not visible here; install the go.mod version, same pin as
+            # actions/setup-go's go-version-file.
+            go_mod=/workspace/libs/tailcat-ffi/go.mod
+            go_version=$(awk '/^go / { print $2; exit }' "$go_mod")
+            if [[ -z "$go_version" ]]; then
+              echo "::error::could not read the Go version from $go_mod"
+              exit 1
+            fi
+            case "$(uname -m)" in
+              x86_64) go_arch=amd64 ;;
+              aarch64) go_arch=arm64 ;;
+              *)
+                echo "::error::no Go toolchain for $(uname -m)"
+                exit 1
+                ;;
+            esac
+            curl -fsSL "https://dl.google.com/go/go${go_version}.linux-${go_arch}.tar.gz" -o /tmp/go.tgz
+            rm -rf /usr/local/go
+            tar -C /usr/local -xzf /tmp/go.tgz
+            rm -f /tmp/go.tgz
+            export PATH="/usr/local/go/bin:${PATH}"
+            export GO=/usr/local/go/bin/go
+            go version
             run_drm_tests() {
               local desc="$1"; shift
               local out
