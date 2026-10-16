@@ -21,6 +21,8 @@ on:
 # in this file!
 
 env:
+  # Matches the toolchain used by ci.yml.
+  RUST_VERSION: "stable"
   MAC_RUST_VERSION: "1.81" # 1.81 is requred for macos, because of https://github.com/yury/cidre requires 1.81
   CARGO_NDK_VERSION: "3.1.2"
   LLVM_VERSION: "15.0.6"
@@ -279,6 +281,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
+          toolchain: ${{ env.RUST_VERSION }}
           targets: ${{ matrix.job.target }}
           components: "rustfmt"
 
