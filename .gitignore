@@ -59,3 +59,16 @@ flutter/web/
 /third_party/libdrmtap/
 # Local git worktrees
 .worktrees/
+
+# SealDesk application icon source and Flutter raster fallback
+!/res/sealdesk-icon.svg
+!/flutter/assets/icon.png
+!/res/sealdesk-icon-small.svg
+!/res/sealdesk-icon-approved.png
+!/res/sealdesk-icon-approved-sheet.png
+!/res/sealdesk-icon-monochrome.png
+!/flutter/android/app/src/main/res/mipmap-mdpi/ic_launcher_monochrome.png
+!/flutter/android/app/src/main/res/mipmap-hdpi/ic_launcher_monochrome.png
+!/flutter/android/app/src/main/res/mipmap-xhdpi/ic_launcher_monochrome.png
+!/flutter/android/app/src/main/res/mipmap-xxhdpi/ic_launcher_monochrome.png
+!/flutter/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_monochrome.png

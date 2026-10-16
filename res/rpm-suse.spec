@@ -27,16 +27,16 @@ mkdir -p %{buildroot}/usr/share/icons/hicolor/256x256/apps/
 mkdir -p %{buildroot}/usr/share/icons/hicolor/scalable/apps/
 install -m 755 $HBB/target/release/sealdesk %{buildroot}/usr/bin/sealdesk
 install $HBB/res/sealdesk.service %{buildroot}/usr/share/sealdesk/files/
-install $HBB/res/128x128@2x.png %{buildroot}/usr/share/icons/hicolor/256x256/apps/sealdesk.png
-install $HBB/res/scalable.svg %{buildroot}/usr/share/icons/hicolor/scalable/apps/sealdesk.svg
+install $HBB/res/128x128@2x.png %{buildroot}/usr/share/icons/hicolor/256x256/apps/com.runseal.sealdesk.png
+install $HBB/res/scalable.svg %{buildroot}/usr/share/icons/hicolor/scalable/apps/com.runseal.sealdesk.svg
 install $HBB/res/sealdesk.desktop %{buildroot}/usr/share/sealdesk/files/
 install $HBB/res/sealdesk-link.desktop %{buildroot}/usr/share/sealdesk/files/
 
 %files
 /usr/bin/sealdesk
 /usr/share/sealdesk/files/sealdesk.service
-/usr/share/icons/hicolor/256x256/apps/sealdesk.png
-/usr/share/icons/hicolor/scalable/apps/sealdesk.svg
+/usr/share/icons/hicolor/256x256/apps/com.runseal.sealdesk.png
+/usr/share/icons/hicolor/scalable/apps/com.runseal.sealdesk.svg
 /usr/share/sealdesk/files/sealdesk.desktop
 /usr/share/sealdesk/files/sealdesk-link.desktop
 

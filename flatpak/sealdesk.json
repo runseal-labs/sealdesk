@@ -6,7 +6,7 @@
   "command": "sealdesk",
   "cleanup": ["/include", "/lib/pkgconfig", "/share/gtk-doc"],
   "rename-desktop-file": "sealdesk.desktop",
-  "rename-icon": "sealdesk",
+  "rename-icon": "com.runseal.sealdesk",
   "modules": [
     "shared-modules/libappindicator/libappindicator-gtk3-12.10.json",
     {

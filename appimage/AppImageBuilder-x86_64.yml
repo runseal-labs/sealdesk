@@ -7,8 +7,8 @@ script:
  - mkdir ./AppDir
  - mv ./usr ./AppDir/usr
  # 32x32 icon
- - for i in {32,64,128}; do mkdir -p ./AppDir/usr/share/icons/hicolor/$i\x$i/apps/; cp ../res/$i\x$i.png ./AppDir/usr/share/icons/hicolor/$i\x$i/apps/sealdesk.png; done
- - mkdir -p ./AppDir/usr/share/icons/hicolor/scalable/apps/; cp ../res/scalable.svg ./AppDir/usr/share/icons/hicolor/scalable/apps/sealdesk.svg
+ - for i in {32,64,128}; do mkdir -p ./AppDir/usr/share/icons/hicolor/$i\x$i/apps/; cp ../res/$i\x$i.png ./AppDir/usr/share/icons/hicolor/$i\x$i/apps/com.runseal.sealdesk.png; done
+ - mkdir -p ./AppDir/usr/share/icons/hicolor/scalable/apps/; cp ../res/scalable.svg ./AppDir/usr/share/icons/hicolor/scalable/apps/com.runseal.sealdesk.svg
  # desktop file
  # - sed -i "s/Icon=\/usr\/share\/sealdesk\/files\/sealdesk.png/Icon=sealdesk/g" ./AppDir/usr/share/applications/sealdesk.desktop
  - rm -rf ./AppDir/usr/share/applications
@@ -17,7 +17,7 @@ AppDir:
   app_info:
     id: sealdesk
     name: sealdesk
-    icon: sealdesk
+    icon: com.runseal.sealdesk
     version: 1.5.1
     exec: usr/share/sealdesk/sealdesk
     exec_args: $@

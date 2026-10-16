@@ -757,9 +757,9 @@ def build_flutter_deb(version, features):
     system2(
         'cp ../res/sealdesk.service tmpdeb/usr/share/sealdesk/files/systemd/')
     system2(
-        'cp ../res/128x128@2x.png tmpdeb/usr/share/icons/hicolor/256x256/apps/sealdesk.png')
+        'cp ../res/128x128@2x.png tmpdeb/usr/share/icons/hicolor/256x256/apps/com.runseal.sealdesk.png')
     system2(
-        'cp ../res/scalable.svg tmpdeb/usr/share/icons/hicolor/scalable/apps/sealdesk.svg')
+        'cp ../res/scalable.svg tmpdeb/usr/share/icons/hicolor/scalable/apps/com.runseal.sealdesk.svg')
     system2(
         'cp ../res/sealdesk.desktop tmpdeb/usr/share/applications/sealdesk.desktop')
     system2(
@@ -865,9 +865,9 @@ def build_deb_from_folder(version, binary_folder, want_drm=False):
     system2(
         'cp ../res/sealdesk.service tmpdeb/usr/share/sealdesk/files/systemd/')
     system2(
-        'cp ../res/128x128@2x.png tmpdeb/usr/share/icons/hicolor/256x256/apps/sealdesk.png')
+        'cp ../res/128x128@2x.png tmpdeb/usr/share/icons/hicolor/256x256/apps/com.runseal.sealdesk.png')
     system2(
-        'cp ../res/scalable.svg tmpdeb/usr/share/icons/hicolor/scalable/apps/sealdesk.svg')
+        'cp ../res/scalable.svg tmpdeb/usr/share/icons/hicolor/scalable/apps/com.runseal.sealdesk.svg')
     system2(
         'cp ../res/sealdesk.desktop tmpdeb/usr/share/applications/sealdesk.desktop')
     system2(
@@ -1147,9 +1147,9 @@ def main():
                 system2(
                     'cp res/sealdesk.service tmpdeb/usr/share/sealdesk/files/systemd/')
                 system2(
-                    'cp res/128x128@2x.png tmpdeb/usr/share/icons/hicolor/256x256/apps/sealdesk.png')
+                    'cp res/128x128@2x.png tmpdeb/usr/share/icons/hicolor/256x256/apps/com.runseal.sealdesk.png')
                 system2(
-                    'cp res/scalable.svg tmpdeb/usr/share/icons/hicolor/scalable/apps/sealdesk.svg')
+                    'cp res/scalable.svg tmpdeb/usr/share/icons/hicolor/scalable/apps/com.runseal.sealdesk.svg')
                 system2(
                     'cp res/sealdesk.desktop tmpdeb/usr/share/applications/sealdesk.desktop')
                 system2(

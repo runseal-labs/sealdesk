@@ -29,14 +29,14 @@ mkdir -p "%{buildroot}/usr/bin"
 install -Dm 644 $HBB/res/sealdesk.service -t "%{buildroot}/usr/share/sealdesk/files"
 install -Dm 644 $HBB/res/sealdesk.desktop -t "%{buildroot}/usr/share/sealdesk/files"
 install -Dm 644 $HBB/res/sealdesk-link.desktop -t "%{buildroot}/usr/share/sealdesk/files"
-install -Dm 644 $HBB/res/128x128@2x.png "%{buildroot}/usr/share/icons/hicolor/256x256/apps/sealdesk.png"
-install -Dm 644 $HBB/res/scalable.svg "%{buildroot}/usr/share/icons/hicolor/scalable/apps/sealdesk.svg"
+install -Dm 644 $HBB/res/128x128@2x.png "%{buildroot}/usr/share/icons/hicolor/256x256/apps/com.runseal.sealdesk.png"
+install -Dm 644 $HBB/res/scalable.svg "%{buildroot}/usr/share/icons/hicolor/scalable/apps/com.runseal.sealdesk.svg"
 
 %files
 /usr/share/sealdesk/*
 /usr/share/sealdesk/files/sealdesk.service
-/usr/share/icons/hicolor/256x256/apps/sealdesk.png
-/usr/share/icons/hicolor/scalable/apps/sealdesk.svg
+/usr/share/icons/hicolor/256x256/apps/com.runseal.sealdesk.png
+/usr/share/icons/hicolor/scalable/apps/com.runseal.sealdesk.svg
 /usr/share/sealdesk/files/sealdesk.desktop
 /usr/share/sealdesk/files/sealdesk-link.desktop
 

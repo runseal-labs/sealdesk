@@ -30,6 +30,6 @@ package() {
   install -Dm 644 $HBB/res/sealdesk.service -t "${pkgdir}/usr/share/sealdesk/files"
   install -Dm 644 $HBB/res/sealdesk.desktop -t "${pkgdir}/usr/share/sealdesk/files"
   install -Dm 644 $HBB/res/sealdesk-link.desktop -t "${pkgdir}/usr/share/sealdesk/files"
-  install -Dm 644 $HBB/res/128x128@2x.png "${pkgdir}/usr/share/icons/hicolor/256x256/apps/sealdesk.png"
-  install -Dm 644 $HBB/res/scalable.svg "${pkgdir}/usr/share/icons/hicolor/scalable/apps/sealdesk.svg"
+  install -Dm 644 $HBB/res/128x128@2x.png "${pkgdir}/usr/share/icons/hicolor/256x256/apps/com.runseal.sealdesk.png"
+  install -Dm 644 $HBB/res/scalable.svg "${pkgdir}/usr/share/icons/hicolor/scalable/apps/com.runseal.sealdesk.svg"
 }
