@@ -270,6 +270,8 @@ pub struct SessionKey {
     peer_id: String,
     name: String,
     session_id: u64,
+    // Derived from the WireGuard peer key by the local tailcat bridge, not the login request.
+    tailcat_peer: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -471,6 +473,19 @@ const MILLI1: Duration = Duration::from_millis(1);
 const SEND_TIMEOUT_VIDEO: u64 = 12_000;
 const SEND_TIMEOUT_OTHER: u64 = SEND_TIMEOUT_VIDEO * 10;
 const SESSION_TIMEOUT: Duration = Duration::from_secs(30);
+// Bound recovery to five minutes of silence; the one-time password stays consumed.
+const TAILCAT_SESSION_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+
+impl Session {
+    fn is_recent(&self, key: &SessionKey) -> bool {
+        let timeout = if key.tailcat_peer.is_some() {
+            TAILCAT_SESSION_TIMEOUT
+        } else {
+            SESSION_TIMEOUT
+        };
+        self.last_recv_time.lock().unwrap().elapsed() < timeout
+    }
+}
 
 /// Whether the DRM backend can serve a Wayland login screen here.
 ///
@@ -2282,7 +2297,7 @@ impl Connection {
         SESSIONS
             .lock()
             .unwrap()
-            .retain(|_, s| s.last_recv_time.lock().unwrap().elapsed() < SESSION_TIMEOUT);
+            .retain(|key, s| s.is_recent(key));
         let session = SESSIONS
             .lock()
             .unwrap()
@@ -5334,6 +5349,7 @@ impl Connection {
             peer_id: self.lr.my_id.clone(),
             name: self.lr.my_name.clone(),
             session_id: self.lr.session_id,
+            tailcat_peer: self.via_tailcat.then(|| self.ip.clone()),
         }
     }
 
@@ -6733,6 +6749,35 @@ mod test {
     }
 
     #[test]
+    fn tailcat_resume_is_bounded_peer_bound_and_revocable() {
+        let key = SessionKey {
+            peer_id: "resume-test".into(),
+            name: "controller".into(),
+            session_id: 901,
+            tailcat_peer: Some("fd00::1".into()),
+        };
+        let session = Session {
+            last_recv_time: Arc::new(Mutex::new(Instant::now() - Duration::from_secs(90))),
+            random_password: "one-time-secret".into(),
+            tfa: true,
+        };
+        assert!(session.is_recent(&key));
+        SESSIONS.lock().unwrap().insert(key.clone(), session.clone());
+        let mut other = key.clone();
+        other.tailcat_peer = Some("fd00::2".into());
+        assert!(!SESSIONS.lock().unwrap().contains_key(&other));
+        other.tailcat_peer = None;
+        assert!(!session.is_recent(&other));
+        other = key.clone();
+        other.session_id += 1;
+        assert!(!SESSIONS.lock().unwrap().contains_key(&other));
+        *session.last_recv_time.lock().unwrap() = Instant::now() - Duration::from_secs(301);
+        assert!(!session.is_recent(&key));
+        raii::AuthedConnID::check_remove_session(-901, key.clone());
+        assert!(!SESSIONS.lock().unwrap().contains_key(&key));
+    }
+
+    #[test]
     fn test_unauthorized_admission_is_per_address() {
         let _serial = UNAUTHORIZED_TESTS.lock().unwrap_or_else(|e| e.into_inner());
         let a: IpAddr = "203.0.113.1".parse().unwrap();
@@ -7351,6 +7396,7 @@ mod test {
             peer_id: peer.to_owned(),
             name: "".to_owned(),
             session_id,
+            tailcat_peer: None,
         };
         let conn = |conn_id, conn_type, session_key| AuthedConn {
             conn_id,

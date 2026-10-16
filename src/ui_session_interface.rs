@@ -1286,6 +1286,11 @@ impl<T: InvokeUiSession> Session<T> {
     }
 
     pub fn reconnect(&self) {
+        // Serialize retry startup with user close, including retries whose backoff just ended.
+        let auto_reconnect = self.auto_reconnect.lock().unwrap();
+        if auto_reconnect.user_closed {
+            return;
+        }
         // 1. If current session is connecting, do not reconnect.
         // 2. If the connection is established, send `Data::Close`.
         // 3. If the connection is disconnected, do nothing.
@@ -1427,6 +1432,10 @@ impl<T: InvokeUiSession> Session<T> {
 
     pub fn new_rdp(&self) {
         self.send(Data::NewRDP);
+    }
+
+    pub(crate) fn is_user_closed(&self) -> bool {
+        self.auto_reconnect.lock().unwrap().user_closed
     }
 
     pub fn close(&self) {

@@ -1,6 +1,7 @@
 // Package main is built with -buildmode=c-archive and linked into RustDesk.
-// It replaces the rendezvous / relay servers with a tailcat tunnel: DERP is
-// only used to meet, then WireGuard upgrades to a direct UDP path.
+// It replaces the rendezvous / relay servers with a tailcat tunnel. WireGuard
+// uses direct UDP when available; DERP handles meeting and remains the encrypted
+// data relay when a direct path cannot be established.
 //
 // Every exported string result is malloc'ed; free it with TcFree. Errors are
 // returned as strings with the "ERR:" prefix.

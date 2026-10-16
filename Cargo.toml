@@ -20,6 +20,11 @@ path = "src/naming.rs"
 name = "service"
 path = "src/service.rs"
 
+[[example]]
+name = "session_close"
+path = "tests/session_close/main.rs"
+required-features = ["flutter"]
+
 [features]
 inline = []
 use_samplerate = ["samplerate", "libsamplerate-sys"]

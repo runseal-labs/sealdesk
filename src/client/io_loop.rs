@@ -179,15 +179,26 @@ impl<T: InvokeUiSession> Remote<T> {
             ConnType::default()
         };
 
-        match Client::start(
+        if self.handler.is_user_closed() {
+            self.handle_disconnected(round);
+            return;
+        }
+        let connection = Client::start(
             &self.handler.get_id(),
             key,
             token,
             conn_type,
             self.handler.clone(),
         )
-        .await
-        {
+        .await;
+        // A dial already in flight can finish after the user closed its window.
+        // Drop it before publishing connection_ready or sending any login credentials.
+        if self.handler.is_user_closed() {
+            log::debug!("Discarding connection result after user close");
+            self.handle_disconnected(round);
+            return;
+        }
+        match connection {
             Ok(((mut peer, direct, pk, stream_type), _)) => {
                 self.handler
                     .connection_round_state

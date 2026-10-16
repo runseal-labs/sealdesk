@@ -2,8 +2,9 @@
 //!
 //! The controlled side runs a tailcat server whose address (`tc...`) is the only thing a
 //! controller needs: it carries the WireGuard key, a pre-shared key and the DERP region used to
-//! meet. DERP only brokers the handshake; traffic moves to a direct UDP path once hole punching
-//! succeeds. The address is a credential, share it as a QR code.
+//! meet. WireGuard uses a direct UDP path when hole punching succeeds; otherwise DERP
+//! continues relaying the encrypted session traffic. The address is a credential, share it as
+//! a QR code.
 
 use hbb_common::{bail, config::Config, log, ResultType};
 use std::ffi::{c_char, c_int, CStr, CString};
