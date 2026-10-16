@@ -23,7 +23,7 @@ on:
 env:
   # Matches the toolchain used by ci.yml.
   RUST_VERSION: "stable"
-  MAC_RUST_VERSION: "1.81" # 1.81 is requred for macos, because of https://github.com/yury/cidre requires 1.81
+  MAC_RUST_VERSION: "1.84" # >= 1.81 for https://github.com/yury/cidre; >= 1.84 for Ipv6Addr::is_unique_local (src/lan.rs)
   CARGO_NDK_VERSION: "3.1.2"
   LLVM_VERSION: "15.0.6"
   FLUTTER_VERSION: "3.24.5"
