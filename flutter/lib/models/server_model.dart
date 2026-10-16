@@ -665,6 +665,9 @@ class ServerModel with ChangeNotifier {
 
   void sendLoginResponse(Client client, bool res) async {
     if (res) {
+      if (client.lan) {
+        await bind.cmSwitchPermission(connId: client.id, name: 'lan-remember', enabled: client.rememberLAN);
+      }
       bind.cmLoginRes(connId: client.id, res: res);
       if (!client.isFileTransfer && !client.isTerminal) {
         parent.target?.invokeMethod("start_capture");
@@ -805,6 +808,8 @@ class Client {
   bool privacyMode = false;
   bool disconnected = false;
   bool fromSwitch = false;
+  bool lan = false;
+  bool rememberLAN = false;
   bool inVoiceCall = false;
   bool incomingVoiceCall = false;
 
@@ -834,6 +839,7 @@ class Client {
     privacyMode = json['privacy_mode'] ?? privacyMode;
     disconnected = json['disconnected'];
     fromSwitch = json['from_switch'];
+    lan = json['lan'] == true;
     inVoiceCall = json['in_voice_call'];
     incomingVoiceCall = json['incoming_voice_call'];
   }
@@ -859,6 +865,7 @@ class Client {
     data['privacy_mode'] = privacyMode;
     data['disconnected'] = disconnected;
     data['from_switch'] = fromSwitch;
+    data['lan'] = lan;
     data['in_voice_call'] = inVoiceCall;
     data['incoming_voice_call'] = incomingVoiceCall;
     return data;

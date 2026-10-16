@@ -147,6 +147,9 @@ pub struct Client {
     pub block_input: bool,
     pub privacy_mode: bool,
     pub from_switch: bool,
+    pub lan: bool,
+    #[serde(skip)]
+    remember_lan: bool,
     pub in_voice_call: bool,
     pub incoming_voice_call: bool,
     #[serde(skip)]
@@ -235,6 +238,7 @@ impl<T: InvokeUiCM> ConnectionManager<T> {
         block_input: bool,
         privacy_mode: bool,
         from_switch: bool,
+        lan: bool,
         #[cfg(not(any(target_os = "ios")))] tx: mpsc::UnboundedSender<Data>,
     ) {
         let client = Client {
@@ -257,6 +261,8 @@ impl<T: InvokeUiCM> ConnectionManager<T> {
             block_input,
             privacy_mode,
             from_switch,
+            lan,
+            remember_lan: false,
             #[cfg(not(any(target_os = "ios")))]
             tx,
             in_voice_call: false,
@@ -367,7 +373,7 @@ pub fn get_click_time() -> i64 {
 pub fn authorize(id: i32) {
     if let Some(client) = CLIENTS.write().unwrap().get_mut(&id) {
         client.authorized = true;
-        allow_err!(client.tx.send(Data::Authorize));
+        allow_err!(client.tx.send(if client.lan && client.remember_lan { Data::AuthorizeRemember } else { Data::Authorize }));
     };
 }
 
@@ -406,6 +412,12 @@ pub fn send_chat(id: i32, text: String) {
 #[inline]
 #[cfg(not(any(target_os = "ios")))]
 pub fn switch_permission(id: i32, name: String, enabled: bool) {
+    if name == "lan-remember" {
+        if let Some(client) = CLIENTS.write().unwrap().get_mut(&id) {
+            if client.lan && !client.authorized { client.remember_lan = enabled; }
+        }
+        return;
+    }
     #[cfg(target_os = "android")]
     let is_keyboard_permission = name == "keyboard";
     #[cfg(not(target_os = "android"))]
@@ -554,9 +566,9 @@ impl<T: InvokeUiCM> IpcTaskRunner<T> {
                         }
                         Ok(Some(data)) => {
                             match data {
-                                Data::Login{id, is_file_transfer, is_view_camera, is_terminal, port_forward, peer_id, name, avatar, authorized, keyboard, clipboard, audio, file, file_transfer_enabled: _file_transfer_enabled, restart, recording, block_input, privacy_mode, from_switch} => {
+                                Data::Login{id, is_file_transfer, is_view_camera, is_terminal, port_forward, peer_id, name, avatar, authorized, keyboard, clipboard, audio, file, file_transfer_enabled: _file_transfer_enabled, restart, recording, block_input, privacy_mode, from_switch, lan} => {
                                     log::debug!("conn_id: {}", id);
-                                    self.cm.add_connection(id, is_file_transfer, is_view_camera, is_terminal, port_forward, peer_id, name, avatar, authorized, keyboard, clipboard, audio, file, restart, recording, block_input, privacy_mode, from_switch, self.tx.clone());
+                                    self.cm.add_connection(id, is_file_transfer, is_view_camera, is_terminal, port_forward, peer_id, name, avatar, authorized, keyboard, clipboard, audio, file, restart, recording, block_input, privacy_mode, from_switch, lan, self.tx.clone());
                                     self.conn_id = id;
                                     #[cfg(target_os = "windows")]
                                     {
@@ -908,6 +920,7 @@ pub async fn start_listen<T: InvokeUiCM>(
                 block_input,
                 privacy_mode,
                 from_switch,
+                lan,
                 ..
             }) => {
                 current_id = id;
@@ -930,6 +943,7 @@ pub async fn start_listen<T: InvokeUiCM>(
                     block_input,
                     privacy_mode,
                     from_switch,
+                    lan,
                     tx.clone(),
                 );
             }

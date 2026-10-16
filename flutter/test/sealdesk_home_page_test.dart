@@ -37,6 +37,7 @@ class _I18nBinding extends Fake implements SealdeskImpl {
       'Show QR code': '显示二维码',
       'Sharing stopped': '共享已停止',
       'Waiting for connection': '等待连接',
+      'Connected': '已连接',
       'Updating QR code...': '正在更新二维码…',
       'Resetting address...': '正在重置地址…',
       'This disconnects the current session and invalidates all old QR codes. Share the new code with the other person.': '这会断开当前被控会话，并使所有旧二维码失效。请将新二维码重新分享给对方。',
@@ -375,6 +376,27 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     expect(find.text('Share this device'), findsOneWidget);
     expect(find.text('Waiting for connection'), findsOneWidget);
+  });
+
+  testWidgets('host status follows active remote connection count',
+      (tester) async {
+    var count = 0;
+    await showPage(tester,
+        loadHost: () async => SealDeskHostState(
+            address: address,
+            password: 'secret',
+            name: '电脑',
+            connectedCount: count));
+    expect(find.text('等待连接'), findsOneWidget);
+    for (final active in [1, 2, 0]) {
+      count = active;
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(find.text(active == 0 ? '等待连接' : '已连接 ($active)'),
+          findsOneWidget);
+      if (active > 0) expect(find.text('等待连接'), findsNothing);
+      expect(find.byType(QrImageView), findsOneWidget);
+    }
   });
 
   testWidgets('first launch chooses and remembers mode before publishing QR',

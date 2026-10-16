@@ -272,6 +272,7 @@ pub struct SessionKey {
     session_id: u64,
     // Derived from the WireGuard peer key by the local tailcat bridge, not the login request.
     tailcat_peer: Option<String>,
+    lan_peer: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -279,6 +280,7 @@ struct Session {
     last_recv_time: Arc<Mutex<Instant>>,
     random_password: String,
     tfa: bool,
+    lan_permissions: Option<[bool;8]>,
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -328,6 +330,8 @@ impl TerminalUserToken {
 }
 pub struct Connection {
     via_tailcat: bool,
+    lan_peer: Option<String>,
+    lan_generation: u64,
     inner: ConnInner,
     display_idx: usize,
     stream: super::Stream,
@@ -478,7 +482,7 @@ const TAILCAT_SESSION_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 impl Session {
     fn is_recent(&self, key: &SessionKey) -> bool {
-        let timeout = if key.tailcat_peer.is_some() {
+        let timeout = if key.tailcat_peer.is_some() || key.lan_peer.is_some() {
             TAILCAT_SESSION_TIMEOUT
         } else {
             SESSION_TIMEOUT
@@ -512,6 +516,8 @@ impl Connection {
     ) {
         let super::ConnectionMeta {
             via_tailcat,
+            lan_peer,
+            via_lan: _,
             control_permissions,
             controlled_context,
         } = meta;
@@ -583,6 +589,8 @@ impl Connection {
             multi_ui_session: false,
             ip: "".to_owned(),
             via_tailcat,
+            lan_generation: lan_peer.as_deref().map(crate::lan::generation).unwrap_or(0),
+            lan_peer,
             disable_audio: false,
             #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
             enable_file_transfer: false,
@@ -721,6 +729,13 @@ impl Connection {
                 }
                 Some(data) = rx_from_cm.recv() => {
                     match data {
+                        ipc::Data::AuthorizeRemember => {
+                            if let Some(key) = &conn.lan_peer {
+                                if let Err(error) = crate::lan::remember(key,&conn.lr.my_name,conn.lan_permissions(),conn.lan_generation) { log::error!("LAN trust save failed: {error}"); continue; }
+                            }
+                            conn.require_2fa.take();
+                            if !conn.send_logon_response_and_keep_alive().await { break; }
+                        }
                         ipc::Data::Authorize => {
                             conn.require_2fa.take();
                             if !conn.send_logon_response_and_keep_alive().await {
@@ -876,6 +891,12 @@ impl Connection {
                                 }
                                 conn.privacy_mode = enabled;
                                 conn.send_permission(Permission::PrivacyMode, enabled).await;
+                            }
+                            if conn.authorized && conn.lan_authorization_current() {
+                                conn.save_lan_session_permissions();
+                                if let Some(key) = conn.lan_peer.as_deref().filter(|k|crate::lan::trusted(k).is_some()) {
+                                    if let Err(error) = crate::lan::remember(key,&conn.lr.my_name,conn.lan_permissions(),conn.lan_generation) { log::error!("LAN permission save failed: {error}"); }
+                                }
                             }
                         }
                         ipc::Data::RawMessage(bytes) => {
@@ -1104,6 +1125,11 @@ impl Connection {
                 },
                 Some(data) = rx_from_authed.recv() => {
                     match data {
+                        ipc::Data::LanAccessRevoked => {
+                            conn.send_close_reason_no_retry("LAN authorization revoked").await;
+                            conn.on_close("LAN authorization revoked",false).await;
+                            break;
+                        }
                         ipc::Data::Close => {
                             conn.send(crate::common::make_privacy_mode_msg(
                                 back_notification::PrivacyModeState::PrvOnByOther,
@@ -1124,6 +1150,11 @@ impl Connection {
                     }
                 }
                 _ = second_timer.tick() => {
+                    if conn.lan_peer.is_some() && (!crate::tailcat::host::enabled() || !conn.lan_authorization_current()) {
+                        conn.send_close_reason_no_retry("Sharing stopped").await;
+                        conn.on_close("sharing stopped",true).await;
+                        break;
+                    }
                     #[cfg(windows)]
                     conn.portable_check();
                     raii::AuthedConnID::check_wake_lock_on_setting_changed();
@@ -1534,9 +1565,32 @@ impl Connection {
         }
     }
 
+    fn lan_permissions(&self) -> [bool;8] {
+        [self.keyboard,self.clipboard,self.audio,self.file,self.restart,self.recording,self.block_input,self.privacy_mode]
+    }
+
+    fn apply_lan_permissions(&mut self, granted: [bool;8]) {
+        self.keyboard &= granted[0]; self.clipboard &= granted[1]; self.audio &= granted[2]; self.file &= granted[3];
+        self.restart &= granted[4]; self.recording &= granted[5]; self.block_input &= granted[6]; self.privacy_mode &= granted[7];
+    }
+
+    fn save_lan_session_permissions(&self) {
+        if self.lan_peer.is_some() {
+            if let Some(session) = SESSIONS.lock().unwrap().get_mut(&self.session_key()) { session.lan_permissions = Some(self.lan_permissions()); }
+        }
+    }
+
+    fn lan_authorization_current(&self) -> bool {
+        self.lan_peer.as_deref().map(|key| crate::lan::generation(key) == self.lan_generation).unwrap_or(true)
+    }
+
     // Returns whether this connection should be kept alive.
     // `true` does not necessarily mean authorization succeeded (e.g. REQUIRE_2FA case).
     async fn send_logon_response_and_keep_alive(&mut self) -> bool {
+        if !self.lan_authorization_current() {
+            self.send_close_reason_no_retry("Authorization revoked").await;
+            return false;
+        }
         if self.authorized {
             return true;
         }
@@ -1558,6 +1612,10 @@ impl Connection {
             return false;
         }
         self.authorized = true;
+        if self.lan_peer.is_some() {
+            raii::AuthedConnID::update_or_insert_session(self.session_key(),Some(String::new()),None);
+            self.save_lan_session_permissions();
+        }
         self.unauthorized_id = None;
         // One-time means gone once it has let a peer in, not once that peer
         // leaves. This session's later logins come in on the password the
@@ -2024,6 +2082,7 @@ impl Connection {
             block_input: self.block_input,
             privacy_mode: self.privacy_mode,
             from_switch: self.from_switch,
+            lan: self.lan_peer.is_some(),
         });
     }
 
@@ -2305,6 +2364,9 @@ impl Connection {
             .map(|s| s.to_owned());
         // last_recv_time is a mutex variable shared with connection, can be updated lively.
         if let Some(session) = session {
+            if tfa && self.lan_peer.is_some() && self.lan_authorization_current() && session.tfa && session.lan_permissions.is_some() {
+                return true;
+            }
             if !self.lr.password.is_empty()
                 && (tfa && session.tfa
                     || !tfa && self.validate_password_plain(&session.random_password))
@@ -2634,7 +2696,7 @@ impl Connection {
                 },
             );
 
-            if lr.username != Config::get_id()
+            if self.lan_peer.is_none() && lr.username != Config::get_id()
                 && !(crate::tailcat::is_addr(&lr.username)
                     && lr.username == Config::get_option(crate::tailcat::OPTION_ADDR))
             {
@@ -2659,6 +2721,23 @@ impl Connection {
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             if !should_use_terminal_os_login_scope(self.terminal, &lr.os_login.username) {
                 self.try_start_cm_ipc();
+            }
+
+            if self.lan_peer.is_some() {
+                if self.lr.union.is_some() {
+                    self.send_login_error("LAN connections support desktop control only").await;
+                    return false;
+                }
+                let recent = SESSIONS.lock().unwrap().get(&self.session_key()).filter(|s| s.is_recent(&self.session_key())).and_then(|s|s.lan_permissions);
+                let trusted = self.lan_peer.as_deref().and_then(crate::lan::trusted).map(|p|p.permissions);
+                if let Some(permissions) = trusted.or(recent) {
+                    self.apply_lan_permissions(permissions);
+                    if !self.send_logon_response_and_keep_alive().await { return false; }
+                } else {
+                    self.send_login_error(crate::client::LOGIN_MSG_NO_PASSWORD_ACCESS).await;
+                }
+                self.try_start_cm(lr.my_id.clone(),lr.my_name.clone(),self.authorized);
+                return true;
             }
 
             // https://github.com/rustdesk/rustdesk-server-pro/discussions/646
@@ -5350,6 +5429,7 @@ impl Connection {
             name: self.lr.my_name.clone(),
             session_id: self.lr.session_id,
             tailcat_peer: self.via_tailcat.then(|| self.ip.clone()),
+            lan_peer: self.lan_peer.clone(),
         }
     }
 
@@ -6565,6 +6645,7 @@ mod raii {
                     key,
                     Session {
                         random_password: password.unwrap_or_default(),
+                        lan_permissions: None,
                         tfa: tfa.unwrap_or_default(),
                         last_recv_time: Arc::new(Mutex::new(Instant::now())),
                     },
@@ -6583,6 +6664,7 @@ mod raii {
                     Session {
                         last_recv_time: Arc::new(Mutex::new(Instant::now())),
                         random_password: "".to_owned(),
+                        lan_permissions: None,
                         tfa: true,
                     },
                 );
@@ -6735,6 +6817,13 @@ fn wildcard_match(pattern: &str, text: &str) -> bool {
     pi == p.len()
 }
 
+pub(crate) fn revoke_lan(key: &str) {
+    SESSIONS.lock().unwrap().retain(|k,_| k.lan_peer.as_deref()!=Some(key));
+    for conn in AUTHED_CONNS.lock().unwrap().iter().filter(|c| c.session_key.lan_peer.as_deref()==Some(key)) {
+        let _ = conn.sender.send(ipc::Data::LanAccessRevoked);
+    }
+}
+
 #[cfg(test)]
 mod test {
     #[allow(unused)]
@@ -6748,6 +6837,20 @@ mod test {
         UNAUTHORIZED_CONNS.lock().unwrap().len()
     }
 
+
+    #[test]
+    fn lan_resume_is_key_bound_and_revocation_clears_recovery() {
+        let key = SessionKey { peer_id: "lan-test".into(), name: "same name".into(), session_id: 902, tailcat_peer: None, lan_peer: Some("lan-key-one".into()) };
+        let session = Session { last_recv_time: Arc::new(Mutex::new(Instant::now() - Duration::from_secs(90))), random_password: String::new(), tfa: true, lan_permissions: Some([false;8]) };
+        assert!(session.is_recent(&key));
+        SESSIONS.lock().unwrap().insert(key.clone(),session);
+        let mut impostor=key.clone(); impostor.lan_peer=Some("lan-key-two".into());
+        assert!(!SESSIONS.lock().unwrap().contains_key(&impostor));
+        revoke_lan("lan-key-two");
+        assert!(SESSIONS.lock().unwrap().contains_key(&key));
+        revoke_lan("lan-key-one");
+        assert!(!SESSIONS.lock().unwrap().contains_key(&key));
+    }
     #[test]
     fn tailcat_resume_is_bounded_peer_bound_and_revocable() {
         let key = SessionKey {
@@ -6755,10 +6858,12 @@ mod test {
             name: "controller".into(),
             session_id: 901,
             tailcat_peer: Some("fd00::1".into()),
+            lan_peer: None,
         };
         let session = Session {
             last_recv_time: Arc::new(Mutex::new(Instant::now() - Duration::from_secs(90))),
             random_password: "one-time-secret".into(),
+            lan_permissions: None,
             tfa: true,
         };
         assert!(session.is_recent(&key));
@@ -7397,6 +7502,7 @@ mod test {
             name: "".to_owned(),
             session_id,
             tailcat_peer: None,
+            lan_peer: None,
         };
         let conn = |conn_id, conn_type, session_key| AuthedConn {
             conn_id,

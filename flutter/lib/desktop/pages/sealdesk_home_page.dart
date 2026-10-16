@@ -13,6 +13,7 @@ class SealDeskHostState {
   final String? password;
   final String name;
   final List<String> connectedNames;
+  final int connectedCount;
   final bool stopped;
 
   const SealDeskHostState({
@@ -20,11 +21,13 @@ class SealDeskHostState {
     required this.password,
     required this.name,
     this.connectedNames = const [],
+    this.connectedCount = 0,
     this.stopped = false,
   });
 }
 
 class SealDeskHomePage extends StatefulWidget {
+  final Widget Function(bool host)? lanPanelBuilder;
   final String initialMode;
   final String? initialInput;
   final Future<SealDeskHostState> Function() loadHost;
@@ -40,6 +43,7 @@ class SealDeskHomePage extends StatefulWidget {
   const SealDeskHomePage({
     super.key,
     required this.initialMode,
+    this.lanPanelBuilder,
     this.initialInput,
     required this.loadHost,
     required this.refreshPassword,
@@ -151,9 +155,11 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
         _code = _pairing!.encode(now: now);
       }
       setState(() {
-        _status = host.connectedNames.isEmpty
-            ? translate('Waiting for connection')
-            : '已连接：${host.connectedNames.join('、')}';
+        _status = host.connectedNames.isNotEmpty
+            ? '已连接：${host.connectedNames.join('、')}'
+            : host.connectedCount > 0
+                ? '${translate('Connected')} (${host.connectedCount})'
+                : translate('Waiting for connection');
       });
     } catch (_) {
       if (mounted && _mode == 'host') {
@@ -324,6 +330,10 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
                       'Switching will disconnect the current session')),
                 ],
                 if (_mode == 'control') ..._buildControl(),
+                if (_mode.isNotEmpty && widget.lanPanelBuilder != null) ...[
+                  const SizedBox(height: 20),
+                  widget.lanPanelBuilder!(_mode == 'host'),
+                ],
                 if (_error != null)
                   Padding(
                     padding: const EdgeInsets.only(top: 16),

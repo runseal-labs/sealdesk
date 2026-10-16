@@ -87,6 +87,8 @@ type ConnMap = HashMap<i32, ConnInner>;
 #[derive(Clone, Default)]
 pub struct ConnectionMeta {
     pub via_tailcat: bool,
+    pub via_lan: bool,
+    pub lan_peer: Option<String>,
     pub control_permissions: Option<ControlPermissions>,
     pub controlled_context: Option<ControlledContext>,
 }
@@ -183,9 +185,9 @@ pub async fn create_tcp_connection(
     stream: Stream,
     addr: SocketAddr,
     secure: bool,
-    meta: ConnectionMeta,
+    mut meta: ConnectionMeta,
 ) -> ResultType<()> {
-    if meta.via_tailcat && !crate::tailcat::host::enabled() {
+    if (meta.via_tailcat || meta.via_lan) && !crate::tailcat::host::enabled() {
         bail!("SealDesk host mode is disabled");
     }
     let mut stream = stream;
@@ -200,7 +202,13 @@ pub async fn create_tcp_connection(
     // Before the handshake, so its read is bounded too; lifted again at authorization.
     stream.set_max_packet_length(MAX_UNAUTHORIZED_MESSAGE);
     tokio::select! {
-        handshake = identity_handshake(&mut stream, secure) => handshake?,
+        handshake = async {
+            if meta.via_lan {
+                meta.lan_peer = Some(timeout(CONNECT_TIMEOUT, crate::lan::accept(&mut stream)).await??);
+                stream.set_max_packet_length(MAX_UNAUTHORIZED_MESSAGE);
+            }
+            identity_handshake(&mut stream, secure).await
+        } => handshake?,
         _ = unauthorized.evicted() => {
             bail!("evicted to make room for a newer unauthenticated connection");
         }

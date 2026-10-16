@@ -5,7 +5,6 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import '../../common.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge.dart';
 
 import '../../common.dart';
@@ -16,6 +15,7 @@ import '../../consts.dart';
 import '../../models/platform_model.dart';
 import '../../models/server_model.dart' show kUsePermanentPassword;
 import 'sealdesk_home_page.dart';
+import '../../common/sealdesk_lan_panel.dart';
 
 class SealDeskNativeHomePage extends StatelessWidget {
   final String? initialInput;
@@ -28,6 +28,8 @@ class SealDeskNativeHomePage extends StatelessWidget {
     final approveMode = await bind.mainGetOption(key: kOptionApproveMode);
     final stopped = await mainGetBoolOption(kOptionStopService);
     final password = await bind.mainGetTemporaryPassword();
+    final connectedCount = int.parse(
+        await bind.mainGetOption(key: 'sealdesk-connected-count'));
     final includesPassword =
         method != kUsePermanentPassword && approveMode != 'click';
     return SealDeskHostState(
@@ -35,7 +37,7 @@ class SealDeskNativeHomePage extends StatelessWidget {
       password: includesPassword ? password : null,
       name: Platform.localHostname,
       stopped: stopped,
-      connectedNames: [],
+      connectedCount: connectedCount,
     );
   }
 
@@ -65,6 +67,9 @@ class SealDeskNativeHomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SealDeskHomePage(
+        lanPanelBuilder: (host) => SealDeskLanPanel(host: host, connectPeer: (address) async {
+          await connect(context, address, isSharedPassword: false);
+        }),
         initialMode: bind.mainGetLocalOption(key: 'sealdesk-mode'),
         loadHost: _loadHost,
         initialInput: initialInput,

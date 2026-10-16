@@ -343,6 +343,8 @@ pub enum Data {
         block_input: bool,
         privacy_mode: bool,
         from_switch: bool,
+        #[serde(default)]
+        lan: bool,
     },
     ChatMessage {
         text: String,
@@ -356,6 +358,8 @@ pub enum Data {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     MouseMoveTime(i64),
     Authorize,
+    AuthorizeRemember,
+    LanAccessRevoked,
     Close,
     #[cfg(windows)]
     SAS,
@@ -876,6 +880,16 @@ async fn handle(data: Data, stream: &mut Connection) {
                     value = Some(crate::tailcat::host::mode().to_owned());
                 } else if name == base::config::keys::OPTION_STOP_SERVICE {
                     value = Some(Config::get_option(&name));
+                } else if name == "sealdesk-connected-count" {
+                    value = Some(
+                        crate::server::AUTHED_CONNS
+                            .lock()
+                            .unwrap()
+                            .iter()
+                            .filter(|conn| conn.conn_type == crate::server::AuthConnType::Remote)
+                            .count()
+                            .to_string(),
+                    );
                 } else if name == "temporary-password" {
                     value = Some(password::temporary_password());
                 } else if name == "permanent-password-storage-and-salt" {
@@ -905,6 +919,10 @@ async fn handle(data: Data, stream: &mut Connection) {
                     value = crate::audio_service::get_voice_call_input_device();
                 } else if name == "unlock-pin" {
                     value = Some(Config::get_unlock_pin());
+                } else if name == "sealdesk-lan-trusted" {
+                    value = Some(crate::lan::trusted_json());
+                } else if name == "sealdesk-lan-ready" {
+                    value = Some(if crate::lan::ready() { "Y" } else { "N" }.into());
                 } else if name == "trusted-devices" {
                     value = Some(Config::get_trusted_devices_json());
                 } else {
@@ -923,6 +941,11 @@ async fn handle(data: Data, stream: &mut Connection) {
                         Config::set_key_confirmed(false);
                         Config::set_id(&value);
                     }
+                } else if name == "sealdesk-lan-forget" {
+                    let result = crate::lan::forget(&value);
+                    let error = result.err().map(|e|e.to_string()).unwrap_or_default();
+                    allow_err!(stream.send(&Data::Config((name,Some(error)))).await);
+                    return;
                 } else if name == "temporary-password" {
                     password::update_temporary_password();
                 } else if name == base::config::keys::OPTION_SEALDESK_RESET_ADDRESS {
@@ -1592,7 +1615,7 @@ async fn get_config_async(name: &str, ms_timeout: u64) -> ResultType<Option<Stri
 pub async fn set_config_async(name: &str, value: String) -> ResultType<()> {
     let mut c = connect(1000, "").await?;
     c.send_config(name, value).await?;
-    if name == base::config::keys::OPTION_SEALDESK_RESET_ADDRESS {
+    if name == base::config::keys::OPTION_SEALDESK_RESET_ADDRESS || name == "sealdesk-lan-forget" {
         if let Some(Data::Config((response_name, Some(error)))) = c.next_timeout(1_000).await? {
             if response_name == name {
                 if error.is_empty() {

@@ -27,6 +27,7 @@ impl RendezvousMediator {
         }
         check_zombie();
         let server = new_server();
+        tokio::spawn(crate::lan::serve(server.clone()));
         scrap::codec::test_av1();
         tailcat_server(server).await;
     }

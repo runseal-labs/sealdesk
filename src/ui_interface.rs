@@ -146,8 +146,19 @@ pub fn refresh_options() {
 
 #[inline]
 pub fn get_option<T: AsRef<str>>(key: T) -> String {
+    #[cfg(not(target_os = "ios"))]
+    if key.as_ref() == "sealdesk-lan-peers" { return crate::lan::discover_json(); }
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
+            if matches!(key.as_ref(),"sealdesk-lan-trusted"|"sealdesk-lan-ready") {
+            return crate::ipc::get_config(key.as_ref()).ok().flatten().unwrap_or_default();
+        }
+        if key.as_ref() == "sealdesk-connected-count" {
+            return crate::ipc::get_config(key.as_ref())
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+        }
         if key.as_ref() == keys::OPTION_SEALDESK_HOST_MODE {
             return match crate::tailcat::host::query_mode() {
                 Ok(mode) => mode,
@@ -416,6 +427,11 @@ pub fn set_options(m: HashMap<String, String>) {
 
 #[inline]
 pub fn set_option(key: String, value: String) {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if key == "sealdesk-lan-forget" {
+        if let Err(error) = ipc::set_config(&key,value) { log::error!("LAN authorization removal failed: {error}"); }
+        return;
+    }
     if &key == "stop-service" {
         #[cfg(target_os = "macos")]
         {

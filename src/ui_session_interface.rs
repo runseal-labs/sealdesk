@@ -1319,9 +1319,9 @@ impl<T: InvokeUiSession> Session<T> {
         }));
     }
 
-    // A tailcat session that ends without the user closing it is re-dialed a few times.
+    // Retry transport loss only; local close and the peer's explicit CloseReason end the session.
     pub(crate) fn auto_reconnect_after_loss(&self, round: u32, started: std::time::Instant) {
-        if !crate::tailcat::is_addr(&self.get_id()) {
+        if !crate::tailcat::is_addr(&self.get_id()) && !crate::lan::is_addr(&self.get_id()) {
             return;
         }
         let attempt = {
@@ -1342,7 +1342,7 @@ impl<T: InvokeUiSession> Session<T> {
         if self.connection_round_state.lock().unwrap().round != round {
             return;
         }
-        log::info!("tailcat session ended unexpectedly, reconnecting (attempt {attempt})");
+        log::info!("session ended unexpectedly, reconnecting (attempt {attempt})");
         self.reconnect();
     }
 
@@ -1438,8 +1438,12 @@ impl<T: InvokeUiSession> Session<T> {
         self.auto_reconnect.lock().unwrap().user_closed
     }
 
-    pub fn close(&self) {
+    pub(crate) fn stop_reconnect(&self) {
         self.auto_reconnect.lock().unwrap().user_closed = true;
+    }
+
+    pub fn close(&self) {
+        self.stop_reconnect();
         self.send(Data::Close);
     }
 

@@ -1100,6 +1100,13 @@ class _CmControlPanel extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            if (showAccept && client.lan)
+              SizedBox(width: 150, child: StatefulBuilder(builder: (context, update) => CheckboxListTile(
+                dense: true, contentPadding: EdgeInsets.zero,
+                title: Text(translate('Trust this device'), style: TextStyle(fontSize: 12)),
+                value: client.rememberLAN,
+                onChanged: (value) => update(() => client.rememberLAN = value == true),
+              ))),
             if (showAccept)
               Expanded(
                 child: Column(

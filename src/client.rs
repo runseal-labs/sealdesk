@@ -208,6 +208,10 @@ impl Client {
         if config::is_incoming_only() && !is_switch_sides_back(conn_type, &interface).await {
             bail!("Incoming only mode");
         }
+        if crate::lan::is_addr(peer) {
+            let stream = hbb_common::tokio::time::timeout(std::time::Duration::from_millis(CONNECT_TIMEOUT), crate::lan::connect(peer)).await??;
+            return Ok(((stream, true, None, "LAN"), (0, String::new())));
+        }
         // A peer is reached only through its tailcat address; the tunnel does the rest.
         if !crate::tailcat::is_addr(peer) {
             bail!("Unsupported peer {peer:?}: connect with the peer's tailcat address (tc...)");
@@ -3396,6 +3400,7 @@ pub fn check_if_retry(msgtype: &str, title: &str, text: &str) -> bool {
             && !text.to_lowercase().contains("resolve")
             && !text.to_lowercase().contains("mismatch")
             && !text.to_lowercase().contains("manually")
+            && !text.to_lowercase().contains("authorization revoked")
             && !text.to_lowercase().contains("restricted")
             && !text.to_lowercase().contains("incoming only")
             && !text.to_lowercase().contains("not allowed"))
@@ -3405,6 +3410,10 @@ pub fn check_if_retry(msgtype: &str, title: &str, text: &str) -> bool {
 mod retry_tests {
     use super::check_if_retry;
 
+    #[test]
+    fn lan_revocation_is_not_retryable() {
+        assert!(!check_if_retry("error", "Connection Error", "LAN authorization revoked"));
+    }
     #[test]
     fn incoming_only_error_is_not_retryable() {
         assert!(!check_if_retry(

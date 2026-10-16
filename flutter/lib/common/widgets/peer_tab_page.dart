@@ -19,6 +19,7 @@ import 'package:provider/provider.dart';
 import 'package:pull_down_button/pull_down_button.dart';
 
 import '../../common.dart';
+import '../sealdesk_lan_panel.dart';
 import '../../models/platform_model.dart';
 
 class PeerTabPage extends StatefulWidget {
@@ -46,6 +47,17 @@ class _PeerTabPageState extends State<PeerTabPage>
     _TabEntry(FavoritePeersView(
       menuPadding: _menuPadding(),
     )),
+    if (isAndroid && bind.mainGetAppNameSync() == 'SealDesk')
+      _TabEntry(Builder(
+        builder: (context) => SingleChildScrollView(
+          child: SealDeskLanPanel(
+            host: false,
+            connectPeer: (address) async {
+              await connect(context, address, isSharedPassword: false);
+            },
+          ),
+        ),
+      )),
   ];
   RelativeRect? mobileTabContextMenuPos;
 
@@ -430,6 +442,7 @@ class _PeerTabPageState extends State<PeerTabPage>
 
   List<Widget> _landscapeRightActions(BuildContext context) {
     final model = Provider.of<PeerTabModel>(context);
+    if (model.currentTab == PeerTabIndex.lan.index) return [];
     return [
       const PeerSearchBar().marginOnly(right: 13),
       Offstage(
@@ -446,6 +459,7 @@ class _PeerTabPageState extends State<PeerTabPage>
 
   List<Widget> _portraitRightActions(BuildContext context) {
     final model = Provider.of<PeerTabModel>(context);
+    if (model.currentTab == PeerTabIndex.lan.index) return [];
     final screenWidth = MediaQuery.of(context).size.width;
     final leftIconSize = Theme.of(context).iconTheme.size ?? 24;
     final leftActionsSize =

@@ -850,5 +850,14 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Place the other device’s SealDesk QR code in the frame", "请将对方的 SealDesk 配对二维码放入框内"),
         ("Scanning is paused. Return to the app and scan again", "扫描已暂停，请返回前台后重新扫描"),
         ("Confirm reset", ""),
+        ("Unable to read LAN status. Please try again", "局域网状态暂不可用，请重试"),
+        ("Unable to revoke access. Please try again", "撤销授权未完成，请重试"),
+        ("LAN sharing is ready", "局域网共享已开启"),
+        ("Starting LAN sharing...", "局域网共享正在启动"),
+        ("LAN devices", "局域网设备"),
+        ("Remembered controllers connect automatically. Revoke access to require approval again.", "已记住的控制端可自动连接；撤销后需要重新确认。"),
+        ("Looking for devices sharing on your local network...", "正在查找同一局域网中开启共享的设备…"),
+        ("Revoke access", "撤销授权"),
+        ("LAN authorization revoked", "局域网控制授权已撤销"),
     ].iter().cloned().collect();
 }
