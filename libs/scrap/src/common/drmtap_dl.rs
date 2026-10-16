@@ -259,8 +259,8 @@ fn abi_accepted(major: c_int, minor: c_int, patch: c_int) -> bool {
 
 impl DrmtapLib {
     fn load() -> Option<Self> {
-        // Absolute path FIRST: the deb bundles the .so privately under /usr/lib/rustdesk and does NOT register that dir with ld.so.
-        const INSTALLED: &str = "/usr/lib/rustdesk/libdrmtap.so.0";
+        // Absolute path FIRST: the deb bundles the .so privately under /usr/lib/sealdesk and does NOT register that dir with ld.so.
+        const INSTALLED: &str = "/usr/lib/sealdesk/libdrmtap.so.0";
         // Bare sonames exist so an unpackaged development build can load a locally built .so from
         // the normal ld.so search path. They are NOT offered when running as root: this is the one
         // place where which file happens to be on the load path decides what gets mapped into the
