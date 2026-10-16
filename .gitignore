@@ -72,3 +72,19 @@ flutter/web/
 !/flutter/android/app/src/main/res/mipmap-xhdpi/ic_launcher_monochrome.png
 !/flutter/android/app/src/main/res/mipmap-xxhdpi/ic_launcher_monochrome.png
 !/flutter/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_monochrome.png
+
+# Private local configuration, credentials, and generated packages
+.env.*
+!.env.example
+!.env.template
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.apk
+*.aab
+*.apk.sha256
+*.aab.sha256
+*.deb.sha256
+/tmp/
+/flutter/android/build/

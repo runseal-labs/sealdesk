@@ -1,9 +1,9 @@
 [
   {
     "label": "canonical",
-    "input": "SEALDESK:V:1;A:tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-;P:secret;N:ros2go-gpu;E:200;;",
+    "input": "SEALDESK:V:1;A:tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-;P:secret;N:test-desktop;E:200;;",
     "now": 100,
-    "expected": {"address": "tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-", "password": "secret", "name": "ros2go-gpu", "expires_at": 200}
+    "expected": {"address": "tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-", "password": "secret", "name": "test-desktop", "expires_at": 200}
   },
   {
     "label": "optional fields omitted",

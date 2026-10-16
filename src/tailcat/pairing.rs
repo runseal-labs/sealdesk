@@ -197,7 +197,7 @@ mod tests {
         PairingCode {
             address: ADDRESS.to_owned(),
             password: Some("secret".to_owned()),
-            name: Some("ros2go-gpu".to_owned()),
+            name: Some("test-desktop".to_owned()),
             expires_at: Some(200),
         }
     }
@@ -234,7 +234,7 @@ mod tests {
         let encoded = original.encode_at(100).unwrap();
         assert_eq!(
             encoded,
-            format!("SEALDESK:V:1;A:{ADDRESS};P:secret;N:ros2go-gpu;E:200;;")
+            format!("SEALDESK:V:1;A:{ADDRESS};P:secret;N:test-desktop;E:200;;")
         );
         assert!(PairingCode::parse_at(&encoded, 100).unwrap() == original);
     }

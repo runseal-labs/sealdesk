@@ -461,7 +461,7 @@ mod tests {
     #[test]
     fn direct_address_support_does_not_expand_broadcast_discovery() {
         let reply = PeerDiscovery { cmd: "pong".into(), id: "123456789".into(), ..Default::default() };
-        for address in ["100.64.0.16:21119", "169.254.1.7:21119", "8.8.8.8:21119"] {
+        for address in ["100.64.1.7:21119", "169.254.1.7:21119", "8.8.8.8:21119"] {
             assert!(discovered_peer(&reply, address.parse().unwrap(), "own").is_none());
         }
     }

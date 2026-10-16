@@ -1,6 +1,6 @@
 //! The controlled side's way in. Upstream RustDesk registers with a rendezvous server here and
 //! answers its punch-hole / relay requests; this build has no rendezvous or relay server at all.
-//! Sessions arrive only through the tailcat tunnel (see `crate::tailcat`).
+//! Sessions arrive through Tailcat or the sharing-gated direct listener in `crate::lan`.
 
 use std::sync::atomic::AtomicBool;
 
@@ -34,7 +34,7 @@ impl RendezvousMediator {
 }
 
 /// Accepts RustDesk sessions arriving through the tailcat tunnel. The tunnel delivers them to a
-/// loopback-only listener, so nothing is exposed on the LAN or the internet.
+/// loopback-only listener. The separate sharing-gated LAN listener is managed by `crate::lan`.
 async fn tailcat_server(server: ServerPtr) {
     crate::tailcat::host::set_address(String::new());
     loop {
@@ -89,10 +89,7 @@ async fn accept_tailcat(server: ServerPtr) {
                     return;
                 }
                 crate::tailcat::host::set_address(addr.clone());
-                log::info!("tailcat address: {addr}");
-                if let Ok(qr) = crate::tailcat::qr_text(&addr) {
-                    log::info!("scan to connect:\n{qr}");
-                }
+                log::info!("Tailcat sharing ready");
                 break;
             }
             Ok(Err(err)) => log::error!("tailcat serve failed, retrying: {err}"),
