@@ -1953,7 +1953,7 @@ jobs:
             export GO=/usr/local/go/bin/go
             go version
             cargo build --locked --lib $JOBS --features hwcodec,flutter,unix-file-copy-paste --release
-            cargo test --locked --release $JOBS --features flutter --example session_close -v
+            cargo test --locked --release $JOBS --features flutter --lib session_close_tests
             rm -rf target/release/deps target/release/build
             rm -rf ~/.cargo
 

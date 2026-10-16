@@ -19,11 +19,6 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 name = "service"
 path = "src/service.rs"
 
-[[example]]
-name = "session_close"
-path = "examples/session_close/main.rs"
-required-features = ["flutter"]
-
 [features]
 inline = []
 use_samplerate = ["samplerate", "libsamplerate-sys"]
