@@ -21,7 +21,7 @@ path = "src/service.rs"
 
 [[example]]
 name = "session_close"
-path = "tests/session_close/main.rs"
+path = "examples/session_close/main.rs"
 required-features = ["flutter"]
 
 [features]
