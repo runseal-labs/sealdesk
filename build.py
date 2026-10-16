@@ -356,6 +356,10 @@ def get_features(args):
 def generate_control_file(version):
     control_file_path = "../res/DEBIAN/control"
     system2('/bin/rm -rf %s' % control_file_path)
+    # Debian sorts a tilde before the corresponding final release. Keep Cargo's
+    # SemVer spelling for binaries and artifact names, but use Debian's native
+    # pre-release separator in control metadata.
+    deb_version = version.replace('-', '~', 1)
 
     content = """Package: sealdesk
 Section: net
@@ -368,7 +372,7 @@ Depends: libgtk-3-0t64 | libgtk-3-0, libxcb-randr0, libxdo3 | libxdo4, libxfixes
 Recommends: libayatana-appindicator3-1
 Description: A remote control software.
 
-""" % (version, get_deb_arch(), get_deb_extra_depends())
+""" % (deb_version, get_deb_arch(), get_deb_extra_depends())
     file = open(control_file_path, "w")
     file.write(content)
     file.close()

@@ -152,6 +152,14 @@ android {
     }
 }
 
+// Flutter's split-per-ABI helper prefixes the ABI id onto versionCode. SealDesk
+// intentionally uses one stable release code across ABI outputs.
+android.applicationVariants.all { variant ->
+    variant.outputs.each { output ->
+        output.versionCodeOverride = flutterVersionCode.toInteger()
+    }
+}
+
 flutter {
     source '../..'
 }

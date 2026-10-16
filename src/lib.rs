@@ -29,6 +29,16 @@ pub(crate) mod update_hash;
 mod manual_update;
 mod version;
 pub use version::*;
+
+#[cfg(test)]
+mod version_tests {
+    #[test]
+    fn product_version_does_not_change_protocol_version() {
+        assert_eq!(super::VERSION, "0.1.0-alpha.1");
+        assert_eq!(super::PROTOCOL_VERSION, "1.5.1");
+        assert_ne!(super::VERSION, super::PROTOCOL_VERSION);
+    }
+}
 #[cfg(any(target_os = "android", target_os = "ios", feature = "flutter"))]
 mod bridge_generated;
 #[cfg(any(target_os = "android", target_os = "ios", feature = "flutter"))]

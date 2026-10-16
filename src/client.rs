@@ -2104,7 +2104,7 @@ impl LoginConfigHandler {
             my_platform,
             option: self.get_option_message(true).into(),
             session_id: self.session_id,
-            version: crate::VERSION.to_string(),
+            version: crate::PROTOCOL_VERSION.to_string(),
             os_login,
             hwid,
             avatar,

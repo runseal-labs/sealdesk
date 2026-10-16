@@ -222,8 +222,14 @@ pub fn gen_version() {
     for line in read_lines("Cargo.toml").unwrap().flatten() {
         let ab: Vec<&str> = line.split('=').map(|x| x.trim()).collect();
         if ab.len() == 2 && ab[0] == "version" {
-            file.write_all(format!("pub const VERSION: &str = {};\n", ab[1]).as_bytes())
-                .ok();
+            file.write_all(
+                format!(
+                    "pub const VERSION: &str = {};\npub const PROTOCOL_VERSION: &str = \"1.5.1\";\n",
+                    ab[1]
+                )
+                .as_bytes(),
+            )
+            .ok();
             break;
         }
     }

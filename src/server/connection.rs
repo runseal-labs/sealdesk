@@ -20,7 +20,7 @@ use crate::{
     client::{
         new_voice_call_request, new_voice_call_response, start_audio_thread, MediaData, MediaSender,
     },
-    display_service, ipc, privacy_mode, video_service, VERSION,
+    display_service, ipc, privacy_mode, video_service,
 };
 #[cfg(any(target_os = "android", target_os = "ios"))]
 use crate::{common::DEVICE_NAME, flutter::connection_manager::start_channel};
@@ -1579,7 +1579,7 @@ impl Connection {
         let mut res = LoginResponse::new();
         let mut pi = PeerInfo {
             username: username.clone(),
-            version: VERSION.to_owned(),
+            version: crate::PROTOCOL_VERSION.to_owned(),
             ..Default::default()
         };
 
