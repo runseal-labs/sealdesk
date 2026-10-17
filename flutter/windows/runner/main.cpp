@@ -30,7 +30,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     return EXIT_FAILURE;
   }
   FUNC_RUSTDESK_CORE_MAIN sealdesk_core_main =
-      (FUNC_RUSTDESK_CORE_MAIN)GetProcAddress(hInstance, "sealdesk_core_main_args");
+      (FUNC_RUSTDESK_CORE_MAIN)GetProcAddress(hInstance, "rustdesk_core_main_args");
   if (!sealdesk_core_main)
   {
     std::cout << "Failed to get sealdesk_core_main." << std::endl;
