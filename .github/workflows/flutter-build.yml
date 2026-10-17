@@ -46,7 +46,7 @@ env:
   VCPKG_COMMIT_ID: "9e593bb18ea69cc5095e012465dcd675a822ed0d"
   VCPKG_CMAKE_VERSION: "4.3.0"
   ARMV7_VCPKG_COMMIT_ID: "6f29f12e82a8293156836ad81cc9bf5af41fe836" # 2025.01.13, got "/opt/artifacts/vcpkg/vcpkg: No such file or directory" with latest version
-  VERSION: "1.5.1"
+  VERSION: "0.2.0-alpha.1"
   NDK_VERSION: "r28c"
   #signing keys env variable checks
   ANDROID_SIGNING_KEY: "${{ secrets.ANDROID_SIGNING_KEY }}"
@@ -1431,7 +1431,7 @@ jobs:
               flutter build apk "--${{ matrix.job.reltype }}" --target-platform android-arm64 --split-per-abi
               apk_path="$(resolve_flutter_apk "build/app/outputs/flutter-apk/app-arm64-v8a-${{ matrix.job.reltype }}.apk")" || exit 1
               python3 ../tests/check_sealdesk_android_package.py "$apk_path" --abi arm64-v8a
-              mv "$apk_path" "../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
+              mv "$apk_path" "../sealdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
             ;;
             armv7-linux-androideabi)
               mkdir -p ./flutter/android/app/src/main/jniLibs/armeabi-v7a
@@ -1442,7 +1442,7 @@ jobs:
               flutter build apk "--${{ matrix.job.reltype }}" --target-platform android-arm --split-per-abi
               apk_path="$(resolve_flutter_apk "build/app/outputs/flutter-apk/app-armeabi-v7a-${{ matrix.job.reltype }}.apk")" || exit 1
               python3 ../tests/check_sealdesk_android_package.py "$apk_path" --abi armeabi-v7a
-              mv "$apk_path" "../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
+              mv "$apk_path" "../sealdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
             ;;
             x86_64-linux-android)
               mkdir -p ./flutter/android/app/src/main/jniLibs/x86_64
@@ -1453,7 +1453,7 @@ jobs:
               flutter build apk "--${{ matrix.job.reltype }}" --target-platform android-x64 --split-per-abi
               apk_path="$(resolve_flutter_apk "build/app/outputs/flutter-apk/app-x86_64-${{ matrix.job.reltype }}.apk")" || exit 1
               python3 ../tests/check_sealdesk_android_package.py "$apk_path" --abi x86_64
-              mv "$apk_path" "../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
+              mv "$apk_path" "../sealdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
             ;;
             i686-linux-android)
               mkdir -p ./flutter/android/app/src/main/jniLibs/x86
@@ -1464,12 +1464,12 @@ jobs:
               flutter build apk "--${{ matrix.job.reltype }}" --target-platform android-x86 --split-per-abi
               apk_path="$(resolve_flutter_apk "build/app/outputs/flutter-apk/app-x86-${{ matrix.job.reltype }}.apk")" || exit 1
               python3 ../tests/check_sealdesk_android_package.py "$apk_path" --abi x86
-              mv "$apk_path" "../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
+              mv "$apk_path" "../sealdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
             ;;
           esac
           popd
           mkdir -p signed-apk; pushd signed-apk
-          mv ../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk .
+          mv ../sealdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk .
 
       # https://github.com/r0adkll/sign-android-release/issues/84#issuecomment-1889636075
       - name: Setup sign tool version variable
@@ -1497,7 +1497,7 @@ jobs:
         if: env.ANDROID_SIGNING_KEY != '' && env.UPLOAD_ARTIFACT == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.apk
+          name: sealdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.apk
           path: ${{steps.sign-rustdesk.outputs.signedReleaseFile}}
 
       - name: Publish signed apk package
@@ -1516,7 +1516,7 @@ jobs:
           prerelease: true
           tag_name: ${{ env.TAG_NAME }}
           files: |
-            signed-apk/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.apk
+            signed-apk/sealdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.apk
 
   build-rustdesk-android-universal:
     needs: [build-rustdesk-android]
@@ -1674,7 +1674,7 @@ jobs:
           python3 ../tests/check_sealdesk_android_package.py "$apk_path" "${package_abis[@]}"
           popd
           mkdir -p signed-apk
-          mv "./flutter/${apk_path}" "signed-apk/rustdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk"
+          mv "./flutter/${apk_path}" "signed-apk/sealdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk"
 
       # https://github.com/r0adkll/sign-android-release/issues/84#issuecomment-1889636075
       - name: Setup sign tool version variable
@@ -1702,7 +1702,7 @@ jobs:
         if: env.ANDROID_SIGNING_KEY != '' && env.UPLOAD_ARTIFACT == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: rustdesk-${{ env.VERSION }}-universal.apk
+          name: sealdesk-${{ env.VERSION }}-universal.apk
           path: ${{steps.sign-rustdesk.outputs.signedReleaseFile}}
 
       - name: Publish signed apk package
@@ -1721,7 +1721,7 @@ jobs:
           prerelease: true
           tag_name: ${{ env.TAG_NAME }}
           files: |
-            signed-apk/rustdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk
+            signed-apk/sealdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk
 
   build-rustdesk-linux:
     needs: [generate-bridge]
