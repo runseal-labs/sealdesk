@@ -465,7 +465,7 @@ jobs:
         if: env.UPLOAD_ARTIFACT == 'true' && env.PUBLISH_UPDATE_METADATA == 'true'
         shell: powershell
         run: |
-          $reportedVersion = (& ".\rustdesk\rustdesk.exe" --version | Out-String).Trim()
+          $reportedVersion = (& ".\rustdesk\SealDesk.exe" --version | Out-String).Trim()
           if ($LASTEXITCODE -ne 0) {
             throw "rustdesk --version exited with $LASTEXITCODE"
           }
@@ -480,7 +480,7 @@ jobs:
           sed -i '/dpiAware/d' res/manifest.xml
           pushd ./libs/portable
           pip3 install -r requirements.txt
-          python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/rustdesk.exe
+          python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/SealDesk.exe
           popd
           mkdir -p ./SignOutput
           mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/sealdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.exe
@@ -531,7 +531,7 @@ jobs:
         run: |
           git checkout -- res/msi
           cp -r ./rustdesk ./rustdesk-msi-template
-          mv ./rustdesk-msi-template/rustdesk.exe ./rustdesk-msi-template/RDAPPNAM.exe
+          mv ./rustdesk-msi-template/SealDesk.exe ./rustdesk-msi-template/RDAPPNAM.exe
           Set-Content -Path ./rustdesk-msi-template/custom.txt -Value 'placeholder' -NoNewline
           $assets = './rustdesk-msi-template/data/flutter_assets/assets'
           New-Item -ItemType Directory -Force -Path $assets | Out-Null
@@ -2503,7 +2503,8 @@ jobs:
     needs:
       - build-rustdesk-linux
     runs-on: ${{ matrix.job.on }}
-    if: ${{ inputs.upload-artifact }}
+    # Disabled: run-on-arch needs a cache image for this fork that has never been published.
+    if: ${{ false }}
     strategy:
       fail-fast: false
       matrix:
@@ -2570,8 +2571,8 @@ jobs:
             # package
             pushd flatpak
             git clone https://github.com/flathub/shared-modules.git --depth=1
-            flatpak-builder --user --install-deps-from=flathub -y --force-clean --repo=repo ./build ./rustdesk.json
-            flatpak build-bundle ./repo sealdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.flatpak com.rustdesk.RustDesk
+            flatpak-builder --user --install-deps-from=flathub -y --force-clean --repo=repo ./build ./sealdesk.json
+            flatpak build-bundle ./repo sealdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.flatpak com.runseal.SealDesk
 
       - name: Publish flatpak package
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
