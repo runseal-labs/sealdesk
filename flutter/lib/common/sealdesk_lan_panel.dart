@@ -115,7 +115,7 @@ class _SealDeskLanPanelState extends State<SealDeskLanPanel> {
               style: TextStyle(fontSize: 12)),
         if (widget.host && _compatAddresses.isNotEmpty)
           SelectableText(
-              "RustDesk · ${translate('Direct and unencrypted connection')}\n${_compatAddresses.join(' / ')}",
+              "SealDesk · ${translate('Direct and unencrypted connection')}\n${_compatAddresses.join(' / ')}",
               textAlign: TextAlign.center),
         if (!widget.host && _peers.isEmpty)
           Text(
@@ -128,7 +128,7 @@ class _SealDeskLanPanelState extends State<SealDeskLanPanel> {
               subtitle: Text(widget.host
                   ? (item['key'] as String).substring(0, 12)
                   : item['protocol'] == 'rustdesk'
-                      ? "RustDesk · ${item['ip']} · ${translate('Direct and unencrypted connection')}"
+                      ? "SealDesk (RustDesk protocol) · ${item['ip']} · ${translate('Direct and unencrypted connection')}"
                       : "SealDesk · ${item['ip']} · ${translate('Direct and encrypted connection')}"),
               trailing: TextButton(
                   onPressed: () async {
