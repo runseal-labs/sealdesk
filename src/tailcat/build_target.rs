@@ -3,6 +3,10 @@ use std::{ffi::OsStr, process::Command};
 pub(crate) fn library_format(target_os: &str) -> (&'static str, &'static str, &'static str) {
     if target_os == "android" {
         ("c-shared", "libtailcat.so", "dylib")
+    } else if target_os == "windows" {
+        // A c-archive inside the MSVC-linked DLL never runs the Go runtime's
+        // gcc constructors, so the first call into Go blocks forever.
+        ("c-shared", "tailcat.dll", "dylib")
     } else {
         ("c-archive", "libtailcat.a", "static")
     }
@@ -70,7 +74,11 @@ mod tests {
             library_format("android"),
             ("c-shared", "libtailcat.so", "dylib")
         );
-        for target_os in ["linux", "macos", "windows", "ios"] {
+        assert_eq!(
+            library_format("windows"),
+            ("c-shared", "tailcat.dll", "dylib")
+        );
+        for target_os in ["linux", "macos", "ios"] {
             assert_eq!(
                 library_format(target_os),
                 ("c-archive", "libtailcat.a", "static")

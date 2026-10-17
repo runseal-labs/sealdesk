@@ -127,10 +127,18 @@ fn build_tailcat() -> Result<(), Box<dyn std::error::Error>> {
         &target_arch,
         compiler.as_deref(),
     )?;
-    let status = command
+    command
         .current_dir(dir)
         .arg("build")
-        .arg(format!("-buildmode={build_mode}"))
+        .arg(format!("-buildmode={build_mode}"));
+    if target_os == "windows" {
+        // GNU ld's import library is what MSVC link.exe resolves `dylib=tailcat` against.
+        command.arg(format!(
+            "-ldflags=-extldflags=-Wl,--out-implib,{}",
+            out.join("tailcat.lib").display()
+        ));
+    }
+    let status = command
         .args(["-trimpath", "-o"])
         .arg(out.join(library_name))
         .arg(".")
@@ -141,7 +149,7 @@ fn build_tailcat() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!("cargo:rustc-link-search=native={}", out.display());
     println!("cargo:rustc-link-lib={link_kind}=tailcat");
-    if target_os == "android" {
+    if target_os == "android" || target_os == "windows" {
         let profile_dir = out
             .ancestors()
             .nth(3)
