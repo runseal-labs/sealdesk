@@ -12,6 +12,7 @@ on:
 
 jobs:
   run-flutter-tag-build:
+    if: ${{ github.ref_type == 'tag' }}
     permissions:
       contents: write
     uses: ./.github/workflows/flutter-build.yml
