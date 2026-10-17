@@ -19,7 +19,7 @@ extern "C" uint32_t get_session_user_info(PWSTR bufin, uint32_t nin, uint32_t id
 
 void flog(char const *fmt, ...)
 {
-    FILE *h = fopen("C:\\Windows\\temp\\test_rustdesk.log", "at");
+    FILE *h = fopen("C:\\Windows\\temp\\test_sealdesk.log", "at");
     if (!h)
         return;
     va_list arg;

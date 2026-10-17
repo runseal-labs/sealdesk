@@ -24,7 +24,7 @@ namespace RemotePrinter
     // app name, and that arrives at runtime so one dll serves every custom client.
     LPCWCH RD_DRIVER_INF_PATH = L"drivers\\RustDeskPrinterDriver\\RustDeskPrinterDriver.inf";
     LPCWCH RD_PRINTER_DRIVER_NAME = L"RustDesk v4 Printer Driver";
-    LPCWCH RD_DEFAULT_APP_NAME = L"RustDesk";
+    LPCWCH RD_DEFAULT_APP_NAME = L"SealDesk";
     LPCWCH XCV_MONITOR_LOCAL_PORT = L",XcvMonitor Local Port";
 
     static std::wstring printerNameOf(const std::wstring &appName)

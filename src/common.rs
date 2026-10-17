@@ -822,7 +822,7 @@ pub(crate) fn release_id_from_update_url(update_url: &str) -> ResultType<String>
         ["rustdesk", "rustdesk", "releases", "tag", release_id] => *release_id,
         ["rustdesk", "rustdesk", "releases", "tag", release_id, ""] => *release_id,
         _ => bail!(
-            "Update URL is not a RustDesk release tag URL: {}",
+            "Update URL is not a release tag URL: {}",
             update_url
         ),
     };

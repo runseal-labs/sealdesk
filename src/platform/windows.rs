@@ -1244,7 +1244,7 @@ pub fn portable_service_logon_helper_paths() -> Option<(PathBuf, PathBuf)> {
         .home_dir()
         .join("AppData")
         .join("Local")
-        .join("rustdesk");
+        .join("sealdesk");
     let dst = dir.join("sealdesk.exe");
     Some((dir, dst))
 }
@@ -4435,7 +4435,7 @@ pub fn send_raw_data_to_printer(printer_name: Option<String>, data: Vec<u8>) -> 
             data.len() as c_ulong,
         );
         if res != 0 {
-            bail!("Failed to send data to the printer, see logs in C:\\Windows\\temp\\test_rustdesk.log for more details.");
+            bail!("Failed to send data to the printer, see logs in C:\\Windows\\temp\\test_sealdesk.log for more details.");
         } else {
             log::info!("Successfully sent data to the printer");
         }

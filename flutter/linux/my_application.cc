@@ -33,7 +33,7 @@ extern bool gIsConnectionManager;
 // Flutter's Linux embedder doesn't deliver X11 button 8/9 events to Dart.
 // We intercept them via GDK and forward through a dedicated platform channel.
 
-static const char* kSideButtonChannelName = "org.rustdesk.rustdesk/side_buttons";
+static const char* kSideButtonChannelName = "com.runseal.sealdesk/side_buttons";
 
 static gboolean on_side_button_event(GtkWidget* widget, GdkEventButton* event, gpointer user_data) {
   if (event->button != 8 && event->button != 9) {
@@ -182,7 +182,7 @@ static void my_application_activate(GApplication* application) {
   g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
   self->host_channel = fl_method_channel_new(
     fl_engine_get_binary_messenger(fl_view_get_engine(view)),
-    "org.rustdesk.rustdesk/host",
+    "com.runseal.sealdesk/host",
     FL_METHOD_CODEC(codec));
   fl_method_channel_set_method_call_handler(
     self->host_channel,
