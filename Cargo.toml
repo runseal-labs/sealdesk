@@ -220,7 +220,7 @@ exclude = ["vdi/host"]
 libxdo-sys = { path = "libs/libxdo-sys-stub" }
 
 [package.metadata.winres]
-LegalCopyright = "Copyright © 2026 Purslane Tech Pte. Ltd. All rights reserved."
+LegalCopyright = "Copyright © 2026 SealDesk contributors. All rights reserved."
 ProductName = "SealDesk"
 FileDescription = "SealDesk Remote Desktop"
 OriginalFilename = "sealdesk.exe"
