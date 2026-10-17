@@ -6,9 +6,11 @@ app_path=$1
 identity=$2
 entitlements=$3
 
-sign_args=(--force --options runtime --sign "$identity")
+sign_args=(--force --sign "$identity")
+# The hardened runtime enforces library validation, which rejects ad-hoc signed
+# frameworks ("different Team IDs"), so only a real identity gets it.
 if [[ "$identity" != "-" ]]; then
-  sign_args+=(--timestamp)
+  sign_args+=(--options runtime --timestamp)
 fi
 
 frameworks_path="$app_path/Contents/Frameworks"
