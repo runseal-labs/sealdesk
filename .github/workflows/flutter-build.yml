@@ -895,6 +895,8 @@ jobs:
           cache-dependency-path: libs/tailcat-ffi/go.sum
 
       - name: Build rustdesk
+        # flutter occasionally hangs before pub get with no output; fail fast instead of 6h.
+        timeout-minutes: 60
         run: |
           if [ "${{ matrix.job.target }}" = "aarch64-apple-darwin" ]; then
             MIN_MACOS_VERSION="12.3"
