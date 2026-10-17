@@ -983,7 +983,6 @@ def build_flutter_windows(version, features, skip_portable_pack):
     os.chdir('..')
     shutil.copy2('target/release/deps/dylib_virtual_display.dll',
                  flutter_build_dir_2)
-    shutil.copy2('target/release/tailcat.dll', flutter_build_dir_2)
     if skip_portable_pack:
         return
     os.chdir('libs/portable')
