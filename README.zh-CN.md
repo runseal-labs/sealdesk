@@ -12,7 +12,7 @@
 
 不用注册账号，不用 ID 服务器，不用自建中继，也不用做端口映射。
 
-> **Alpha 阶段。** 目前只验证了 Linux x64 和 Android arm64，其他平台还保留着 RustDesk 上游的代码，暂时不能用。
+> **Alpha 阶段。** 目前只验证了 Linux x64 和 Android arm64。Windows 和 macOS 版本还没有测试，macOS 应用未经公证，首次打开可能被 Gatekeeper 拦截。本版本不包含 iOS 版本。
 
 ## 原理
 
