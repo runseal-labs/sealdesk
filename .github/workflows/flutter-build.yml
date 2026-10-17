@@ -12,6 +12,10 @@ on:
       publish-update-metadata:
         type: boolean
         default: false
+      platforms:
+        # Comma-separated subset of windows,macos,android,linux; "all" builds every platform.
+        type: string
+        default: "all"
 
 # NOTE: F-Droid builder script 'flutter/build_fdroid.sh' reads environment
 # variables from this workflow!
@@ -148,6 +152,7 @@ jobs:
       target_version: Windows10
 
   build-for-windows-flutter:
+    if: ${{ inputs.platforms == 'all' || contains(inputs.platforms, 'windows') }}
     name: ${{ matrix.job.target }}
     needs: [build-RustDeskTempTopMostWindow, generate-bridge]
     runs-on: ${{ matrix.job.os }}
@@ -721,6 +726,7 @@ jobs:
 
 
   build-for-macOS:
+    if: ${{ inputs.platforms == 'all' || contains(inputs.platforms, 'macos') }}
     name: ${{ matrix.job.target }}
     runs-on: ${{ matrix.job.os }}
     needs: [generate-bridge]
@@ -1195,6 +1201,7 @@ jobs:
           files: sealdesk-${{ env.VERSION }}-unsigned.tar.gz
 
   build-rustdesk-android:
+    if: ${{ inputs.platforms == 'all' || contains(inputs.platforms, 'android') }}
     needs: [generate-bridge]
     name: build rustdesk android apk ${{ matrix.job.target }}
     runs-on: ${{ matrix.job.os }}
@@ -1731,6 +1738,7 @@ jobs:
             signed-apk/sealdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk
 
   build-rustdesk-linux:
+    if: ${{ inputs.platforms == 'all' || contains(inputs.platforms, 'linux') }}
     needs: [generate-bridge]
     name: build rustdesk linux ${{ matrix.job.target }}
     runs-on: ${{ matrix.job.on }}
@@ -2105,6 +2113,7 @@ jobs:
   # old for it. A separate job rather than a matrix entry of build-rustdesk-linux: appimage and
   # flatpak need that job, and a failure here must not skip them.
   build-rustdesk-linux-drm:
+    if: ${{ inputs.platforms == 'all' || contains(inputs.platforms, 'linux') }}
     needs: [generate-bridge]
     name: build rustdesk linux drm x86_64
     runs-on: ubuntu-22.04
