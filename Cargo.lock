@@ -6522,7 +6522,7 @@ dependencies = [
 
 [[package]]
 name = "rustdesk-portable-packer"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "brotli",
  "dirs 5.0.1",
@@ -6763,7 +6763,7 @@ dependencies = [
 
 [[package]]
 name = "sealdesk"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "android-wakelock",
  "android_logger",
