@@ -676,10 +676,17 @@ jobs:
           name: bridge-artifact
           path: ./
 
+      - name: Install Go
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00
+        with:
+          go-version-file: libs/tailcat-ffi/go.mod
+          cache-dependency-path: libs/tailcat-ffi/go.sum
+
       - name: Build rustdesk lib
         run: |
           rustup target add ${{ matrix.job.target }}
-          cargo build --locked --features flutter,hwcodec --release --target aarch64-apple-ios --lib
+          TAILCAT_CC="xcrun --sdk iphoneos clang -arch arm64 -isysroot $(xcrun --sdk iphoneos --show-sdk-path) -miphoneos-version-min=13.0" \
+            cargo build --locked --features flutter,hwcodec --release --target aarch64-apple-ios --lib
           
       - name: Upload libsealdesk.a Artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
