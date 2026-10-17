@@ -2511,21 +2511,21 @@ jobs:
           - {
               target: x86_64-unknown-linux-gnu,
               # https://github.com/ostreedev/ostree/commit/4bac96a8c817beda37448f9b8c662162bb619981
-              distro: ubuntu22.04,
+              distro: ubuntu18.04,
               on: ubuntu-22.04,
               arch: x86_64,
               suffix: "",
             }
           - {
               target: x86_64-unknown-linux-gnu,
-              distro: ubuntu22.04,
+              distro: ubuntu18.04,
               on: ubuntu-22.04,
               arch: x86_64,
             }
           - {
               target: aarch64-unknown-linux-gnu,
               # try out newer flatpak since error of "error: Nothing matches org.freedesktop.Platform in remote flathub"
-              distro: ubuntu22.04,
+              distro: ubuntu18.04,
               on: ubuntu-22.04-arm,
               arch: aarch64,
               suffix: "",
