@@ -2092,6 +2092,40 @@ pub(crate) fn get_bundle_id() -> Option<String> {
     }
 }
 
+// Called by tao's NSApplication delegate; the symbols must exist in the binary for the macOS link.
+#[no_mangle]
+extern "C" fn handle_open_urls(
+    _self: &objc::runtime::Object,
+    _cmd: objc::runtime::Sel,
+    _: cocoa::base::id,
+    urls: cocoa::base::id,
+) {
+    use cocoa::foundation::{NSArray, NSString, NSURL};
+    use std::ffi::CStr;
+    unsafe {
+        for i in 0..NSArray::count(urls) {
+            let url = NSArray::objectAtIndex(urls, i);
+            let theurl = CStr::from_ptr(NSString::UTF8String(NSURL::absoluteString(url)))
+                .to_string_lossy()
+                .into_owned();
+            log::debug!("URL received: {}", theurl);
+            std::thread::spawn(move || crate::handle_url_scheme(theurl));
+        }
+    }
+}
+
+#[no_mangle]
+fn service_should_handle_reopen(
+    _obj: &objc::runtime::Object,
+    _sel: objc::runtime::Sel,
+    _sender: cocoa::base::id,
+    _has_visible_windows: objc::runtime::BOOL,
+) -> objc::runtime::BOOL {
+    log::debug!("Invoking the main rustdesk process");
+    std::thread::spawn(move || crate::handle_url_scheme("".to_string()));
+    objc::runtime::NO
+}
+
 #[cfg(test)]
 mod update_tests {
     use super::*;

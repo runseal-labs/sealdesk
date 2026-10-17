@@ -21,7 +21,9 @@ on:
 # in this file!
 
 env:
-  MAC_RUST_VERSION: "1.81" # 1.81 is requred for macos, because of https://github.com/yury/cidre requires 1.81
+  # Matches the toolchain used by ci.yml.
+  RUST_VERSION: "stable"
+  MAC_RUST_VERSION: "1.84" # >= 1.81 for https://github.com/yury/cidre; >= 1.84 for Ipv6Addr::is_unique_local (src/lan.rs)
   CARGO_NDK_VERSION: "3.1.2"
   LLVM_VERSION: "15.0.6"
   FLUTTER_VERSION: "3.24.5"
@@ -279,6 +281,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
+          toolchain: ${{ env.RUST_VERSION }}
           targets: ${{ matrix.job.target }}
           components: "rustfmt"
 
@@ -319,6 +322,55 @@ jobs:
         if: ${{ matrix.job.arch == 'aarch64' }}
         shell: bash
         run: echo "SODIUM_LIB_DIR=$VCPKG_ROOT/installed/${{ matrix.job.vcpkg-triplet }}/lib" >> "$GITHUB_ENV"
+
+      # build.rs builds libs/tailcat-ffi with cgo. MSVC cl.exe is not a cgo compiler.
+      # x64 builds with the runner's preinstalled gcc; MSYS2 UCRT64 gcc failed in
+      # runtime/cgo there. Arm64 must not use the x86 gcc
+      # gcc: cgo then assembles runtime/cgo/gcc_arm64.S with an x86 assembler.
+      # CLANGARM64 is MSYS2's llvm-mingw clang and targets aarch64 Windows.
+      - name: Install Go
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00
+        with:
+          go-version-file: libs/tailcat-ffi/go.mod
+          cache-dependency-path: libs/tailcat-ffi/go.sum
+
+      - name: Install Windows cgo compiler
+        id: msys2
+        if: matrix.job.arch == 'aarch64'
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e
+        with:
+          msystem: ${{ matrix.job.arch == 'aarch64' && 'CLANGARM64' || 'UCRT64' }}
+          update: true
+          install: ${{ matrix.job.arch == 'aarch64' && 'mingw-w64-clang-aarch64-clang' || 'mingw-w64-ucrt-x86_64-gcc' }}
+
+      - name: Select Windows cgo compiler
+        if: matrix.job.arch == 'aarch64'
+        shell: bash
+        env:
+          MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
+          TARGET_ARCH: ${{ matrix.job.arch }}
+        run: |
+          set -euo pipefail
+          root=${MSYS2_LOCATION//\\//}
+          case "$TARGET_ARCH" in
+            aarch64)
+              compiler="$root/clangarm64/bin/clang.exe"
+              ;;
+            x86_64)
+              compiler="$root/ucrt64/bin/gcc.exe"
+              ;;
+            *)
+              echo "::error::no cgo compiler mapping for $TARGET_ARCH"
+              exit 1
+              ;;
+          esac
+          if [[ ! -f "$compiler" ]]; then
+            echo "::error::cgo compiler not found: $compiler"
+            exit 1
+          fi
+          # Absolute path so cgo does not pick Git's x86 gcc, and so this
+          # compiler is not prepended to PATH ahead of MSVC.
+          printf 'TAILCAT_CC=%s\n' "$compiler" >> "$GITHUB_ENV"
 
       - name: Build rustdesk
         run: |
@@ -698,7 +750,7 @@ jobs:
           submodules: recursive
 
       - name: Import the codesign cert
-        if: env.MACOS_P12_BASE64 != null
+        if: env.MACOS_P12_BASE64 != ''
         uses: apple-actions/import-codesign-certs@253ddeeac23f2bdad1646faac5c8c2832e800071 # v1
         with:
           p12-file-base64: ${{ secrets.MACOS_P12_BASE64 }}
@@ -706,13 +758,13 @@ jobs:
           keychain: rustdesk
 
       - name: Check sign and import sign key
-        if: env.MACOS_P12_BASE64 != null
+        if: env.MACOS_P12_BASE64 != ''
         run: |
           security default-keychain -s rustdesk.keychain
           security find-identity -v
 
       - name: Import notarize key
-        if: env.MACOS_P12_BASE64 != null
+        if: env.MACOS_P12_BASE64 != ''
         uses: timheuer/base64-to-file@adaa40c0c581f276132199d4cf60afa07ce60eac # v1.2
         with:
           # https://gregoryszorc.com/docs/apple-codesign/stable/apple_codesign_rcodesign.html#notarizing-and-stapling
@@ -721,7 +773,7 @@ jobs:
           encodedString: ${{ secrets.MACOS_NOTARIZE_JSON }}
 
       - name: Install rcodesign tool
-        if: env.MACOS_P12_BASE64 != null
+        if: env.MACOS_P12_BASE64 != ''
         shell: bash
         run: |
           pushd /tmp
@@ -797,6 +849,7 @@ jobs:
       - name: Setup vcpkg with Github Actions binary cache
         uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2 # v11
         with:
+          vcpkgDirectory: ${{ runner.temp }}/vcpkg
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
@@ -825,6 +878,12 @@ jobs:
           rustup default
           cargo -V
           rustc -V
+
+      - name: Install Go
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00
+        with:
+          go-version-file: libs/tailcat-ffi/go.mod
+          cache-dependency-path: libs/tailcat-ffi/go.sum
 
       - name: Build rustdesk
         run: |
@@ -872,7 +931,7 @@ jobs:
           path: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.dmg # can not upload the directory directly or tar.gz, which destroy the link structure, causing the codesign failed
 
       - name: Codesign app and create signed dmg
-        if: env.MACOS_P12_BASE64 != null && env.UPLOAD_ARTIFACT == 'true'
+        if: env.MACOS_P12_BASE64 != '' && env.UPLOAD_ARTIFACT == 'true'
         run: |
           # Patch create-dmg to give more attempts to unmount image
           CREATE_DMG="$(command -v create-dmg)"
@@ -913,7 +972,7 @@ jobs:
           test -f "rustdesk-${VERSION}-${ARCH}.dmg"
 
       - name: Upload signed macOS DMG
-        if: env.UPLOAD_ARTIFACT == 'true' && env.PUBLISH_UPDATE_METADATA == 'true' && env.MACOS_P12_BASE64 != null
+        if: env.UPLOAD_ARTIFACT == 'true' && env.PUBLISH_UPDATE_METADATA == 'true' && env.MACOS_P12_BASE64 != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: macos-${{ matrix.job.arch }}-dmg
@@ -1334,8 +1393,26 @@ jobs:
           export PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH
           # Increase Gradle JVM memory for CI builds
           sed -i "s/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx2g/g" ./flutter/android/gradle.properties
-          # temporary use debug sign config
-          sed -i "s/signingConfigs.release/signingConfigs.debug/g" ./flutter/android/app/build.gradle
+          if [ -z "${ANDROID_SIGNING_KEY}" ]; then
+            export SEALDESK_ANDROID_ALLOW_UNSIGNED=1
+            echo "ANDROID_SIGNING_KEY is empty; allowing an unsigned release APK"
+          else
+            export SEALDESK_ANDROID_ALLOW_UNSIGNED=0
+          fi
+          resolve_flutter_apk() {
+            local preferred="$1"
+            local unsigned="${preferred%.apk}-unsigned.apk"
+            if [ -f "$preferred" ]; then
+              printf '%s\n' "$preferred"
+              return 0
+            fi
+            if [ -f "$unsigned" ]; then
+              printf '%s\n' "$unsigned"
+              return 0
+            fi
+            printf 'ERROR: APK not found at %s or %s\n' "$preferred" "$unsigned" >&2
+            return 1
+          }
           case ${{ matrix.job.target }} in
             aarch64-linux-android)
               mkdir -p ./flutter/android/app/src/main/jniLibs/arm64-v8a
@@ -1344,8 +1421,9 @@ jobs:
               # build flutter
               pushd flutter
               flutter build apk "--${{ matrix.job.reltype }}" --target-platform android-arm64 --split-per-abi
-              python3 ../tests/check_sealdesk_android_package.py build/app/outputs/flutter-apk/app-arm64-v8a-${{ matrix.job.reltype }}.apk --abi arm64-v8a
-              mv build/app/outputs/flutter-apk/app-arm64-v8a-${{ matrix.job.reltype }}.apk ../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk
+              apk_path="$(resolve_flutter_apk "build/app/outputs/flutter-apk/app-arm64-v8a-${{ matrix.job.reltype }}.apk")" || exit 1
+              python3 ../tests/check_sealdesk_android_package.py "$apk_path" --abi arm64-v8a
+              mv "$apk_path" "../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
             ;;
             armv7-linux-androideabi)
               mkdir -p ./flutter/android/app/src/main/jniLibs/armeabi-v7a
@@ -1354,8 +1432,9 @@ jobs:
               # build flutter
               pushd flutter
               flutter build apk "--${{ matrix.job.reltype }}" --target-platform android-arm --split-per-abi
-              python3 ../tests/check_sealdesk_android_package.py build/app/outputs/flutter-apk/app-armeabi-v7a-${{ matrix.job.reltype }}.apk --abi armeabi-v7a
-              mv build/app/outputs/flutter-apk/app-armeabi-v7a-${{ matrix.job.reltype }}.apk ../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk
+              apk_path="$(resolve_flutter_apk "build/app/outputs/flutter-apk/app-armeabi-v7a-${{ matrix.job.reltype }}.apk")" || exit 1
+              python3 ../tests/check_sealdesk_android_package.py "$apk_path" --abi armeabi-v7a
+              mv "$apk_path" "../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
             ;;
             x86_64-linux-android)
               mkdir -p ./flutter/android/app/src/main/jniLibs/x86_64
@@ -1364,8 +1443,9 @@ jobs:
               # build flutter
               pushd flutter
               flutter build apk "--${{ matrix.job.reltype }}" --target-platform android-x64 --split-per-abi
-              python3 ../tests/check_sealdesk_android_package.py build/app/outputs/flutter-apk/app-x86_64-${{ matrix.job.reltype }}.apk --abi x86_64
-              mv build/app/outputs/flutter-apk/app-x86_64-${{ matrix.job.reltype }}.apk ../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk
+              apk_path="$(resolve_flutter_apk "build/app/outputs/flutter-apk/app-x86_64-${{ matrix.job.reltype }}.apk")" || exit 1
+              python3 ../tests/check_sealdesk_android_package.py "$apk_path" --abi x86_64
+              mv "$apk_path" "../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
             ;;
             i686-linux-android)
               mkdir -p ./flutter/android/app/src/main/jniLibs/x86
@@ -1374,8 +1454,9 @@ jobs:
               # build flutter
               pushd flutter
               flutter build apk "--${{ matrix.job.reltype }}" --target-platform android-x86 --split-per-abi
-              python3 ../tests/check_sealdesk_android_package.py build/app/outputs/flutter-apk/app-x86-${{ matrix.job.reltype }}.apk --abi x86
-              mv build/app/outputs/flutter-apk/app-x86-${{ matrix.job.reltype }}.apk ../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk
+              apk_path="$(resolve_flutter_apk "build/app/outputs/flutter-apk/app-x86-${{ matrix.job.reltype }}.apk")" || exit 1
+              python3 ../tests/check_sealdesk_android_package.py "$apk_path" --abi x86
+              mv "$apk_path" "../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
             ;;
           esac
           popd
@@ -1392,7 +1473,7 @@ jobs:
 
       - uses: r0adkll/sign-android-release@349ebdef58775b1e0d8099458af0816dc79b6407 # v1
         name: Sign app APK
-        if: env.ANDROID_SIGNING_KEY != null
+        if: env.ANDROID_SIGNING_KEY != ''
         id: sign-rustdesk
         with:
           releaseDirectory: ./signed-apk
@@ -1405,14 +1486,14 @@ jobs:
           BUILD_TOOLS_VERSION: ${{ env.ANDROID_SIGN_TOOL_VERSION }}
 
       - name: Upload Artifacts
-        if: env.ANDROID_SIGNING_KEY != null && env.UPLOAD_ARTIFACT == 'true'
+        if: env.ANDROID_SIGNING_KEY != '' && env.UPLOAD_ARTIFACT == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.apk
           path: ${{steps.sign-rustdesk.outputs.signedReleaseFile}}
 
       - name: Publish signed apk package
-        if: env.ANDROID_SIGNING_KEY != null && env.UPLOAD_ARTIFACT == 'true'
+        if: env.ANDROID_SIGNING_KEY != '' && env.UPLOAD_ARTIFACT == 'true'
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           prerelease: true
@@ -1421,7 +1502,7 @@ jobs:
             ${{steps.sign-rustdesk.outputs.signedReleaseFile}}
 
       - name: Publish unsigned apk package
-        if: env.ANDROID_SIGNING_KEY == null && env.UPLOAD_ARTIFACT == 'true'
+        if: env.ANDROID_SIGNING_KEY == '' && env.UPLOAD_ARTIFACT == 'true'
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           prerelease: true
@@ -1548,8 +1629,26 @@ jobs:
           export PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH
           # Increase Gradle JVM memory for CI builds
           sed -i "s/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx2g/g" ./flutter/android/gradle.properties
-          # temporary use debug sign config
-          sed -i "s/signingConfigs.release/signingConfigs.debug/g" ./flutter/android/app/build.gradle
+          if [ -z "${ANDROID_SIGNING_KEY}" ]; then
+            export SEALDESK_ANDROID_ALLOW_UNSIGNED=1
+            echo "ANDROID_SIGNING_KEY is empty; allowing an unsigned release APK"
+          else
+            export SEALDESK_ANDROID_ALLOW_UNSIGNED=0
+          fi
+          resolve_flutter_apk() {
+            local preferred="$1"
+            local unsigned="${preferred%.apk}-unsigned.apk"
+            if [ -f "$preferred" ]; then
+              printf '%s\n' "$preferred"
+              return 0
+            fi
+            if [ -f "$unsigned" ]; then
+              printf '%s\n' "$unsigned"
+              return 0
+            fi
+            printf 'ERROR: APK not found at %s or %s\n' "$preferred" "$unsigned" >&2
+            return 1
+          }
           mv ./flutter/android/app/src/main/jniLibs/arm64-v8a/libsealdesk.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/libsealdesk.so
           cp ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/
           mv ./flutter/android/app/src/main/jniLibs/armeabi-v7a/libsealdesk.so ./flutter/android/app/src/main/jniLibs/armeabi-v7a/libsealdesk.so
@@ -1567,10 +1666,11 @@ jobs:
           if [ "${{ env.reltype }}" = "debug" ]; then
             package_abis+=(--abi x86)
           fi
-          python3 ../tests/check_sealdesk_android_package.py build/app/outputs/flutter-apk/app-${{ env.reltype }}.apk "${package_abis[@]}"
+          apk_path="$(resolve_flutter_apk "build/app/outputs/flutter-apk/app-${{ env.reltype }}.apk")" || exit 1
+          python3 ../tests/check_sealdesk_android_package.py "$apk_path" "${package_abis[@]}"
           popd
           mkdir -p signed-apk
-          mv ./flutter/build/app/outputs/flutter-apk/app-${{ env.reltype }}.apk signed-apk/rustdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk
+          mv "./flutter/${apk_path}" "signed-apk/rustdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk"
 
       # https://github.com/r0adkll/sign-android-release/issues/84#issuecomment-1889636075
       - name: Setup sign tool version variable
@@ -1582,7 +1682,7 @@ jobs:
 
       - uses: r0adkll/sign-android-release@349ebdef58775b1e0d8099458af0816dc79b6407 # v1
         name: Sign app APK
-        if: env.ANDROID_SIGNING_KEY != null
+        if: env.ANDROID_SIGNING_KEY != ''
         id: sign-rustdesk
         with:
           releaseDirectory: ./signed-apk
@@ -1595,14 +1695,14 @@ jobs:
           BUILD_TOOLS_VERSION: ${{ env.ANDROID_SIGN_TOOL_VERSION }}
 
       - name: Upload Artifacts
-        if: env.ANDROID_SIGNING_KEY != null && env.UPLOAD_ARTIFACT == 'true'
+        if: env.ANDROID_SIGNING_KEY != '' && env.UPLOAD_ARTIFACT == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.apk
+          name: rustdesk-${{ env.VERSION }}-universal.apk
           path: ${{steps.sign-rustdesk.outputs.signedReleaseFile}}
 
       - name: Publish signed apk package
-        if: env.ANDROID_SIGNING_KEY != null && env.UPLOAD_ARTIFACT == 'true'
+        if: env.ANDROID_SIGNING_KEY != '' && env.UPLOAD_ARTIFACT == 'true'
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           prerelease: true
@@ -1611,7 +1711,7 @@ jobs:
             ${{steps.sign-rustdesk.outputs.signedReleaseFile}}
 
       - name: Publish unsigned apk package
-        if: env.ANDROID_SIGNING_KEY == null && env.UPLOAD_ARTIFACT == 'true'
+        if: env.ANDROID_SIGNING_KEY == '' && env.UPLOAD_ARTIFACT == 'true'
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           prerelease: true
@@ -1828,8 +1928,32 @@ jobs:
               export JOBS=""
             fi
             echo $JOBS
+            # build.rs runs go/cgo inside this container. setup-go on the host
+            # is not visible here; install the go.mod version, same pin as
+            # actions/setup-go's go-version-file.
+            go_mod=/workspace/libs/tailcat-ffi/go.mod
+            go_version=$(awk '/^go / { print $2; exit }' "$go_mod")
+            if [[ -z "$go_version" ]]; then
+              echo "::error::could not read the Go version from $go_mod"
+              exit 1
+            fi
+            case "$(uname -m)" in
+              x86_64) go_arch=amd64 ;;
+              aarch64) go_arch=arm64 ;;
+              *)
+                echo "::error::no Go toolchain for $(uname -m)"
+                exit 1
+                ;;
+            esac
+            curl -fsSL "https://dl.google.com/go/go${go_version}.linux-${go_arch}.tar.gz" -o /tmp/go.tgz
+            rm -rf /usr/local/go
+            tar -C /usr/local -xzf /tmp/go.tgz
+            rm -f /tmp/go.tgz
+            export PATH="/usr/local/go/bin:${PATH}"
+            export GO=/usr/local/go/bin/go
+            go version
             cargo build --locked --lib $JOBS --features hwcodec,flutter,unix-file-copy-paste --release
-            cargo test --locked --release $JOBS --features flutter --example session_close
+            cargo test --locked --release $JOBS --features flutter --lib session_close_tests
             rm -rf target/release/deps target/release/build
             rm -rf ~/.cargo
 
@@ -1887,7 +2011,7 @@ jobs:
             export CARGO_INCREMENTAL=0
             export DEB_ARCH=${{ matrix.job.deb_arch }}
             python3 ./build.py --flutter --skip-cargo
-            for name in rustdesk*??.deb; do
+            for name in sealdesk*??.deb; do
               mv "$name" "${name%%.deb}-${{ matrix.job.arch }}.deb"
             done
 
@@ -1901,7 +2025,7 @@ jobs:
             esac
             HBB=`pwd` rpmbuild ./res/rpm-flutter.spec -bb
             pushd ~/rpmbuild/RPMS/${{ matrix.job.arch }}
-            for name in rustdesk*??.rpm; do
+            for name in sealdesk*??.rpm; do
                 mv "$name" /workspace/"${name%%.rpm}.rpm"
             done
 
@@ -1915,7 +2039,7 @@ jobs:
             esac
             HBB=`pwd` rpmbuild ./res/rpm-flutter-suse.spec -bb
             pushd ~/rpmbuild/RPMS/${{ matrix.job.arch }}
-            for name in rustdesk*??.rpm; do
+            for name in sealdesk*??.rpm; do
                 mv "$name" /workspace/"${name%%.rpm}-suse.rpm"
             done
 
@@ -2173,6 +2297,30 @@ jobs:
             #
             # A cargo test FILTER that matches nothing exits 0, so a rename would turn this into a
             # green no-op. Assert each command actually ran something.
+            # build.rs runs go/cgo inside this container. setup-go on the host
+            # is not visible here; install the go.mod version, same pin as
+            # actions/setup-go's go-version-file.
+            go_mod=/workspace/libs/tailcat-ffi/go.mod
+            go_version=$(awk '/^go / { print $2; exit }' "$go_mod")
+            if [[ -z "$go_version" ]]; then
+              echo "::error::could not read the Go version from $go_mod"
+              exit 1
+            fi
+            case "$(uname -m)" in
+              x86_64) go_arch=amd64 ;;
+              aarch64) go_arch=arm64 ;;
+              *)
+                echo "::error::no Go toolchain for $(uname -m)"
+                exit 1
+                ;;
+            esac
+            curl -fsSL "https://dl.google.com/go/go${go_version}.linux-${go_arch}.tar.gz" -o /tmp/go.tgz
+            rm -rf /usr/local/go
+            tar -C /usr/local -xzf /tmp/go.tgz
+            rm -f /tmp/go.tgz
+            export PATH="/usr/local/go/bin:${PATH}"
+            export GO=/usr/local/go/bin/go
+            go version
             run_drm_tests() {
               local desc="$1"; shift
               local out
@@ -2234,7 +2382,7 @@ jobs:
             export CARGO_INCREMENTAL=0
             export DEB_ARCH=amd64
             python3 ./build.py --flutter --drm --hwcodec --unix-file-copy-paste --skip-cargo
-            for name in rustdesk*??.deb; do
+            for name in sealdesk-unattended-wayland-*.deb; do
               mv "$name" "${name%%.deb}-x86_64.deb"
             done
 
@@ -2247,24 +2395,24 @@ jobs:
           # Resolve by glob, not from env.VERSION: build.py names the deb from Cargo.toml, so a
           # hardcoded name fails with a bare exit 1 the first time those two drift.
           shopt -s nullglob
-          debs=(rustdesk-unattended-wayland-*-x86_64.deb)
+          debs=(sealdesk-unattended-wayland-*-x86_64.deb)
           if [ "${#debs[@]}" -ne 1 ]; then
-            echo "::error::expected one rustdesk-unattended-wayland-*-x86_64.deb, found ${#debs[@]}: ${debs[*]-none}"
+            echo "::error::expected one sealdesk-unattended-wayland-*-x86_64.deb, found ${#debs[@]}: ${debs[*]-none}"
             exit 1
           fi
           deb="${debs[0]}"
           echo "DRM_DEB=$deb" >> "$GITHUB_ENV"
           contents="$(dpkg -c "$deb")"
-          if [[ ! "$contents" =~ usr/lib/rustdesk/libdrmtap\.so\.0\.[0-9]+\.[0-9]+ ]]; then
+          if [[ ! "$contents" =~ usr/lib/sealdesk/libdrmtap\.so\.0\.[0-9]+\.[0-9]+ ]]; then
             echo "::error::$deb has no versioned libdrmtap.so.0.x.y"
             exit 1
           fi
-          if [[ "$contents" != *"usr/lib/rustdesk/libdrmtap.so.0 ->"* ]]; then
+          if [[ "$contents" != *"usr/lib/sealdesk/libdrmtap.so.0 ->"* ]]; then
             echo "::error::$deb has no libdrmtap.so.0 soname symlink"
             exit 1
           fi
           rm -rf /tmp/deb && dpkg-deb -R "$deb" /tmp/deb
-          if ! grep -qF /usr/lib/rustdesk/libdrmtap.so.0 /tmp/deb/usr/share/rustdesk/lib/libsealdesk.so; then
+          if ! grep -qF /usr/lib/sealdesk/libdrmtap.so.0 /tmp/deb/usr/share/sealdesk/lib/libsealdesk.so; then
             echo "::error::$deb was not built with the drm feature"
             exit 1
           fi
@@ -2425,7 +2573,8 @@ jobs:
             flatpak/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.flatpak
 
   build-rustdesk-web:
-    if: False
+    # Web client sources are not in this tree, so the job stays off.
+    if: false
     needs: [validate-update-metadata-keys]
     name: build-rustdesk-web
     runs-on: ubuntu-22.04

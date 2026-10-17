@@ -122,6 +122,10 @@ keyPassword=<key-password>
 Protect it with `chmod 600 ~/.sealdesk/key.properties`. Do not commit signing
 keys, passwords, local SDK configuration, or build outputs. Release Gradle tasks
 reject missing signing configuration; debug tasks do not require release keys.
+Set `SEALDESK_ANDROID_ALLOW_UNSIGNED=1` (environment variable or Gradle property)
+to build an unsigned release APK when signing is absent. CI sets that opt-in
+only when `ANDROID_SIGNING_KEY` is empty. Flutter still copies the unsigned
+APK to `app-<abi>-release.apk` or `app-release.apk`.
 
 ## Validation scope
 

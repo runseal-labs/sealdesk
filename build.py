@@ -940,9 +940,6 @@ def build_flutter_dmg(version, features):
         # set minimum osx build target, now is 10.14, which is the same as the flutter xcode project
         system2(
             f'MACOSX_DEPLOYMENT_TARGET=10.14 cargo build --locked --features {features} --release')
-    # copy dylib
-    system2(
-        "cp target/release/libsealdesk.dylib target/release/libsealdesk.dylib")
     os.chdir('flutter')
     # cargo builds a single-arch dylib for the host; restrict Xcode to the same arch
     # so the universal-by-default ARCHS_STANDARD doesn't try to link a missing slice.
@@ -973,6 +970,11 @@ def build_flutter_arch_manjaro(version, features):
 def build_flutter_windows(version, features, skip_portable_pack):
     if not skip_cargo:
         system2(f'cargo build --locked --features {features} --lib --release')
+        # MSVC names the cdylib after the crate (sealdesk.dll); the runner,
+        # CMake install rule and Dart loader expect libsealdesk.dll.
+        if os.path.exists("target/release/sealdesk.dll"):
+            shutil.copy2("target/release/sealdesk.dll",
+                         "target/release/libsealdesk.dll")
         if not os.path.exists("target/release/libsealdesk.dll"):
             print("cargo build failed, please check rust source code.")
             exit(-1)

@@ -22,24 +22,41 @@ def requiredKeystoreProperties = ['keyAlias', 'keyPassword', 'storeFile', 'store
 def missingKeystoreProperties = requiredKeystoreProperties.findAll {
     !keystoreProperties.getProperty(it)?.trim()
 }
+def signingMissing = !keystorePropertiesFile.isFile() || !missingKeystoreProperties.isEmpty()
+def allowUnsignedRaw = System.getenv('SEALDESK_ANDROID_ALLOW_UNSIGNED')
+if (allowUnsignedRaw == null || allowUnsignedRaw.trim().isEmpty()) {
+    def allowUnsignedProperty = findProperty('SEALDESK_ANDROID_ALLOW_UNSIGNED')
+    allowUnsignedRaw = allowUnsignedProperty == null ? '' : allowUnsignedProperty.toString()
+}
+def allowUnsignedRelease = allowUnsignedRaw != null && (
+        allowUnsignedRaw.trim() == '1' || allowUnsignedRaw.trim().equalsIgnoreCase('true'))
 def releaseTaskRequested = gradle.startParameter.taskNames.any {
     it.toLowerCase(Locale.ROOT).contains('release')
 }
-if (releaseTaskRequested && (!keystorePropertiesFile.isFile() || !missingKeystoreProperties.isEmpty())) {
+if (releaseTaskRequested && signingMissing && !allowUnsignedRelease) {
     def missing = !keystorePropertiesFile.isFile()
             ? "properties file ${keystorePropertiesFile.absolutePath}"
             : "properties: ${missingKeystoreProperties.join(', ')}"
     throw new GradleException("Release signing is not configured; provide ${missing} outside the repository")
 }
-if (!missingKeystoreProperties.isEmpty()) {
+if (signingMissing && allowUnsignedRelease) {
+    if (releaseTaskRequested) {
+        def signingGap = !keystorePropertiesFile.isFile()
+                ? "missing ${keystorePropertiesFile.absolutePath}"
+                : "missing properties: ${missingKeystoreProperties.join(', ')}"
+        // flutter build apk passes Gradle -q, which hides logger.warn.
+        logger.quiet("WARNING: Android release signing is not configured (${signingGap}); building an unsigned release APK because SEALDESK_ANDROID_ALLOW_UNSIGNED is set")
+    }
+} else if (!missingKeystoreProperties.isEmpty()) {
     logger.lifecycle("Android release signing is not configured; release tasks will fail until ${keystorePropertiesFile.absolutePath} is populated")
 }
 def releaseKeystoreFile = keystoreProperties.getProperty('storeFile')
         ? file(keystoreProperties.getProperty('storeFile'))
         : null
-if (releaseTaskRequested && releaseKeystoreFile != null && !releaseKeystoreFile.isFile()) {
+if (!signingMissing && releaseTaskRequested && releaseKeystoreFile != null && !releaseKeystoreFile.isFile()) {
     throw new GradleException("Android release keystore does not exist: ${releaseKeystoreFile.absolutePath}")
 }
+def releaseSigningConfigured = !signingMissing
 
 def localProperties = new Properties()
 def localPropertiesFile = rootProject.file('local.properties')
@@ -135,18 +152,20 @@ android {
 
     signingConfigs {
       release {
-        keyAlias keystoreProperties['keyAlias']
-        keyPassword keystoreProperties['keyPassword']
-        storeFile releaseKeystoreFile
-        storePassword keystoreProperties['storePassword']
+        if (releaseSigningConfigured) {
+          keyAlias keystoreProperties['keyAlias']
+          keyPassword keystoreProperties['keyPassword']
+          storeFile releaseKeystoreFile
+          storePassword keystoreProperties['storePassword']
+        }
       }
     }
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig signingConfigs.release
+            if (releaseSigningConfigured) {
+                signingConfig signingConfigs.release
+            }
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules'
         }
     }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:desktop_drop/desktop_drop.dart';
@@ -205,19 +206,37 @@ void main() {
     return SealDeskPairing.parse(clipboard!, now: now);
   }
 
+  // desktop_drop 0.4.4 accepts a drop while idle only for GTK
+  // (performOperation_linux). macOS and Windows enter first, then
+  // performOperation with filesystem paths.
   Future<void> dropFiles(WidgetTester tester, String uris) async {
     final center = tester.getCenter(find.byType(DropTarget));
-    await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
-      'desktop_drop',
-      const StandardMethodCodec().encodeMethodCall(MethodCall(
-        'performOperation_linux',
-        [
-          uris,
-          [center.dx, center.dy]
-        ],
-      )),
-      (_) {},
-    );
+    final messenger = tester.binding.defaultBinaryMessenger;
+    Future<void> invoke(String method, Object? arguments) {
+      return messenger.handlePlatformMessage(
+        'desktop_drop',
+        const StandardMethodCodec().encodeMethodCall(
+          MethodCall(method, arguments),
+        ),
+        (_) {},
+      );
+    }
+
+    if (Platform.isLinux) {
+      await invoke('performOperation_linux', [
+        uris,
+        [center.dx, center.dy],
+      ]);
+    } else {
+      final paths = uris
+          .split('\n')
+          .where((line) => line.isNotEmpty)
+          .map((line) => Uri.parse(line).toFilePath(windows: false))
+          .toList();
+      final scale = Platform.isWindows ? tester.view.devicePixelRatio : 1.0;
+      await invoke('entered', [center.dx * scale, center.dy * scale]);
+      await invoke('performOperation', paths);
+    }
     await tester.pump();
   }
 

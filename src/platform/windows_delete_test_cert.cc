@@ -362,7 +362,7 @@ BOOL DeleteRustDeskTestCertsW_SingleHive(HKEY RootKey, LPWSTR Prefix = NULL) {
 
 //*************************************************************
 //
-//  DeleteRustDeskTestCertsW()
+//  DeleteSealDeskTestCertsW()
 //
 //  Purpose:    Deletes RustDesk Test certificates and wrong key stores
 //
@@ -372,7 +372,7 @@ BOOL DeleteRustDeskTestCertsW_SingleHive(HKEY RootKey, LPWSTR Prefix = NULL) {
 //
 //*************************************************************
 
-extern "C" void DeleteRustDeskTestCertsW() {
+extern "C" void DeleteSealDeskTestCertsW() {
 	// Current user
 	std::wcout << "*** Current User" << std::endl;
 	DeleteRustDeskTestCertsW_SingleHive(HKEY_CURRENT_USER);
@@ -401,6 +401,6 @@ extern "C" void DeleteRustDeskTestCertsW() {
 
 //  int main()
 //  {
-//  	DeleteRustDeskTestCertsW();
+//  	DeleteSealDeskTestCertsW();
 //  	return 0;
 //  }
