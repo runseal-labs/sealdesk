@@ -2,6 +2,10 @@ name: Full Flutter CI
 
 on:
   workflow_dispatch:
+    inputs:
+      platforms:
+        description: "Comma-separated subset of windows,macos,android,linux, or all"
+        default: "all"
   pull_request:
     paths-ignore:
     - "docs/**"
@@ -26,3 +30,4 @@ jobs:
     uses: ./.github/workflows/flutter-build.yml
     with:
       upload-artifact: false
+      platforms: ${{ inputs.platforms || 'all' }}
