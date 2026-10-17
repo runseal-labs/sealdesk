@@ -13,9 +13,7 @@ Scan the QR code from your phone or another computer. That's it: you're in.
 
 No account. No ID server. No relay to host. No port forwarding.
 
-> **Alpha.** Linux x64 and Android arm64 are tested. Windows and macOS builds
-> are not tested yet, and the macOS app is not notarized, so Gatekeeper may
-> block the first launch. There is no iOS build in this release.
+> Tested on Linux x64, Android arm64, Windows and macOS. The macOS app is not notarized, so Gatekeeper may block the first launch. There is no iOS build in this release.
 
 ## How it works
 
