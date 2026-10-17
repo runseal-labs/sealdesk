@@ -927,6 +927,10 @@ jobs:
       - name: create unsigned dmg
         if: env.UPLOAD_ARTIFACT == 'true'
         run: |
+          # Ad-hoc sign every nested binary the same way. Flutter's default signature leaves the
+          # framework and the executable with different Team IDs, and macOS refuses to load them.
+          bash ./.github/scripts/sign-macos-app.sh \
+            ./flutter/build/macos/Build/Products/Release/SealDesk.app - ./flutter/macos/Runner/Release.entitlements
           CREATE_DMG="$(command -v create-dmg)"
           CREATE_DMG="$(readlink -f "$CREATE_DMG")"
           sed -i -e 's/MAXIMUM_UNMOUNTING_ATTEMPTS=3/MAXIMUM_UNMOUNTING_ATTEMPTS=7/' "$CREATE_DMG"
