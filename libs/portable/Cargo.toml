@@ -1,8 +1,8 @@
 [package]
 name = "rustdesk-portable-packer"
-version = "1.5.1"
+version = "0.2.0"
 edition = "2021"
-description = "RustDesk Remote Desktop"
+description = "SealDesk Remote Desktop"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -27,10 +27,10 @@ windows = { version = "0.61", features = [
 native-windows-gui = {version = "1.0", default-features = false, features = ["animation-timer", "image-decoder"]}
 
 [package.metadata.winres]
-LegalCopyright = "Copyright © 2026 Purslane Tech Pte. Ltd. All rights reserved."
-ProductName = "RustDesk"
+LegalCopyright = "Copyright © 2026 SealDesk contributors. All rights reserved."
+ProductName = "SealDesk"
 OriginalFilename = "sealdesk.exe"
-FileDescription = "RustDesk Remote Desktop"
+FileDescription = "SealDesk Remote Desktop"
 #ProductVersion = ""
 
 [target.'cfg(target_os="windows")'.build-dependencies]
