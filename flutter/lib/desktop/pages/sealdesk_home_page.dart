@@ -7,6 +7,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../common.dart';
 import '../../common/sealdesk_pairing.dart';
+import '../../models/platform_model.dart';
 import '../../models/relay_status.dart';
 
 const _defaultDerpMapUrl = 'https://tailcat.dev/derpmap.json';
@@ -18,6 +19,7 @@ class SealDeskHostState {
   final List<String> connectedNames;
   final int connectedCount;
   final bool stopped;
+  final bool permissionMissing;
   final String startError;
   final RelayStatus? relayStatus;
 
@@ -28,10 +30,13 @@ class SealDeskHostState {
     this.connectedNames = const [],
     this.connectedCount = 0,
     this.stopped = false,
+    this.permissionMissing = false,
     this.startError = '',
     this.relayStatus,
   });
 }
+
+enum SealDeskSharePhase { stopped, permissionMissing, starting, running, error }
 
 class SealDeskHomePage extends StatefulWidget {
   final Widget Function(bool host)? lanPanelBuilder;
@@ -46,8 +51,10 @@ class SealDeskHomePage extends StatefulWidget {
   final Future<SealDeskPairing> Function(String)? loadImageFile;
   final Future<void> Function()? resetAddress;
   final Future<SealDeskPairing> Function()? pasteImage;
-  final Future<String> Function()? loadDerpMapUrl;
-  final Future<void> Function(String)? saveDerpMapUrl;
+  final Future<void> Function()? onStart;
+  final Future<void> Function()? onStop;
+  final Widget? permissionBanner;
+  final Widget? shareSettings;
   final Widget? footer;
   final bool hostOnly;
 
@@ -65,8 +72,10 @@ class SealDeskHomePage extends StatefulWidget {
     this.loadImageFile,
     this.resetAddress,
     this.pasteImage,
-    this.loadDerpMapUrl,
-    this.saveDerpMapUrl,
+    this.onStart,
+    this.onStop,
+    this.permissionBanner,
+    this.shareSettings,
     this.footer,
     this.hostOnly = false,
   });
@@ -85,9 +94,9 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
   String _status = 'Generating pairing code...';
   RelayStatus? _relay;
 
-  String get _statusText => translate(_status);
   String? _error;
   String? _hostError;
+  SealDeskSharePhase _phase = SealDeskSharePhase.starting;
   bool _hidden = false;
   bool _loading = false;
   bool _busy = false;
@@ -142,6 +151,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
       if (!mounted || _mode != 'host' || (_busy && !force)) return;
       if (host.startError.isNotEmpty) {
         setState(() {
+          _phase = SealDeskSharePhase.error;
           _pairing = null;
           _code = null;
           _relay = null;
@@ -152,10 +162,20 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
       _hostError = null;
       if (host.address == _revokedAddress) {
         setState(() {
+          _phase = SealDeskSharePhase.starting;
           _pairing = null;
           _code = null;
           _relay = null;
           _status = 'Updating QR code...';
+        });
+        return;
+      }
+      if (host.permissionMissing) {
+        setState(() {
+          _phase = SealDeskSharePhase.permissionMissing;
+          _pairing = null;
+          _code = null;
+          _relay = null;
         });
         return;
       }
@@ -164,9 +184,13 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
           _pairing = null;
           _code = null;
           _relay = null;
-          _status = host.stopped
-              ? translate('Sharing stopped')
-              : translate('Generating pairing code...');
+          if (host.stopped) {
+            _phase = SealDeskSharePhase.stopped;
+            _status = 'Sharing stopped';
+          } else {
+            _phase = SealDeskSharePhase.starting;
+            _status = 'Generating pairing code...';
+          }
         });
         return;
       }
@@ -186,16 +210,14 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
         _code = _pairing!.encode(now: now);
       }
       setState(() {
+        _phase = SealDeskSharePhase.running;
         _relay = host.relayStatus;
-        _status = host.connectedNames.isNotEmpty
-            ? '已连接：${host.connectedNames.join('、')}'
-            : host.connectedCount > 0
-                ? '${translate('Connected')} (${host.connectedCount})'
-                : translate('Waiting for connection');
+        _status = 'Sharing';
       });
     } catch (_) {
       if (mounted && _mode == 'host') {
         setState(() {
+          _phase = SealDeskSharePhase.error;
           _pairing = null;
           _code = null;
           _relay = null;
@@ -214,6 +236,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
       if (!mounted) return;
       setState(() {
         _mode = mode;
+        _phase = SealDeskSharePhase.starting;
         _pairing = null;
         _code = null;
         _hostError = null;
@@ -228,32 +251,6 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
         await widget.saveMode('control');
         await widget.saveMode('host');
         if (mounted) await _poll(force: true);
-      });
-
-  Future<void> _configureRelay() => _act(() async {
-        final current = await widget.loadDerpMapUrl!();
-        if (!mounted) return;
-        final value = await showDialog<String>(
-          context: context,
-          builder: (context) => _SealDeskRelaySettingsDialog(
-            initialUrl: current,
-            hosting: _mode == 'host',
-          ),
-        );
-        if (value == null || !mounted) return;
-        if (_mode == 'host') {
-          setState(() {
-            _pairing = null;
-            _code = null;
-            _relay = null;
-            _status = 'Generating pairing code...';
-          });
-        }
-        try {
-          await widget.saveDerpMapUrl!(value);
-        } finally {
-          if (mounted) await _poll(force: true);
-        }
       });
 
   Future<void> _resetAddress() => _act(() async {
@@ -277,6 +274,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
         );
         if (confirmed != true || !mounted) return;
         setState(() {
+          _phase = SealDeskSharePhase.starting;
           _revokedAddress = _pairing?.address ?? _revokedAddress;
           _pairing = null;
           _code = null;
@@ -348,18 +346,13 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
   Widget build(BuildContext context) {
     final page = Center(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 520),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text('SealDesk',
-                    style: Theme.of(context).textTheme.headlineMedium),
-                const SizedBox(height: 12),
-                Text(translate('Scan to connect, no account required')),
                 if (!widget.hostOnly) ...[
-                  const SizedBox(height: 24),
                   Wrap(
                     spacing: 12,
                     runSpacing: 12,
@@ -385,27 +378,23 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
                       'Choose how to use SealDesk. Your choice will be remembered.')),
                 if (_mode == 'host') ...[
                   ..._buildHost(),
+                  if (_phase == SealDeskSharePhase.running &&
+                      widget.lanPanelBuilder != null) ...[
+                    const SizedBox(height: 12),
+                    widget.lanPanelBuilder!(true),
+                  ],
                   if (!widget.hostOnly) ...[
                     const SizedBox(height: 12),
                     Text(translate(
                         'Switching will disconnect the current session')),
                   ],
                 ],
-                if (_mode == 'control') ..._buildControl(),
-                if (widget.loadDerpMapUrl != null &&
-                    widget.saveDerpMapUrl != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: TextButton.icon(
-                      key: const ValueKey('sealdesk-relay-settings'),
-                      icon: const Icon(Icons.settings_ethernet),
-                      label: Text(translate('Relay settings')),
-                      onPressed: _busy ? null : _configureRelay,
-                    ),
-                  ),
-                if (_mode.isNotEmpty && widget.lanPanelBuilder != null) ...[
-                  const SizedBox(height: 20),
-                  widget.lanPanelBuilder!(_mode == 'host'),
+                if (_mode == 'control') ...[
+                  ..._buildControl(),
+                  if (widget.lanPanelBuilder != null) ...[
+                    const SizedBox(height: 20),
+                    widget.lanPanelBuilder!(false),
+                  ],
                 ],
                 if (_error != null)
                   Padding(
@@ -416,6 +405,33 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
                             color: Theme.of(context).colorScheme.error)),
                   ),
                 if (widget.footer != null) widget.footer!,
+                if (_mode == 'host' &&
+                    _phase == SealDeskSharePhase.running &&
+                    widget.onStop != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 16),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        key: const ValueKey('sealdesk-stop-service'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor:
+                              Theme.of(context).colorScheme.error,
+                          side: BorderSide(
+                              color: Theme.of(context).colorScheme.error),
+                        ),
+                        onPressed:
+                            _busy ? null : () => _act(widget.onStop!),
+                        icon: const Icon(Icons.stop),
+                        label: Text(translate('Stop service')),
+                      ),
+                    ),
+                  ),
+                if (_mode == 'host' && widget.shareSettings != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 16),
+                    child: widget.shareSettings!,
+                  ),
               ],
             ),
           ),
@@ -555,20 +571,161 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
     return Tooltip(message: tooltip, child: body);
   }
 
-  List<Widget> _buildHost() => [
-        Text(_hostError ?? _statusText,
-            key: const ValueKey('sealdesk-status'),
-            style: _hostError == null
-                ? null
-                : TextStyle(color: Theme.of(context).colorScheme.error)),
-        if (_hostError != null)
-          TextButton.icon(
-            key: const ValueKey('sealdesk-retry-host'),
-            icon: const Icon(Icons.refresh),
-            label: Text(translate('Retry')),
-            onPressed: _busy ? null : _retryHost,
+  List<Widget> _buildHost() {
+    switch (_phase) {
+      case SealDeskSharePhase.stopped:
+        return _buildStopped();
+      case SealDeskSharePhase.permissionMissing:
+        return [
+          if (widget.permissionBanner != null) widget.permissionBanner!,
+        ];
+      case SealDeskSharePhase.starting:
+        return _buildStarting();
+      case SealDeskSharePhase.error:
+        return _buildError();
+      case SealDeskSharePhase.running:
+        return _buildRunning();
+    }
+  }
+
+  List<Widget> _buildStopped() => [
+        Card(
+          key: const ValueKey('sealdesk-share-stopped'),
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(children: [
+                  const Icon(Icons.warning_amber_rounded,
+                      color: Color(0xFFE37400)),
+                  const SizedBox(width: 8),
+                  Text(translate('Sharing stopped'),
+                      key: const ValueKey('sealdesk-status'),
+                      style: Theme.of(context).textTheme.titleMedium),
+                ]),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  key: const ValueKey('sealdesk-start-service'),
+                  onPressed: _busy || widget.onStart == null
+                      ? null
+                      : () => _act(widget.onStart!),
+                  icon: const Icon(Icons.play_arrow),
+                  label: Text(translate('Start service')),
+                ),
+              ],
+            ),
           ),
-        const SizedBox(height: 16),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          key: const ValueKey('sealdesk-scam-line'),
+          children: [
+            const Icon(Icons.verified_user, size: 18, color: Color(0xFF8A5300)),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                translate('Stranger asks you to share? Hang up'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Color(0xFF8A5300), fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+      ];
+
+  List<Widget> _buildStarting() => [
+        Row(children: [
+          const Icon(Icons.hourglass_top, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(translate(_status),
+                key: const ValueKey('sealdesk-status')),
+          ),
+          if (_resetButton() != null) _resetButton()!,
+        ]),
+        if (widget.onStop != null)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              key: const ValueKey('sealdesk-stop-service'),
+              onPressed: _busy ? null : () => _act(widget.onStop!),
+              child: Text(translate('Stop')),
+            ),
+          ),
+      ];
+
+  List<Widget> _buildError() => [
+        Text(_hostError ?? translate(_status),
+            key: const ValueKey('sealdesk-status'),
+            style: TextStyle(color: Theme.of(context).colorScheme.error)),
+        TextButton.icon(
+          key: const ValueKey('sealdesk-retry-host'),
+          icon: const Icon(Icons.refresh),
+          label: Text(translate('Retry')),
+          onPressed: _busy ? null : _retryHost,
+        ),
+      ];
+
+  Widget? _resetButton() {
+    if (widget.resetAddress == null) return null;
+    return TextButton.icon(
+      key: const ValueKey('sealdesk-reset-address'),
+      icon: const Icon(Icons.restart_alt),
+      label: Text(translate('Reset address')),
+      onPressed: _busy || (_pairing == null && _revokedAddress == null)
+          ? null
+          : _resetAddress,
+    );
+  }
+
+  String? _ttlLabel() {
+    final expires = _pairing?.expiresAt;
+    if (expires == null) return null;
+    final left = (expires - _now()).clamp(0, 24 * 60 * 60);
+    final minutes = left ~/ 60;
+    final seconds = (left % 60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
+  }
+
+  List<Widget> _buildRunning() {
+    final ttl = _ttlLabel();
+    return [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Container(
+              key: const ValueKey('sealdesk-sharing'),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE6F4EA),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Text(translate('Sharing'),
+                  style: const TextStyle(color: Color(0xFF1E7E34), fontSize: 13)),
+            ),
+            if (ttl != null)
+              Container(
+                key: const ValueKey('sealdesk-qr-ttl'),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Text(ttl, style: const TextStyle(fontSize: 13)),
+              ),
+          ],
+        ),
+        ..._relayWidgets(),
+        const SizedBox(height: 12),
         if (_code != null)
           Container(
             color: Colors.white,
@@ -583,8 +740,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
                   )
                 : _buildQr(),
           ),
-        if (_code != null) ..._relayWidgets(),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
         Wrap(
           spacing: 8,
           runSpacing: 8,
@@ -609,16 +765,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
                         await _poll(force: true);
                       }),
             ),
-            if (widget.resetAddress != null)
-              TextButton.icon(
-                key: const ValueKey('sealdesk-reset-address'),
-                icon: const Icon(Icons.restart_alt),
-                label: Text(translate('Reset address')),
-                onPressed:
-                    _busy || (_pairing == null && _revokedAddress == null)
-                        ? null
-                        : _resetAddress,
-              ),
+            if (_resetButton() != null) _resetButton()!,
             TextButton.icon(
               icon: Icon(_hidden ? Icons.visibility : Icons.visibility_off),
               label: Text(translate(_hidden ? 'Show QR code' : 'Hide QR code')),
@@ -626,10 +773,8 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
             ),
           ],
         ),
-        const SizedBox(height: 8),
-        Text(translate(
-            'QR codes are valid for 10 minutes. Refresh the password to invalidate old codes. Share carefully.')),
       ];
+  }
 
   List<Widget> _buildControl() => [
         TextField(
@@ -700,22 +845,23 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
       ];
 }
 
-class _SealDeskRelaySettingsDialog extends StatefulWidget {
+class SealDeskRelaySettingsDialog extends StatefulWidget {
   final String initialUrl;
   final bool hosting;
 
-  const _SealDeskRelaySettingsDialog({
+  const SealDeskRelaySettingsDialog({
+    super.key,
     required this.initialUrl,
     required this.hosting,
   });
 
   @override
-  State<_SealDeskRelaySettingsDialog> createState() =>
+  State<SealDeskRelaySettingsDialog> createState() =>
       _SealDeskRelaySettingsDialogState();
 }
 
 class _SealDeskRelaySettingsDialogState
-    extends State<_SealDeskRelaySettingsDialog> {
+    extends State<SealDeskRelaySettingsDialog> {
   late final _url = TextEditingController(
       text: widget.initialUrl.isEmpty ? _defaultDerpMapUrl : widget.initialUrl);
   String? _error;
@@ -793,4 +939,59 @@ class _SealDeskRelaySettingsDialogState
           ),
         ],
       );
+}
+
+Future<void> saveSealDeskDerpMapUrl(String value) async {
+  Future<void> applyMode(String mode) async {
+    await bind.mainSetLocalOption(key: 'sealdesk-mode', value: mode);
+    final applied = await bind.mainGetOption(key: 'sealdesk-host-mode');
+    if (applied != mode ||
+        bind.mainGetLocalOption(key: 'sealdesk-mode') != mode) {
+      throw FormatException(translate('Switch failed, please try again'));
+    }
+  }
+
+  final hosting = bind.mainGetLocalOption(key: 'sealdesk-mode') == 'host';
+  if (hosting) await applyMode('control');
+  try {
+    await bind.mainSetOption(key: 'tailcat-derp-map-url', value: value);
+    if (await bind.mainGetOption(key: 'tailcat-derp-map-url') != value) {
+      throw FormatException(
+          translate('Unable to save relay settings, please try again'));
+    }
+  } finally {
+    if (hosting) await applyMode('host');
+  }
+}
+
+Future<void> showSealDeskRelaySettings(BuildContext context) async {
+  if (bind.isDisableSettings()) return;
+  final current = await bind.mainGetOption(key: 'tailcat-derp-map-url');
+  if (!context.mounted) return;
+  final hosting = bind.mainGetLocalOption(key: 'sealdesk-mode') == 'host';
+  final value = await showDialog<String>(
+    context: context,
+    builder: (context) => SealDeskRelaySettingsDialog(
+      initialUrl: current,
+      hosting: hosting,
+    ),
+  );
+  if (value == null || !context.mounted) return;
+  try {
+    await saveSealDeskDerpMapUrl(value);
+  } on FormatException catch (error) {
+    if (!context.mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        content: Text(error.message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(translate('OK')),
+          ),
+        ],
+      ),
+    );
+  }
 }

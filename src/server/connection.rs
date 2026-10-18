@@ -1152,6 +1152,14 @@ impl Connection {
                         _ => {}
                     }
                 }
+                _ = crate::lan::compat_disabled_notify().notified(), if conn.via_legacy_lan => {
+                    if !crate::lan::rustdesk_compat_enabled() {
+                        log::info!("closed RustDesk compatible LAN session");
+                        conn.send_close_reason_no_retry("").await;
+                        conn.on_close("rustdesk compat disabled", true).await;
+                        break;
+                    }
+                }
                 _ = second_timer.tick() => {
                     if (conn.lan_peer.is_some() || conn.via_legacy_lan) && (!crate::tailcat::host::enabled() || !conn.lan_authorization_current()) {
                         conn.send_close_reason_no_retry("Sharing stopped").await;
@@ -1584,6 +1592,7 @@ impl Connection {
     }
 
     fn lan_authorization_current(&self) -> bool {
+        if self.via_legacy_lan && !crate::lan::rustdesk_compat_enabled() { return false; }
         if self.via_legacy_lan && !crate::tailcat::host::enabled() { return false; }
         self.lan_peer.as_deref().map(|key| crate::lan::generation(key) == self.lan_generation).unwrap_or(true)
     }

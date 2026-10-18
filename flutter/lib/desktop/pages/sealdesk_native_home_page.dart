@@ -36,15 +36,34 @@ Future<String> _shareDeviceName() async {
   return Platform.localHostname;
 }
 
+/// Android forces stopped until screen capture is the share opt-in. Desktop
+/// follows only the stop-service option.
+bool sealDeskHostStopped({
+  required bool serviceStopOption,
+  required bool android,
+  required bool androidServiceStarted,
+}) {
+  if (android && !androidServiceStarted) return true;
+  return serviceStopOption;
+}
+
 class SealDeskNativeHomePage extends StatelessWidget {
   final String? initialInput;
   final Widget? footer;
+  final Widget? permissionBanner;
+  final Widget? shareSettings;
+  final Future<void> Function()? onStart;
+  final Future<void> Function()? onStop;
   final bool hostOnly;
 
   const SealDeskNativeHomePage({
     super.key,
     this.initialInput,
     this.footer,
+    this.permissionBanner,
+    this.shareSettings,
+    this.onStart,
+    this.onStop,
     this.hostOnly = false,
   });
 
@@ -55,10 +74,13 @@ class SealDeskNativeHomePage extends StatelessWidget {
         await bind.mainGetOption(key: 'tailcat-relay-status'));
     final method = await bind.mainGetOption(key: kOptionVerificationMethod);
     final approveMode = await bind.mainGetOption(key: kOptionApproveMode);
-    var stopped = await mainGetBoolOption(kOptionStopService);
-    // Screen capture is the Android share opt-in. Until it is on, do not
-    // present an empty address as a pairing code that is about to appear.
-    if (isAndroid && !gFFI.serverModel.isStart) stopped = true;
+    final stopped = sealDeskHostStopped(
+      serviceStopOption: await mainGetBoolOption(kOptionStopService),
+      android: isAndroid,
+      androidServiceStarted: gFFI.serverModel.isStart,
+    );
+    final permissionMissing =
+        isAndroid && !stopped && !gFFI.serverModel.mediaOk;
     final password = await bind.mainGetTemporaryPassword();
     final connectedCount = int.tryParse(
             await bind.mainGetOption(key: 'sealdesk-connected-count')) ??
@@ -70,33 +92,11 @@ class SealDeskNativeHomePage extends StatelessWidget {
       password: includesPassword ? password : null,
       name: await _shareDeviceName(),
       stopped: stopped,
+      permissionMissing: permissionMissing,
       connectedCount: connectedCount,
       startError: startError,
       relayStatus: relayStatus,
     );
-  }
-
-  Future<void> _saveDerpMapUrl(String value) async {
-    Future<void> applyMode(String mode) async {
-      await bind.mainSetLocalOption(key: 'sealdesk-mode', value: mode);
-      final applied = await bind.mainGetOption(key: 'sealdesk-host-mode');
-      if (applied != mode ||
-          bind.mainGetLocalOption(key: 'sealdesk-mode') != mode) {
-        throw FormatException(translate('Switch failed, please try again'));
-      }
-    }
-
-    final hosting = bind.mainGetLocalOption(key: 'sealdesk-mode') == 'host';
-    if (hosting) await applyMode('control');
-    try {
-      await bind.mainSetOption(key: 'tailcat-derp-map-url', value: value);
-      if (await bind.mainGetOption(key: 'tailcat-derp-map-url') != value) {
-        throw FormatException(
-            translate('Unable to save relay settings, please try again'));
-      }
-    } finally {
-      if (hosting) await applyMode('host');
-    }
   }
 
   Future<SealDeskPairing?> _pickImage() async {
@@ -134,8 +134,10 @@ class SealDeskNativeHomePage extends StatelessWidget {
             ? 'host'
             : bind.mainGetLocalOption(key: 'sealdesk-mode'),
         loadHost: _loadHost,
-        loadDerpMapUrl: () => bind.mainGetOption(key: 'tailcat-derp-map-url'),
-        saveDerpMapUrl: bind.isDisableSettings() ? null : _saveDerpMapUrl,
+        onStart: onStart,
+        onStop: onStop,
+        permissionBanner: permissionBanner,
+        shareSettings: shareSettings,
         initialInput: initialInput,
         pickImage: _pickImage,
         loadImageFile: loadSealDeskQrFile,

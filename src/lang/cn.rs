@@ -869,5 +869,12 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Checking relay...", "正在检查中继…"),
         ("Relay reachable", "中继可达"),
         ("Relay unreachable; scanning will likely time out", "中继不可达，扫码连接很可能会超时"),
-    ].iter().cloned().collect();
+            ("Sharing", "共享中"),
+        ("Allow RustDesk compatible connections", "允许 RustDesk 兼容连接"),
+        ("Stranger asks you to share? Hang up", "陌生人来电要求共享？请挂断"),
+        ("Share settings", "共享设置"),
+        ("Access method", "访问方式"),
+        ("Password type", "密码类型"),
+        ("Trusted controllers", "受信控制端"),
+].iter().cloned().collect();
 }

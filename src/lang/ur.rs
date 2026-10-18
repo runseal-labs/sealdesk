@@ -853,6 +853,13 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Checking relay...", ""),
         ("Relay reachable", ""),
         ("Relay unreachable; scanning will likely time out", ""),
-    ].iter().cloned().collect();
+            ("Sharing", ""),
+        ("Allow RustDesk compatible connections", ""),
+        ("Stranger asks you to share? Hang up", ""),
+        ("Share settings", ""),
+        ("Access method", ""),
+        ("Password type", ""),
+        ("Trusted controllers", ""),
+].iter().cloned().collect();
 }
 

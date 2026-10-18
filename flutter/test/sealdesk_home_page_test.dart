@@ -38,7 +38,11 @@ class _I18nBinding extends Fake implements SealdeskImpl {
       'Hide QR code': '遮挡二维码',
       'Show QR code': '显示二维码',
       'Sharing stopped': '共享已停止',
+      'Sharing': '共享中',
       'Waiting for connection': '等待连接',
+      'Start service': '启动服务',
+      'Stop service': '停止服务',
+      'Stranger asks you to share? Hang up': '陌生人来电要求共享？请挂断',
       'Connected': '已连接',
       'Updating QR code...': '正在更新二维码…',
       'Resetting address...': '正在重置地址…',
@@ -92,8 +96,6 @@ void main() {
     Future<SealDeskPairing> Function(String)? loadImageFile,
     Future<void> Function()? resetAddress,
     Future<SealDeskPairing> Function()? pasteImage,
-    Future<String> Function()? loadDerpMapUrl,
-    Future<void> Function(String)? saveDerpMapUrl,
   }) async {
     await tester.binding.setSurfaceSize(const Size(800, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -115,8 +117,6 @@ void main() {
             loadImageFile: loadImageFile,
             resetAddress: resetAddress,
             pasteImage: pasteImage,
-            loadDerpMapUrl: loadDerpMapUrl,
-            saveDerpMapUrl: saveDerpMapUrl,
           ),
         ),
       ),
@@ -398,11 +398,11 @@ void main() {
       (tester) async {
     await showPage(tester, mode: 'host');
     expect(find.text('共享本机'), findsOneWidget);
-    expect(find.text('等待连接'), findsOneWidget);
+    expect(find.text('共享中'), findsOneWidget);
     binding.language = 'en';
     await tester.pump(const Duration(seconds: 1));
     expect(find.text('Share this device'), findsOneWidget);
-    expect(find.text('Waiting for connection'), findsOneWidget);
+    expect(find.text('Sharing'), findsOneWidget);
   });
 
   testWidgets('host status follows active remote connection count',
@@ -414,14 +414,12 @@ void main() {
             password: 'secret',
             name: '电脑',
             connectedCount: count));
-    expect(find.text('等待连接'), findsOneWidget);
+    expect(find.text('共享中'), findsOneWidget);
     for (final active in [1, 2, 0]) {
       count = active;
       await tester.pump(const Duration(seconds: 1));
       await tester.pump();
-      expect(find.text(active == 0 ? '等待连接' : '已连接 ($active)'),
-          findsOneWidget);
-      if (active > 0) expect(find.text('等待连接'), findsNothing);
+      expect(find.text('共享中'), findsOneWidget);
       expect(find.byType(QrImageView), findsOneWidget);
     }
   });
@@ -456,12 +454,26 @@ void main() {
   testWidgets('relay settings reject invalid URLs without changing the map',
       (tester) async {
     binding.language = 'en';
-    final saved = <String>[];
-    await showPage(tester,
-        mode: 'control',
-        loadDerpMapUrl: () async => '',
-        saveDerpMapUrl: (value) async => saved.add(value));
-    await tester.tap(find.byKey(const ValueKey('sealdesk-relay-settings')));
+    String? saved;
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(
+        builder: (context) => Scaffold(
+          body: TextButton(
+            onPressed: () async {
+              saved = await showDialog<String>(
+                context: context,
+                builder: (context) => const SealDeskRelaySettingsDialog(
+                  initialUrl: '',
+                  hosting: false,
+                ),
+              );
+            },
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
     for (final value in [
       'http://relay.example/map.json',
@@ -475,12 +487,12 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Enter an HTTPS URL without credentials or a fragment'),
           findsOneWidget);
-      expect(saved, isEmpty);
+      expect(saved, isNull);
     }
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
     expect(find.byType(AlertDialog), findsNothing);
-    expect(saved, isEmpty);
+    expect(saved, isNull);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -502,13 +514,11 @@ void main() {
             }
             failed = false;
           }
-        },
-        loadDerpMapUrl: () async => '',
-        saveDerpMapUrl: (_) async {});
+        });
     expect(find.text('DERP map download failed: HTTP 503'), findsOneWidget);
     expect(find.text('Generating pairing code...'), findsNothing);
     expect(find.byType(QrImageView), findsNothing);
-    expect(find.byKey(const ValueKey('sealdesk-relay-settings')), findsOneWidget);
+    expect(find.byKey(const ValueKey('sealdesk-relay-settings')), findsNothing);
     await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();
     expect(find.text('Sharing could not restart'), findsOneWidget);
@@ -517,7 +527,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('DERP map download failed: HTTP 503'), findsNothing);
     expect(find.text('Retry'), findsNothing);
-    expect(find.text('Waiting for connection'), findsOneWidget);
+    expect(find.text('Sharing'), findsOneWidget);
     expect(find.byType(QrImageView), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
@@ -525,24 +535,45 @@ void main() {
   testWidgets('relay settings load, save and reset the persisted map',
       (tester) async {
     binding.language = 'en';
-    var saved = 'https://relay.example/map.json';
-    await showPage(tester,
-        loadDerpMapUrl: () async => saved,
-        saveDerpMapUrl: (value) async => saved = value);
-    final settings = find.byKey(const ValueKey('sealdesk-relay-settings'));
+    var current = 'https://relay.example/map.json';
+    String? saved;
+    Future<void> open() async {
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+    }
+
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(builder: (context) {
+        return Scaffold(
+          body: TextButton(
+            onPressed: () async {
+              saved = await showDialog<String>(
+                context: context,
+                builder: (context) => SealDeskRelaySettingsDialog(
+                  initialUrl: current,
+                  hosting: true,
+                ),
+              );
+            },
+            child: const Text('open'),
+          ),
+        );
+      }),
+    ));
     final input = find.byKey(const ValueKey('sealdesk-derp-map-url'));
-    await tester.tap(settings);
-    await tester.pumpAndSettle();
-    expect(find.text(saved), findsOneWidget);
-    expect(find.text('Saving restarts sharing and disconnects current sessions.'),
+    await open();
+    expect(find.text(current), findsOneWidget);
+    expect(
+        find.text(
+            'Saving restarts sharing and disconnects current sessions.'),
         findsOneWidget);
     await tester.enterText(input, 'https://other.example/derp.json');
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
     expect(saved, 'https://other.example/derp.json');
-    await tester.tap(settings);
-    await tester.pumpAndSettle();
-    expect(find.text(saved), findsOneWidget);
+    current = saved!;
+    await open();
+    expect(find.text(current), findsOneWidget);
     await tester.tap(find.text('Reset to default'));
     await tester.pumpAndSettle();
     expect(find.text('https://tailcat.dev/derpmap.json'), findsOneWidget);
@@ -550,12 +581,12 @@ void main() {
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
     expect(saved, isEmpty);
-    await tester.tap(settings);
-    await tester.pumpAndSettle();
+    current = '';
+    await open();
     expect(find.text('https://tailcat.dev/derpmap.json'), findsOneWidget);
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
-    expect(find.byType(QrImageView), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -595,7 +626,7 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     await copyPairing(tester);
     expect(clipboard, encoded);
-    expect(find.text('等待连接'), findsOneWidget);
+    expect(find.text('共享中'), findsOneWidget);
   });
 
   testWidgets('password refresh redraws QR with updated password',
@@ -740,9 +771,9 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     expect(find.byType(QrImageView), findsNothing);
     expect(find.text('共享已停止'), findsOneWidget);
-    final copy =
-        tester.widget<TextButton>(find.byKey(const ValueKey('sealdesk-copy')));
-    expect(copy.onPressed, isNull);
+    expect(find.byKey(const ValueKey('sealdesk-copy')), findsNothing);
+    expect(find.text('刷新密码'), findsNothing);
+    expect(find.text('遮挡二维码'), findsNothing);
   });
 
   testWidgets('load failure removes QR and reports a recoverable error',
@@ -884,7 +915,7 @@ void main() {
             relayStatus: relay,
             startError: startError));
     expect(find.byType(QrImageView), findsOneWidget);
-    expect(find.text('Waiting for connection'), findsOneWidget);
+    expect(find.text('Sharing'), findsOneWidget);
     expect(find.text('Relay reachable (42 ms)'), findsOneWidget);
     expect(find.byKey(const ValueKey('sealdesk-relay')), findsOneWidget);
 
@@ -893,7 +924,7 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     await tester.pump();
     expect(find.byType(QrImageView), findsOneWidget);
-    expect(find.text('Waiting for connection'), findsOneWidget);
+    expect(find.text('Sharing'), findsOneWidget);
     expect(find.text('Relay unreachable; scanning will likely time out'),
         findsOneWidget);
     expect(find.text('dial timeout'), findsOneWidget);
@@ -926,7 +957,7 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     await tester.pump();
     expect(find.byType(QrImageView), findsOneWidget);
-    expect(find.text('Waiting for connection'), findsOneWidget);
+    expect(find.text('Sharing'), findsOneWidget);
     expect(find.text('Checking relay...'), findsOneWidget);
     expect(find.text('Generating pairing code...'), findsNothing);
     await tester.pumpWidget(const SizedBox());

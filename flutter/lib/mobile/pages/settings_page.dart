@@ -16,9 +16,9 @@ import '../../models/model.dart';
 import '../../models/platform_model.dart';
 import '../../models/shortcut_model.dart';
 import '../widgets/dialog.dart';
+import '../../desktop/pages/sealdesk_home_page.dart';
 import 'home_page.dart';
 import 'mobile_keyboard_shortcuts_page.dart';
-import 'scan_page.dart';
 
 class SettingsPage extends StatefulWidget implements PageShape {
   @override
@@ -28,7 +28,7 @@ class SettingsPage extends StatefulWidget implements PageShape {
   final icon = Icon(Icons.settings);
 
   @override
-  final appBarActions = bind.isDisableSettings() ? [] : [ScanButton()];
+  final List<Widget> appBarActions = const [];
 
   @override
   State<SettingsPage> createState() => _SettingsState();
@@ -86,7 +86,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   var _myId = "";
   var _autoDisconnectTimeout = "";
   var _enableTrustedDevices = false;
-  var _enableWebrtc = false;
+  var _allowRustDeskCompat = true;
   var _preventSleepWhileConnected = true;
 
   _SettingsState() {
@@ -113,7 +113,8 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
     _autoDisconnectTimeout =
         bind.mainGetOptionSync(key: kOptionAutoDisconnectTimeout);
     _enableTrustedDevices = mainGetBoolOptionSync(kOptionEnableTrustedDevices);
-    _enableWebrtc = mainGetLocalBoolOptionSync(kOptionEnableWebrtc);
+    _allowRustDeskCompat =
+        mainGetBoolOptionSync(kOptionSealDeskRustDeskCompat);
     _preventSleepWhileConnected =
         mainGetLocalBoolOptionSync(kOptionKeepAwakeDuringOutgoingSessions);
     _showTerminalExtraKeys =
@@ -624,22 +625,30 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
     final settings = SettingsList(
       sections: [
         customClientSection,
+        SettingsSection(title: Text(translate('Network')), tiles: [
+          SettingsTile.navigation(
+            leading: const Icon(Icons.settings_ethernet),
+            title: Text(translate('Relay settings')),
+            trailing: const Icon(Icons.arrow_forward_ios),
+            onPressed: (context) {
+              showSealDeskRelaySettings(context);
+            },
+          ),
+          SettingsTile.switchTile(
+            title: Text(translate('Allow RustDesk compatible connections')),
+            initialValue: _allowRustDeskCompat,
+            onToggle: isOptionFixed(kOptionSealDeskRustDeskCompat)
+                ? null
+                : (v) async {
+                    await mainSetBoolOption(kOptionSealDeskRustDeskCompat, v);
+                    setState(() {
+                      _allowRustDeskCompat = mainGetBoolOptionSync(
+                          kOptionSealDeskRustDeskCompat);
+                    });
+                  },
+          ),
+        ]),
         SettingsSection(title: Text(translate("Settings")), tiles: [
-          if (!incomingOnly)
-            SettingsTile.switchTile(
-              title: Text(translate('Enable WebRTC P2P connection')),
-              initialValue: _enableWebrtc,
-              onToggle: isOptionFixed(kOptionEnableWebrtc)
-                  ? null
-                  : (v) async {
-                      await mainSetLocalBoolOption(kOptionEnableWebrtc, v);
-                      final newValue =
-                          mainGetLocalBoolOptionSync(kOptionEnableWebrtc);
-                      setState(() {
-                        _enableWebrtc = newValue;
-                      });
-                    },
-            ),
           SettingsTile(
               title: Text(translate('Language')),
               leading: Icon(Icons.translate),
@@ -912,23 +921,6 @@ void showAbout(OverlayDialogManager dialogManager) {
       actions: [],
     );
   }, clickMaskDismiss: true, backDismiss: true);
-}
-
-class ScanButton extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return IconButton(
-      icon: Icon(Icons.qr_code_scanner),
-      onPressed: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (BuildContext context) => ScanPage(),
-          ),
-        );
-      },
-    );
-  }
 }
 
 class _DisplayPage extends StatefulWidget {

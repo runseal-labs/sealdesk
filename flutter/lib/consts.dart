@@ -180,8 +180,7 @@ const String kOptionEnableUdpPunch = "enable-udp-punch";
 const String kOptionEnableIpv6Punch = "enable-ipv6-punch";
 const String kOptionAllowSyncClipboardBetweenSessions =
     "allow-sync-clipboard-between-sessions";
-const String kOptionEnableWebrtc = "enable-webrtc";
-const String kOptionRelayFallbackDelay = "relay-fallback-delay";
+const String kOptionSealDeskRustDeskCompat = "sealdesk-rustdesk-compat";
 const String kOptionEnableTrustedDevices = "enable-trusted-devices";
 const String kOptionShowVirtualMouse = "show-virtual-mouse";
 const String kOptionVirtualMouseScale = "virtual-mouse-scale";
