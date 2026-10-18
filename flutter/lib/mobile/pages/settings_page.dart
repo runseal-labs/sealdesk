@@ -637,7 +637,8 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
           SettingsTile.switchTile(
             title: Text(translate('Allow RustDesk compatible connections')),
             initialValue: _allowRustDeskCompat,
-            onToggle: isOptionFixed(kOptionSealDeskRustDeskCompat)
+            onToggle: disabledSettings ||
+                    isOptionFixed(kOptionSealDeskRustDeskCompat)
                 ? null
                 : (v) async {
                     await mainSetBoolOption(kOptionSealDeskRustDeskCompat, v);

@@ -888,6 +888,7 @@ class _GeneralState extends State<_General> {
         context,
         'Allow RustDesk compatible connections',
         kOptionSealDeskRustDeskCompat,
+        enabled: !bind.isDisableSettings(),
       ),
     ]);
   }

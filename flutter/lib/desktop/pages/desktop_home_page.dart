@@ -70,11 +70,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             initialInput: _sealdeskInitialInput,
             onStart: () => start_service(true),
             onStop: () => start_service(false),
-            shareSettings: SealDeskShareSettings(
-              openSetPassword: setPasswordDialog,
-              openOtpLength: () =>
-                  setTemporaryPasswordLengthDialog(gFFI.dialogManager),
-            ),
+            shareSettings: sealDeskShareSettingsAllowed()
+                ? SealDeskShareSettings(
+                    openSetPassword: setPasswordDialog,
+                    openOtpLength: () =>
+                        setTemporaryPasswordLengthDialog(gFFI.dialogManager),
+                  )
+                : null,
           ));
     }
     final isIncomingOnly = bind.isIncomingOnly();

@@ -70,11 +70,13 @@ class _ServerPageState extends State<ServerPage> {
               await serverModel.toggleService();
             },
             permissionBanner: const PermissionChecker(showStop: false),
-            shareSettings: SealDeskShareSettings(
-              openSetPassword: setPasswordDialog,
-              openOtpLength: () =>
-                  setTemporaryPasswordLengthDialog(gFFI.dialogManager),
-            ),
+            shareSettings: sealDeskShareSettingsAllowed()
+                ? SealDeskShareSettings(
+                    openSetPassword: setPasswordDialog,
+                    openOtpLength: () =>
+                        setTemporaryPasswordLengthDialog(gFFI.dialogManager),
+                  )
+                : null,
             footer: Column(
               children: [
                 buildPresetPasswordWarningMobile(),

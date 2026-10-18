@@ -7,6 +7,10 @@ import '../models/server_model.dart';
 
 typedef SealDeskSetPassword = void Function({VoidCallback? notEmptyCallback});
 
+bool sealDeskShareSettingsAllowed() =>
+    !bind.isDisableSettings() &&
+    bind.mainGetBuildinOption(key: kOptionHideSecuritySetting) != 'Y';
+
 class SealDeskShareSettings extends StatefulWidget {
   final SealDeskSetPassword openSetPassword;
   final VoidCallback openOtpLength;
