@@ -63,8 +63,15 @@ impl Launch {
     }
 }
 
-pub(crate) fn startup_mode(launch: Option<&Launch>) -> Mode {
-    launch.map(|launch| launch.mode).unwrap_or(Mode::Control)
+pub(crate) fn startup_mode(launch: Option<&Launch>, remembered: &str) -> Mode {
+    if let Some(launch) = launch {
+        return launch.mode;
+    }
+    if remembered == Mode::Control.as_str() {
+        Mode::Control
+    } else {
+        Mode::Host
+    }
 }
 
 pub(crate) fn controller_only(mode: &str, no_server: bool) -> bool {
@@ -99,13 +106,17 @@ mod tests {
             Mode::Control
         );
         assert!(Launch::parse(&[], false).unwrap().is_none());
-        assert_eq!(startup_mode(None), Mode::Control);
+        assert_eq!(startup_mode(None, ""), Mode::Host);
+        assert_eq!(startup_mode(None, "host"), Mode::Host);
+        assert_eq!(startup_mode(None, "control"), Mode::Control);
+        assert_eq!(startup_mode(None, "nope"), Mode::Host);
         for (arguments, expected) in [
             (args(&["--host"]), Mode::Host),
             (args(&["--control"]), Mode::Control),
         ] {
             let launch = Launch::parse(&arguments, false).unwrap();
-            assert_eq!(startup_mode(launch.as_ref()), expected);
+            assert_eq!(startup_mode(launch.as_ref(), "control"), expected);
+            assert_eq!(startup_mode(launch.as_ref(), ""), expected);
         }
         assert!(Launch::parse(&args(&["--server"]), false)
             .unwrap()

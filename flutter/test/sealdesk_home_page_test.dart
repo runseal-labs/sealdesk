@@ -426,16 +426,50 @@ void main() {
     }
   });
 
-  testWidgets('first launch chooses and remembers mode before publishing QR',
+  testWidgets('missing or invalid saved page opens share this device',
+      (tester) async {
+    for (final mode in ['', 'nope']) {
+      final saved = <String>[];
+      await showPage(tester,
+          mode: mode, saveMode: (mode) async => saved.add(mode));
+      expect(find.byType(QrImageView), findsOneWidget);
+      expect(find.byKey(const ValueKey('sealdesk-input')), findsNothing);
+      expect(find.text('请选择使用方式，下次启动会记住你的选择'), findsNothing);
+      expect(
+        tester
+            .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '共享本机'))
+            .selected,
+        isTrue,
+      );
+      expect(
+        tester
+            .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '连接设备'))
+            .selected,
+        isFalse,
+      );
+      expect(saved, isEmpty);
+      await tester.pumpWidget(const SizedBox());
+    }
+  });
+
+  testWidgets('startup restores the connect page and saves the next choice',
       (tester) async {
     final saved = <String>[];
-    await showPage(tester, mode: '', saveMode: (mode) async => saved.add(mode));
+    await showPage(tester,
+        mode: 'control', saveMode: (mode) async => saved.add(mode));
     expect(find.byType(QrImageView), findsNothing);
-    expect(find.text('请选择使用方式，下次启动会记住你的选择'), findsOneWidget);
+    expect(find.byKey(const ValueKey('sealdesk-input')), findsOneWidget);
+    expect(
+      tester
+          .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '连接设备'))
+          .selected,
+      isTrue,
+    );
     await tester.tap(find.text('共享本机'));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(saved, ['host']);
     expect(find.byType(QrImageView), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
   });
 
   testWidgets('failed mode switch keeps the current mode and reports failure',
@@ -564,22 +598,24 @@ void main() {
       (tester) async {
     final confirmation = Completer<void>();
     var calls = 0;
-    await showPage(tester, mode: '', saveMode: (_) {
+    await showPage(tester, mode: 'host', saveMode: (_) {
       calls++;
       return confirmation.future;
     });
-    await tester.tap(find.text('共享本机'));
-    await tester.pump();
-    await tester.tap(find.text('连接设备'));
-    await tester.pump();
-    expect(calls, 1);
-    expect(find.byType(QrImageView), findsNothing);
-    confirmation.complete();
-    await tester.pumpAndSettle();
     expect(find.byType(QrImageView), findsOneWidget);
     await tester.tap(find.text('连接设备'));
+    await tester.pump();
+    await tester.tap(find.text('共享本机'));
+    await tester.pump();
+    expect(calls, 1);
+    expect(find.byType(QrImageView), findsOneWidget);
+    confirmation.complete();
     await tester.pumpAndSettle();
     expect(find.byType(QrImageView), findsNothing);
+    await tester.tap(find.text('共享本机'));
+    await tester.pumpAndSettle();
+    expect(calls, 2);
+    expect(find.byType(QrImageView), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
 
