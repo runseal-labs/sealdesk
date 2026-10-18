@@ -35,7 +35,7 @@ pub use version::*;
 mod version_tests {
     #[test]
     fn product_version_does_not_change_protocol_version() {
-        assert_eq!(super::VERSION, "0.2.1");
+        assert_eq!(super::VERSION, "0.3.0");
         assert_eq!(super::PROTOCOL_VERSION, "1.5.1");
         assert_ne!(super::VERSION, super::PROTOCOL_VERSION);
     }
