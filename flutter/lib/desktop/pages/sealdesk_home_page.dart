@@ -91,6 +91,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
   String get _statusText => translate(_status);
   String? _error;
   String? _hostError;
+  String? _hostDetail;
   bool _hidden = false;
   bool _loading = false;
   bool _busy = false;
@@ -140,15 +141,19 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
       final host = await widget.loadHost();
       if (!mounted || _mode != 'host' || (_busy && !force)) return;
       if (host.startError.isNotEmpty) {
+        final raw = host.startError.trim();
+        final friendly = isInternalRelayError(raw);
         setState(() {
           _pairing = null;
           _code = null;
           _relay = null;
-          _hostError = host.startError;
+          _hostError = friendly ? translate(relayUnreachableMessage) : raw;
+          _hostDetail = friendly ? raw : null;
         });
         return;
       }
       _hostError = null;
+      _hostDetail = null;
       if (host.address == _revokedAddress) {
         setState(() {
           _pairing = null;
@@ -200,6 +205,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
           _relay = null;
           _status = 'Unable to get pairing code, please try again';
           _hostError = translate(_status);
+          _hostDetail = null;
         });
       }
     } finally {
@@ -216,6 +222,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
         _pairing = null;
         _code = null;
         _hostError = null;
+        _hostDetail = null;
         _relay = null;
         _status = 'Generating pairing code...';
       });
@@ -473,14 +480,21 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
       case 'unreachable':
         final error = relay.lastError.trim();
         final foreground = scheme.error;
-        banner = _relayChip(
+        final chip = _relayChip(
           foreground: foreground,
           background: foreground.withOpacity(0.08),
           icon: Icon(Icons.warning_amber_rounded, size: 14, color: foreground),
           label: translate('Relay unreachable; scanning will likely time out'),
-          detail: error.isEmpty ? null : error,
-          tooltip: error.isEmpty ? null : error,
         );
+        banner = error.isEmpty
+            ? chip
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  chip,
+                  _rawErrorTile(error),
+                ],
+              );
         break;
       default:
         return const [];
@@ -554,12 +568,39 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
     return Tooltip(message: tooltip, child: body);
   }
 
+  Widget _rawErrorTile(String raw) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 360),
+      child: ExpansionTile(
+        key: const ValueKey('sealdesk-error-details'),
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: const EdgeInsets.symmetric(horizontal: 8),
+        title: Text(
+          translate('Error details'),
+          style: TextStyle(
+            fontSize: 13,
+            color: Theme.of(context).colorScheme.error,
+          ),
+        ),
+        children: [
+          SelectableText(
+            raw,
+            key: const ValueKey('sealdesk-error-raw'),
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+
   List<Widget> _buildHost() => [
         Text(_hostError ?? _statusText,
             key: const ValueKey('sealdesk-status'),
             style: _hostError == null
                 ? null
                 : TextStyle(color: Theme.of(context).colorScheme.error)),
+        if (_hostDetail != null) _rawErrorTile(_hostDetail!),
         if (_hostError != null)
           TextButton.icon(
             key: const ValueKey('sealdesk-retry-host'),

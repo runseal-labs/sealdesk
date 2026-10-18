@@ -76,3 +76,11 @@ class RelayStatus {
     );
   }
 }
+
+/// Shown instead of an internal relay failure such as
+/// `tailcat: DERP map fetch: timeout`, which is not a translation key.
+const String relayUnreachableMessage =
+    'Cannot reach the relay server. Check the network or relay settings';
+
+bool isInternalRelayError(String raw) => raw.toLowerCase().contains('derp');
+

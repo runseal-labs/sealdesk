@@ -10,7 +10,11 @@ pub(crate) fn start_error() -> String {
 }
 
 pub(crate) fn set_start_error(error: String) {
-    *START_ERROR.lock().unwrap() = scrub_init_error(&error);
+    let scrubbed = scrub_init_error(&error);
+    if !scrubbed.is_empty() {
+        hbb_common::log::error!("Tailcat sharing failed: {scrubbed}");
+    }
+    *START_ERROR.lock().unwrap() = scrubbed;
 }
 
 pub(crate) fn enabled() -> bool {
@@ -229,7 +233,33 @@ pub(crate) fn relay_status() -> String {
     {
         return String::new();
     }
+    log_relay_last_error(&merged);
     merged
+}
+
+fn log_relay_last_error(status: &str) {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(status) else {
+        return;
+    };
+    let current = value
+        .get("last_error")
+        .and_then(|item| item.as_str())
+        .unwrap_or("")
+        .trim();
+    static LAST: Mutex<String> = Mutex::new(String::new());
+    let changed = {
+        let mut last = LAST.lock().unwrap();
+        if *last == current {
+            false
+        } else {
+            last.clear();
+            last.push_str(current);
+            true
+        }
+    };
+    if changed && !current.is_empty() {
+        hbb_common::log::error!("Relay unreachable: {current}");
+    }
 }
 
 /// Adds `rust_init_error` when `status` is a JSON object whose `init_error` is

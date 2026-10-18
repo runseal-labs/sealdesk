@@ -853,5 +853,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Checking relay...", ""),
         ("Relay reachable", ""),
         ("Relay unreachable; scanning will likely time out", ""),
+        ("Cannot reach the relay server. Check the network or relay settings", "Nije moguće povezati se sa serverom za prenos. Proverite mrežu ili podešavanja prenosa"),
+        ("Error details", "Detalji greške"),
     ].iter().cloned().collect();
 }

@@ -52,6 +52,9 @@ class _I18nBinding extends Fake implements SealdeskImpl {
       'Checking relay...': '正在检查中继…',
       'Relay reachable': '中继可达',
       'Relay unreachable; scanning will likely time out': '中继不可达，扫码连接很可能会超时',
+      'Cannot reach the relay server. Check the network or relay settings':
+          '连不上中继服务器，请检查网络或中继设置',
+      'Error details': '错误详情',
     };
     return values[name] ?? name;
   }
@@ -528,7 +531,7 @@ void main() {
             address: failed ? '' : address,
             password: 'secret',
             name: 'Computer',
-            startError: failed ? 'DERP map download failed: HTTP 503' : ''),
+            startError: failed ? 'tailcat: DERP map fetch: timeout' : ''),
         saveMode: (mode) async {
           if (mode == 'host') {
             if (retries++ == 0) {
@@ -539,7 +542,14 @@ void main() {
         },
         loadDerpMapUrl: () async => '',
         saveDerpMapUrl: (_) async {});
-    expect(find.text('DERP map download failed: HTTP 503'), findsOneWidget);
+    expect(
+        find.text(
+            'Cannot reach the relay server. Check the network or relay settings'),
+        findsOneWidget);
+    expect(find.text('tailcat: DERP map fetch: timeout'), findsNothing);
+    await tester.tap(find.text('Error details'));
+    await tester.pumpAndSettle();
+    expect(find.text('tailcat: DERP map fetch: timeout'), findsOneWidget);
     expect(find.text('Generating pairing code...'), findsNothing);
     expect(find.byType(QrImageView), findsNothing);
     expect(find.byKey(const ValueKey('sealdesk-relay-settings')), findsOneWidget);
@@ -549,7 +559,11 @@ void main() {
     expect(find.text('Retry'), findsOneWidget);
     await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();
-    expect(find.text('DERP map download failed: HTTP 503'), findsNothing);
+    expect(find.text('tailcat: DERP map fetch: timeout'), findsNothing);
+    expect(
+        find.text(
+            'Cannot reach the relay server. Check the network or relay settings'),
+        findsNothing);
     expect(find.text('Retry'), findsNothing);
     expect(find.text('Waiting for connection'), findsOneWidget);
     expect(find.byType(QrImageView), findsOneWidget);
@@ -932,6 +946,9 @@ void main() {
     expect(find.text('Waiting for connection'), findsOneWidget);
     expect(find.text('Relay unreachable; scanning will likely time out'),
         findsOneWidget);
+    expect(find.text('dial timeout'), findsNothing);
+    await tester.tap(find.text('Error details'));
+    await tester.pumpAndSettle();
     expect(find.text('dial timeout'), findsOneWidget);
     expect(find.text('Relay reachable (42 ms)'), findsNothing);
 
@@ -942,7 +959,11 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     await tester.pump();
     expect(find.byType(QrImageView), findsNothing);
-    expect(find.text('DERP relay/bootstrap: connection refused'), findsOneWidget);
+    expect(find.text('DERP relay/bootstrap: connection refused'), findsNothing);
+    expect(
+        find.text(
+            'Cannot reach the relay server. Check the network or relay settings'),
+        findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
     expect(find.textContaining('Generating pairing code'), findsNothing);
     expect(find.byKey(const ValueKey('sealdesk-relay')), findsNothing);
@@ -985,6 +1006,8 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     await tester.pump();
     expect(find.text('中继不可达，扫码连接很可能会超时'), findsOneWidget);
+    expect(find.text('dial timeout'), findsNothing);
+    expect(find.text('错误详情'), findsOneWidget);
     expect(find.text('中继可达 (42 ms)'), findsNothing);
 
     relay = RelayStatus.fromJson('{"state":"connecting"}');
