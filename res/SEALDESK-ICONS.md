@@ -19,10 +19,10 @@ To reproduce the master from the approved sheet first:
 uv run --with pillow res/extract_sealdesk_icon.py
 ```
 
-All color sizes use Lanczos resizing of the same master, preserving the original face, whiskers, lock and shading. 1024 px exports are upscaled from the original raster and do not add image detail. Windows ICO and macOS ICNS include multiple native frame sizes. iOS and Android store icons use an opaque matching teal matte. Android adaptive foregrounds fit the original tile in the safe zone; monochrome/notification and macOS template images derive from the approved artwork. `tmp/sealdesk-final-preview.png` shows actual export sizes.
+All color sizes use Lanczos resizing of the same master, preserving the original face, whiskers, lock and shading. 1024 px exports are upscaled from the original raster and do not add image detail. Windows ICO and macOS ICNS include multiple native frame sizes. iOS and Android store icons use an opaque matching teal matte. Android adaptive foregrounds fill the adaptive canvas with the rounded tile; only the launcher mask crops them. Monochrome/notification and macOS template images derive from the approved artwork. `tmp/sealdesk-final-preview.png` shows actual export sizes.
 
 Remote desktop connection logic is unchanged. The Linux window icon lookup and title use SealDesk branding; rebuild the application to pick up updated resources.
 
 Linux icon theme entries use `com.runseal.sealdesk` consistently in desktop launchers, the GTK runner and packaging recipes, avoiding the previously cached generic icon name.
 
-Linux theme PNGs and the scalable compatibility image omit the extra outer transparent padding, retaining the artwork proportions while increasing its Dock footprint by about 4 percent. Other platforms retain their existing export layout.
+Linux theme PNGs at 32, 64, 128 and 256 px each keep a 1px transparent margin, and the scalable compatibility image does the same. Other platforms retain their existing export layout.
