@@ -876,6 +876,10 @@ async fn handle(data: Data, stream: &mut Connection) {
                 let value;
                 if name == "id" {
                     value = Some(Config::get_id());
+                } else if name == base::config::keys::OPTION_TAILCAT_DERP_MAP_URL {
+                    value = Some(Config::get_option(&name));
+                } else if name == base::config::keys::OPTION_TAILCAT_START_ERROR {
+                    value = Some(crate::tailcat::host::start_error());
                 } else if name == base::config::keys::OPTION_SEALDESK_HOST_MODE {
                     value = Some(crate::tailcat::host::mode().to_owned());
                 } else if name == base::config::keys::OPTION_STOP_SERVICE {

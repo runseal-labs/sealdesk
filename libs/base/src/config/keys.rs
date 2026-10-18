@@ -7,6 +7,8 @@ pub use hbb_common::config::keys::*;
 
 pub const OPTION_SEALDESK_MODE: &str = "sealdesk-mode";
 pub const OPTION_SEALDESK_HOST_MODE: &str = "sealdesk-host-mode";
+pub const OPTION_TAILCAT_DERP_MAP_URL: &str = "tailcat-derp-map-url";
+pub const OPTION_TAILCAT_START_ERROR: &str = "tailcat-start-error";
 pub const OPTION_SEALDESK_RESET_ADDRESS: &str = "sealdesk-reset-address";
 pub const OPTION_STOP_SERVICE: &str = "stop-service";
 

@@ -154,6 +154,18 @@ pub fn get_option<T: AsRef<str>>(key: T) -> String {
                 .flatten()
                 .unwrap_or_default();
         }
+        if key.as_ref() == keys::OPTION_TAILCAT_DERP_MAP_URL {
+            return crate::ipc::get_config(keys::OPTION_TAILCAT_DERP_MAP_URL)
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| Config::get_option(keys::OPTION_TAILCAT_DERP_MAP_URL));
+        }
+        if key.as_ref() == keys::OPTION_TAILCAT_START_ERROR {
+            return crate::ipc::get_config(keys::OPTION_TAILCAT_START_ERROR)
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+        }
         if key.as_ref() == crate::tailcat::OPTION_RELAY_STATUS {
             return crate::ipc::get_config(key.as_ref())
                 .ok()
@@ -201,6 +213,9 @@ pub fn get_option<T: AsRef<str>>(key: T) -> String {
             }
             crate::tailcat::OPTION_RELAY_STATUS => {
                 return crate::tailcat::host::relay_status();
+            }
+            keys::OPTION_TAILCAT_START_ERROR => {
+                return crate::tailcat::host::start_error();
             }
             _ => {}
         }

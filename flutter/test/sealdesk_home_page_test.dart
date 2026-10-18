@@ -92,6 +92,8 @@ void main() {
     Future<SealDeskPairing> Function(String)? loadImageFile,
     Future<void> Function()? resetAddress,
     Future<SealDeskPairing> Function()? pasteImage,
+    Future<String> Function()? loadDerpMapUrl,
+    Future<void> Function(String)? saveDerpMapUrl,
   }) async {
     await tester.binding.setSurfaceSize(const Size(800, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -113,6 +115,8 @@ void main() {
             loadImageFile: loadImageFile,
             resetAddress: resetAddress,
             pasteImage: pasteImage,
+            loadDerpMapUrl: loadDerpMapUrl,
+            saveDerpMapUrl: saveDerpMapUrl,
           ),
         ),
       ),
@@ -449,6 +453,112 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('relay settings reject invalid URLs without changing the map',
+      (tester) async {
+    binding.language = 'en';
+    final saved = <String>[];
+    await showPage(tester,
+        mode: 'control',
+        loadDerpMapUrl: () async => '',
+        saveDerpMapUrl: (value) async => saved.add(value));
+    await tester.tap(find.byKey(const ValueKey('sealdesk-relay-settings')));
+    await tester.pumpAndSettle();
+    for (final value in [
+      'http://relay.example/map.json',
+      'https://',
+      'https://user:password@relay.example/map.json',
+      'https://relay.example/map.json#fragment',
+    ]) {
+      await tester.enterText(
+          find.byKey(const ValueKey('sealdesk-derp-map-url')), value);
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(find.text('Enter an HTTPS URL without credentials or a fragment'),
+          findsOneWidget);
+      expect(saved, isEmpty);
+    }
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(saved, isEmpty);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('host initialization failure shows retry and recovers a QR code',
+      (tester) async {
+    binding.language = 'en';
+    var failed = true;
+    var retries = 0;
+    await showPage(tester,
+        loadHost: () async => SealDeskHostState(
+            address: failed ? '' : address,
+            password: 'secret',
+            name: 'Computer',
+            startError: failed ? 'DERP map download failed: HTTP 503' : ''),
+        saveMode: (mode) async {
+          if (mode == 'host') {
+            if (retries++ == 0) {
+              throw const FormatException('Sharing could not restart');
+            }
+            failed = false;
+          }
+        },
+        loadDerpMapUrl: () async => '',
+        saveDerpMapUrl: (_) async {});
+    expect(find.text('DERP map download failed: HTTP 503'), findsOneWidget);
+    expect(find.text('Generating pairing code...'), findsNothing);
+    expect(find.byType(QrImageView), findsNothing);
+    expect(find.byKey(const ValueKey('sealdesk-relay-settings')), findsOneWidget);
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+    expect(find.text('Sharing could not restart'), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+    expect(find.text('DERP map download failed: HTTP 503'), findsNothing);
+    expect(find.text('Retry'), findsNothing);
+    expect(find.text('Waiting for connection'), findsOneWidget);
+    expect(find.byType(QrImageView), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('relay settings load, save and reset the persisted map',
+      (tester) async {
+    binding.language = 'en';
+    var saved = 'https://relay.example/map.json';
+    await showPage(tester,
+        loadDerpMapUrl: () async => saved,
+        saveDerpMapUrl: (value) async => saved = value);
+    final settings = find.byKey(const ValueKey('sealdesk-relay-settings'));
+    final input = find.byKey(const ValueKey('sealdesk-derp-map-url'));
+    await tester.tap(settings);
+    await tester.pumpAndSettle();
+    expect(find.text(saved), findsOneWidget);
+    expect(find.text('Saving restarts sharing and disconnects current sessions.'),
+        findsOneWidget);
+    await tester.enterText(input, 'https://other.example/derp.json');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(saved, 'https://other.example/derp.json');
+    await tester.tap(settings);
+    await tester.pumpAndSettle();
+    expect(find.text(saved), findsOneWidget);
+    await tester.tap(find.text('Reset to default'));
+    await tester.pumpAndSettle();
+    expect(find.text('https://tailcat.dev/derpmap.json'), findsOneWidget);
+    expect(saved, 'https://other.example/derp.json');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(saved, isEmpty);
+    await tester.tap(settings);
+    await tester.pumpAndSettle();
+    expect(find.text('https://tailcat.dev/derpmap.json'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.byType(QrImageView), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets(
       'mode switch waits for service confirmation and ignores duplicates',
       (tester) async {
@@ -759,18 +869,20 @@ void main() {
   });
 
   testWidgets(
-      'relay chip stays under the QR and init errors replace the placeholder',
+      'relay chip stays under the QR and startup errors use retry',
       (tester) async {
     binding.language = 'en';
     RelayStatus? relay = RelayStatus.fromJson(
         '{"running":true,"state":"reachable","probe_rtt_ms":42}');
     var addr = address;
+    var startError = '';
     await showPage(tester,
         loadHost: () async => SealDeskHostState(
             address: addr,
             password: 'secret',
             name: '电脑',
-            relayStatus: relay));
+            relayStatus: relay,
+            startError: startError));
     expect(find.byType(QrImageView), findsOneWidget);
     expect(find.text('Waiting for connection'), findsOneWidget);
     expect(find.text('Relay reachable (42 ms)'), findsOneWidget);
@@ -788,21 +900,35 @@ void main() {
     expect(find.text('Relay reachable (42 ms)'), findsNothing);
 
     addr = '';
+    startError = 'DERP relay/bootstrap: connection refused';
+    relay = RelayStatus.fromJson(
+        '{"running":false,"state":"stopped","init_stage":"relay","init_error":"DERP relay/bootstrap: connection refused"}');
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.byType(QrImageView), findsNothing);
+    expect(find.text('DERP relay/bootstrap: connection refused'), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
+    expect(find.textContaining('Generating pairing code'), findsNothing);
+    expect(find.byKey(const ValueKey('sealdesk-relay')), findsNothing);
+
+    startError = '';
     relay = RelayStatus.fromJson(
         '{"running":false,"state":"stopped","init_stage":"start","init_error":"bind"}');
     await tester.pump(const Duration(seconds: 1));
     await tester.pump();
-    expect(find.byType(QrImageView), findsNothing);
-    expect(find.text('start: bind'), findsOneWidget);
-    expect(find.textContaining('Generating pairing code'), findsNothing);
+    expect(find.text('Generating pairing code...'), findsOneWidget);
+    expect(find.text('start: bind'), findsNothing);
+    expect(find.text('Retry'), findsNothing);
     expect(find.byKey(const ValueKey('sealdesk-relay')), findsNothing);
 
-    relay = RelayStatus.fromJson('{"state":"connecting"}');
+    addr = address;
+    relay = RelayStatus.fromJson('{"running":true,"state":"connecting"}');
     await tester.pump(const Duration(seconds: 1));
     await tester.pump();
-    expect(find.text('Generating pairing code...'), findsOneWidget);
+    expect(find.byType(QrImageView), findsOneWidget);
+    expect(find.text('Waiting for connection'), findsOneWidget);
     expect(find.text('Checking relay...'), findsOneWidget);
-    expect(find.text('start: bind'), findsNothing);
+    expect(find.text('Generating pairing code...'), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
 

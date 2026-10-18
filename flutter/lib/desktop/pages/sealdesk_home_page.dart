@@ -9,6 +9,8 @@ import '../../common.dart';
 import '../../common/sealdesk_pairing.dart';
 import '../../models/relay_status.dart';
 
+const _defaultDerpMapUrl = 'https://tailcat.dev/derpmap.json';
+
 class SealDeskHostState {
   final String address;
   final String? password;
@@ -16,6 +18,7 @@ class SealDeskHostState {
   final List<String> connectedNames;
   final int connectedCount;
   final bool stopped;
+  final String startError;
   final RelayStatus? relayStatus;
 
   const SealDeskHostState({
@@ -25,6 +28,7 @@ class SealDeskHostState {
     this.connectedNames = const [],
     this.connectedCount = 0,
     this.stopped = false,
+    this.startError = '',
     this.relayStatus,
   });
 }
@@ -42,6 +46,8 @@ class SealDeskHomePage extends StatefulWidget {
   final Future<SealDeskPairing> Function(String)? loadImageFile;
   final Future<void> Function()? resetAddress;
   final Future<SealDeskPairing> Function()? pasteImage;
+  final Future<String> Function()? loadDerpMapUrl;
+  final Future<void> Function(String)? saveDerpMapUrl;
   final Widget? footer;
   final bool hostOnly;
 
@@ -59,6 +65,8 @@ class SealDeskHomePage extends StatefulWidget {
     this.loadImageFile,
     this.resetAddress,
     this.pasteImage,
+    this.loadDerpMapUrl,
+    this.saveDerpMapUrl,
     this.footer,
     this.hostOnly = false,
   });
@@ -75,11 +83,11 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
   String? _code;
   String? _revokedAddress;
   String _status = 'Generating pairing code...';
-  String? _initFailure;
   RelayStatus? _relay;
 
-  String get _statusText => _initFailure ?? translate(_status);
+  String get _statusText => translate(_status);
   String? _error;
+  String? _hostError;
   bool _hidden = false;
   bool _loading = false;
   bool _busy = false;
@@ -132,12 +140,21 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
     try {
       final host = await widget.loadHost();
       if (!mounted || _mode != 'host' || (_busy && !force)) return;
+      if (host.startError.isNotEmpty) {
+        setState(() {
+          _pairing = null;
+          _code = null;
+          _relay = null;
+          _hostError = host.startError;
+        });
+        return;
+      }
+      _hostError = null;
       if (host.address == _revokedAddress) {
         setState(() {
           _pairing = null;
           _code = null;
-          _relay = host.relayStatus;
-          _initFailure = null;
+          _relay = null;
           _status = 'Updating QR code...';
         });
         return;
@@ -146,8 +163,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
         setState(() {
           _pairing = null;
           _code = null;
-          _relay = host.relayStatus;
-          _initFailure = host.stopped ? null : host.relayStatus?.initFailure;
+          _relay = null;
           _status = host.stopped
               ? translate('Sharing stopped')
               : translate('Generating pairing code...');
@@ -171,7 +187,6 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
       }
       setState(() {
         _relay = host.relayStatus;
-        _initFailure = null;
         _status = host.connectedNames.isNotEmpty
             ? '已连接：${host.connectedNames.join('、')}'
             : host.connectedCount > 0
@@ -184,8 +199,8 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
           _pairing = null;
           _code = null;
           _relay = null;
-          _initFailure = null;
           _status = 'Unable to get pairing code, please try again';
+          _hostError = translate(_status);
         });
       }
     } finally {
@@ -201,13 +216,45 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
         _mode = mode;
         _pairing = null;
         _code = null;
+        _hostError = null;
         _relay = null;
-        _initFailure = null;
         _status = 'Generating pairing code...';
       });
       await _poll(force: true);
     });
   }
+
+  Future<void> _retryHost() => _act(() async {
+        await widget.saveMode('control');
+        await widget.saveMode('host');
+        if (mounted) await _poll(force: true);
+      });
+
+  Future<void> _configureRelay() => _act(() async {
+        final current = await widget.loadDerpMapUrl!();
+        if (!mounted) return;
+        final value = await showDialog<String>(
+          context: context,
+          builder: (context) => _SealDeskRelaySettingsDialog(
+            initialUrl: current,
+            hosting: _mode == 'host',
+          ),
+        );
+        if (value == null || !mounted) return;
+        if (_mode == 'host') {
+          setState(() {
+            _pairing = null;
+            _code = null;
+            _relay = null;
+            _status = 'Generating pairing code...';
+          });
+        }
+        try {
+          await widget.saveDerpMapUrl!(value);
+        } finally {
+          if (mounted) await _poll(force: true);
+        }
+      });
 
   Future<void> _resetAddress() => _act(() async {
         final confirmed = await showDialog<bool>(
@@ -233,7 +280,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
           _revokedAddress = _pairing?.address ?? _revokedAddress;
           _pairing = null;
           _code = null;
-          _initFailure = null;
+          _relay = null;
           _status = 'Resetting address...';
         });
         await widget.resetAddress!();
@@ -345,6 +392,17 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
                   ],
                 ],
                 if (_mode == 'control') ..._buildControl(),
+                if (widget.loadDerpMapUrl != null &&
+                    widget.saveDerpMapUrl != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: TextButton.icon(
+                      key: const ValueKey('sealdesk-relay-settings'),
+                      icon: const Icon(Icons.settings_ethernet),
+                      label: Text(translate('Relay settings')),
+                      onPressed: _busy ? null : _configureRelay,
+                    ),
+                  ),
                 if (_mode.isNotEmpty && widget.lanPanelBuilder != null) ...[
                   const SizedBox(height: 20),
                   widget.lanPanelBuilder!(_mode == 'host'),
@@ -498,7 +556,18 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
   }
 
   List<Widget> _buildHost() => [
-        Text(_statusText, key: const ValueKey('sealdesk-status')),
+        Text(_hostError ?? _statusText,
+            key: const ValueKey('sealdesk-status'),
+            style: _hostError == null
+                ? null
+                : TextStyle(color: Theme.of(context).colorScheme.error)),
+        if (_hostError != null)
+          TextButton.icon(
+            key: const ValueKey('sealdesk-retry-host'),
+            icon: const Icon(Icons.refresh),
+            label: Text(translate('Retry')),
+            onPressed: _busy ? null : _retryHost,
+          ),
         const SizedBox(height: 16),
         if (_code != null)
           Container(
@@ -514,7 +583,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
                   )
                 : _buildQr(),
           ),
-        ..._relayWidgets(),
+        if (_code != null) ..._relayWidgets(),
         const SizedBox(height: 16),
         Wrap(
           spacing: 8,
@@ -629,4 +698,99 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
                 'You can also drop a QR screenshot here to connect automatically')),
           ),
       ];
+}
+
+class _SealDeskRelaySettingsDialog extends StatefulWidget {
+  final String initialUrl;
+  final bool hosting;
+
+  const _SealDeskRelaySettingsDialog({
+    required this.initialUrl,
+    required this.hosting,
+  });
+
+  @override
+  State<_SealDeskRelaySettingsDialog> createState() =>
+      _SealDeskRelaySettingsDialogState();
+}
+
+class _SealDeskRelaySettingsDialogState
+    extends State<_SealDeskRelaySettingsDialog> {
+  late final _url = TextEditingController(
+      text: widget.initialUrl.isEmpty ? _defaultDerpMapUrl : widget.initialUrl);
+  String? _error;
+
+  @override
+  void dispose() {
+    _url.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final value = _url.text.trim();
+    final uri = Uri.tryParse(value);
+    if (value.isNotEmpty &&
+        (uri == null ||
+            uri.scheme != 'https' ||
+            uri.host.isEmpty ||
+            uri.authority.contains('@') ||
+            uri.hasFragment ||
+            RegExp(r'\s').hasMatch(value))) {
+      setState(() => _error = translate(
+          'Enter an HTTPS URL without credentials or a fragment'));
+      return;
+    }
+    Navigator.pop(context, value == _defaultDerpMapUrl ? '' : value);
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: Text(translate('Relay settings')),
+        content: SizedBox(
+          width: 440,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                key: const ValueKey('sealdesk-derp-map-url'),
+                controller: _url,
+                autocorrect: false,
+                enableSuggestions: false,
+                keyboardType: TextInputType.url,
+                decoration: InputDecoration(
+                  labelText: translate('DERP map URL'),
+                  errorText: _error,
+                  errorMaxLines: 3,
+                  border: const OutlineInputBorder(),
+                ),
+                onSubmitted: (_) => _save(),
+              ),
+              const SizedBox(height: 16),
+              if (widget.hosting)
+                Text(translate(
+                    'Saving restarts sharing and disconnects current sessions.')),
+              Text(translate(
+                  'Applies after sharing restarts or a new tunnel opens. Embedded relay addresses keep their relay.')),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => setState(() {
+              _url.text = _defaultDerpMapUrl;
+              _error = null;
+            }),
+            child: Text(translate('Reset to default')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(translate('Cancel')),
+          ),
+          FilledButton(
+            onPressed: _save,
+            child: Text(translate('Save')),
+          ),
+        ],
+      );
 }

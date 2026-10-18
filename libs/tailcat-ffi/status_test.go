@@ -260,7 +260,7 @@ func TestProbeLoopRecordsAndTcStopServeStopsIt(t *testing.T) {
 	})
 
 	mu.Lock()
-	startSelfProbeLocked("tc-probe-test-address", key.NewNode())
+	startSelfProbeLocked("tc-probe-test-address", key.NewNode(), "https://tailcat.example/derpmap.json")
 	done := probeDone
 	mu.Unlock()
 

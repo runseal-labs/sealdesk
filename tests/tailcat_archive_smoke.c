@@ -16,6 +16,18 @@ int main(void) {
         return 2;
     }
     TcFree(response);
-    puts("PASS tailcat C ABI: QR allocation/free and idle server shutdown");
+    response = TcServeWithDERPMap("", "", 0, "", "http://invalid.example/map.json");
+    if (response == NULL || strncmp(response, "ERR:DERP map configuration:", 27) != 0) {
+        TcFree(response);
+        return 3;
+    }
+    TcFree(response);
+    response = TcForwardWithDERPMap("", "", 1000, "", "http://invalid.example/map.json");
+    if (response == NULL || strncmp(response, "ERR:DERP map configuration:", 27) != 0) {
+        TcFree(response);
+        return 4;
+    }
+    TcFree(response);
+    puts("PASS tailcat C ABI: QR allocation/free, idle shutdown, and configured host/client validation");
     return 0;
 }

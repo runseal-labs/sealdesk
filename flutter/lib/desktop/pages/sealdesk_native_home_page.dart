@@ -50,6 +50,7 @@ class SealDeskNativeHomePage extends StatelessWidget {
 
   Future<SealDeskHostState> _loadHost() async {
     final address = await bind.mainGetOption(key: 'tailcat-addr');
+    final startError = await bind.mainGetOption(key: 'tailcat-start-error');
     final relayStatus = RelayStatus.fromJson(
         await bind.mainGetOption(key: 'tailcat-relay-status'));
     final method = await bind.mainGetOption(key: kOptionVerificationMethod);
@@ -70,8 +71,32 @@ class SealDeskNativeHomePage extends StatelessWidget {
       name: await _shareDeviceName(),
       stopped: stopped,
       connectedCount: connectedCount,
+      startError: startError,
       relayStatus: relayStatus,
     );
+  }
+
+  Future<void> _saveDerpMapUrl(String value) async {
+    Future<void> applyMode(String mode) async {
+      await bind.mainSetLocalOption(key: 'sealdesk-mode', value: mode);
+      final applied = await bind.mainGetOption(key: 'sealdesk-host-mode');
+      if (applied != mode ||
+          bind.mainGetLocalOption(key: 'sealdesk-mode') != mode) {
+        throw FormatException(translate('Switch failed, please try again'));
+      }
+    }
+
+    final hosting = bind.mainGetLocalOption(key: 'sealdesk-mode') == 'host';
+    if (hosting) await applyMode('control');
+    try {
+      await bind.mainSetOption(key: 'tailcat-derp-map-url', value: value);
+      if (await bind.mainGetOption(key: 'tailcat-derp-map-url') != value) {
+        throw FormatException(
+            translate('Unable to save relay settings, please try again'));
+      }
+    } finally {
+      if (hosting) await applyMode('host');
+    }
   }
 
   Future<SealDeskPairing?> _pickImage() async {
@@ -109,6 +134,8 @@ class SealDeskNativeHomePage extends StatelessWidget {
             ? 'host'
             : bind.mainGetLocalOption(key: 'sealdesk-mode'),
         loadHost: _loadHost,
+        loadDerpMapUrl: () => bind.mainGetOption(key: 'tailcat-derp-map-url'),
+        saveDerpMapUrl: bind.isDisableSettings() ? null : _saveDerpMapUrl,
         initialInput: initialInput,
         pickImage: _pickImage,
         loadImageFile: loadSealDeskQrFile,

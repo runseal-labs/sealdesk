@@ -3,12 +3,14 @@ use hbb_common::config::{option2bool, Config};
 use std::sync::Mutex;
 
 static RUNNING: Mutex<bool> = Mutex::new(false);
-static INIT_ERROR: Mutex<Option<InitError>> = Mutex::new(None);
+static START_ERROR: Mutex<String> = Mutex::new(String::new());
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct InitError {
-    pub stage: String,
-    pub message: String,
+pub(crate) fn start_error() -> String {
+    START_ERROR.lock().unwrap().clone()
+}
+
+pub(crate) fn set_start_error(error: String) {
+    *START_ERROR.lock().unwrap() = scrub_init_error(&error);
 }
 
 pub(crate) fn enabled() -> bool {
@@ -38,12 +40,16 @@ pub(crate) fn begin_start() -> bool {
     if !enabled() {
         return false;
     }
+    set_start_error(String::new());
     *running = true;
     true
 }
 
 pub(crate) fn set_mode(mode: String) {
     let _running = RUNNING.lock().unwrap();
+    if mode == "control" {
+        set_start_error(String::new());
+    }
     if mode == "host" {
         Config::set_option(keys::OPTION_STOP_SERVICE.to_owned(), String::new());
     }
@@ -209,48 +215,14 @@ pub(crate) fn stop_for_exit() {
     }
 }
 
-pub(crate) fn set_init_error(stage: &str, message: &str) -> String {
-    let stage = scrub_init_error(stage);
-    let message = scrub_init_error(message);
-    *INIT_ERROR.lock().unwrap() = if message.is_empty() {
-        None
-    } else {
-        Some(InitError {
-            stage,
-            message: message.clone(),
-        })
-    };
-    message
-}
-
-pub(crate) fn clear_init_error() {
-    *INIT_ERROR.lock().unwrap() = None;
-}
-
-pub(crate) fn init_error() -> Option<InitError> {
-    INIT_ERROR.lock().unwrap().clone()
-}
-
-fn format_init_error(error: &InitError) -> String {
-    if error.stage.is_empty() {
-        error.message.clone()
-    } else {
-        format!("{}: {}", error.stage, error.message)
-    }
-}
-
-/// Live `TcServeStatus` JSON, with the Rust serve error attached when Go left
-/// `init_error` empty. Empty when status is unavailable.
+/// Live `TcServeStatus` JSON, with the single startup error attached when Go
+/// left `init_error` empty. Empty when status is unavailable.
 pub(crate) fn relay_status() -> String {
     let status = super::serve_status();
     if status.is_empty() {
         return String::new();
     }
-    let rust_init_error = init_error()
-        .as_ref()
-        .map(format_init_error)
-        .unwrap_or_default();
-    let merged = merge_relay_status(&status, &rust_init_error);
+    let merged = merge_relay_status(&status, &start_error());
     if !serde_json::from_str::<serde_json::Value>(&merged)
         .ok()
         .is_some_and(|value| value.is_object())

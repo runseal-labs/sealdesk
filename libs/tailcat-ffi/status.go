@@ -9,6 +9,7 @@ import (
 
 	"github.com/tailscale/tailcat"
 	"tailscale.com/types/key"
+	"tailscale.com/types/logger"
 )
 
 const (
@@ -28,7 +29,12 @@ const (
 	serveStateReachable   = "reachable"
 	serveStateUnreachable = "unreachable"
 
-	initStageKey   = "key"
+	initStageConfig = "config"
+	initStageKey    = "key"
+	initStageAllow  = "allow"
+	initStageMap    = "map"
+	initStageRelay  = "relay"
+	// initStageStart remains for callers that record a pre-classification failure.
 	initStageStart = "start"
 )
 
@@ -37,9 +43,9 @@ const (
 // the pre-shared key.
 var probeSecretRE = regexp.MustCompile(`(?i)(?:nodekey:|privkey:|discokey:)[0-9a-f]+|tc[A-Za-z0-9_-]{16,}`)
 
-// lastInitError is the most recent TcServe failure. Stage is "key", "start",
-// or "" when the last attempt succeeded or none has been made. Guarded by mu,
-// as is serveStartedAt and the self-probe fields below.
+// lastInitError is the most recent TcServe failure. Stage is "config", "key",
+// "allow", "map", "relay", or "" when the last attempt succeeded or none has
+// been made. Guarded by mu, as is serveStartedAt and the self-probe fields below.
 type lastInitError struct {
 	Stage string
 	Msg   string
@@ -110,7 +116,7 @@ func allowWithProbe(user func(key.NodePublic) bool, probe key.NodePublic) func(k
 }
 
 // startSelfProbeLocked launches the DERP self-probe. mu must be held.
-func startSelfProbeLocked(addr tailcat.Addr, priv key.NodePrivate) {
+func startSelfProbeLocked(addr tailcat.Addr, priv key.NodePrivate, source string) {
 	stopSelfProbeLocked()
 	probeAddr = string(addr)
 	if text, err := priv.Public().MarshalText(); err == nil {
@@ -121,7 +127,7 @@ func startSelfProbeLocked(addr tailcat.Addr, priv key.NodePrivate) {
 	probeCancel = cancel
 	probeDone = done
 	gen := probeGen
-	go probeLoop(ctx, gen, addr, priv, done)
+	go probeLoop(ctx, gen, addr, priv, source, done)
 }
 
 // stopSelfProbeLocked cancels the self-probe, if any, and forgets its last
@@ -139,7 +145,7 @@ func stopSelfProbeLocked() {
 	probePubText = ""
 }
 
-func probeLoop(ctx context.Context, gen uint64, addr tailcat.Addr, priv key.NodePrivate, done chan struct{}) {
+func probeLoop(ctx context.Context, gen uint64, addr tailcat.Addr, priv key.NodePrivate, source string, done chan struct{}) {
 	defer close(done)
 	ticker := time.NewTicker(selfProbeInterval)
 	defer ticker.Stop()
@@ -149,7 +155,7 @@ func probeLoop(ctx context.Context, gen uint64, addr tailcat.Addr, priv key.Node
 		}
 		// A new client each round so Ping waits for this meow. Reusing one
 		// client reports success with a sub-ms latency after the first ack.
-		rtt, err := probeOnce(ctx, addr, priv)
+		rtt, err := probeOnce(ctx, addr, priv, source)
 		if ctx.Err() != nil {
 			return
 		}
@@ -164,10 +170,11 @@ func probeLoop(ctx context.Context, gen uint64, addr tailcat.Addr, priv key.Node
 	}
 }
 
-func probeOnce(ctx context.Context, addr tailcat.Addr, priv key.NodePrivate) (time.Duration, error) {
+func probeOnce(ctx context.Context, addr tailcat.Addr, priv key.NodePrivate, source string) (time.Duration, error) {
 	cl := tailcat.NewClient(addr)
 	cl.Key = priv
-	cl.Logf = logf
+	cl.Logf = logger.Discard
+	cl.DERPMapURL = source
 	defer cl.Close()
 	return probePing(ctx, cl)
 }

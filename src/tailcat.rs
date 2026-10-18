@@ -94,18 +94,20 @@ extern "C" {
     fn TcFree(p: *mut c_char);
     fn TcServeStatus() -> *mut c_char;
     fn TcStopServe() -> *mut c_char;
-    fn TcServe(
+    fn TcServeWithDERPMap(
         key_path: *const c_char,
         allow: *const c_char,
         target_port: c_int,
         token: *const c_char,
+        derp_map_url: *const c_char,
     ) -> *mut c_char;
     fn TcClientPubkey(key_path: *const c_char) -> *mut c_char;
-    fn TcForward(
+    fn TcForwardWithDERPMap(
         addr: *const c_char,
         key_path: *const c_char,
         timeout_ms: c_int,
         token: *const c_char,
+        derp_map_url: *const c_char,
     ) -> *mut c_char;
     fn TcCloseForward(addr: *const c_char);
     fn TcPath(addr: *const c_char, timeout_ms: c_int) -> *mut c_char;
@@ -174,12 +176,16 @@ pub fn serve(target_port: u16, token: &[u8; 32]) -> ResultType<String> {
     let key = cstring(&server_key_path())?;
     let allow = cstring(&Config::get_option(OPTION_ALLOW))?;
     let token = cstring(&hex::encode(token))?;
+    let derp_map_url = cstring(&Config::get_option(
+        base::config::keys::OPTION_TAILCAT_DERP_MAP_URL,
+    ))?;
     let address = take(unsafe {
-        TcServe(
+        TcServeWithDERPMap(
             key.as_ptr(),
             allow.as_ptr(),
             target_port as c_int,
             token.as_ptr(),
+            derp_map_url.as_ptr(),
         )
     })?;
     #[cfg(target_os = "linux")]
@@ -220,7 +226,18 @@ fn forward(addr: &str, timeout_ms: u64, token: &[u8; 32]) -> ResultType<LocalFor
     let key = cstring(&client_key_path())?;
     let token = cstring(&hex::encode(token))?;
     let timeout_ms = c_int::try_from(timeout_ms)?;
-    let local = take(unsafe { TcForward(a.as_ptr(), key.as_ptr(), timeout_ms, token.as_ptr()) })?;
+    let derp_map_url = cstring(&Config::get_option(
+        base::config::keys::OPTION_TAILCAT_DERP_MAP_URL,
+    ))?;
+    let local = take(unsafe {
+        TcForwardWithDERPMap(
+            a.as_ptr(),
+            key.as_ptr(),
+            timeout_ms,
+            token.as_ptr(),
+            derp_map_url.as_ptr(),
+        )
+    })?;
     #[cfg(target_os = "linux")]
     secure_key_file(key.to_str()?)?;
     Ok(LocalForward(cstring(&local)?))
