@@ -33,7 +33,7 @@ void main() {
     expect(decoded.name, pairing.name);
   });
 
-  test('oversized and corrupt files are rejected with Chinese errors',
+  test('oversized and corrupt files are rejected with actionable errors',
       () async {
     final file = File('${directory.path}/invalid.png');
     final handle = await file.open(mode: FileMode.write);
@@ -42,11 +42,11 @@ void main() {
     await expectLater(
         loadSealDeskQrFile(file.path),
         throwsA(isA<FormatException>()
-            .having((error) => error.message, 'reason', contains('超过 20 MB'))));
+            .having((error) => error.message, 'reason', contains('20 MB'))));
     await file.writeAsBytes([1, 2, 3]);
     await expectLater(
         loadSealDeskQrFile(file.path),
         throwsA(isA<FormatException>().having(
-            (error) => error.message, 'reason', contains('图片已损坏或格式不受支持'))));
+            (error) => error.message, 'reason', contains('not supported'))));
   });
 }

@@ -811,10 +811,10 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
         final label = sealDeskConnectionLabel(streamType);
         if (label == null) return const SizedBox.shrink();
         return Tooltip(
-          message: sealDeskConnectionDescription(streamType)!,
+          message: translate(sealDeskConnectionDescription(streamType)!),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Text(label),
+            child: Text(translate(label)),
           ),
         );
       }));

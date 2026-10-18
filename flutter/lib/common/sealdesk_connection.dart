@@ -1,11 +1,11 @@
 String? sealDeskConnectionLabel(String streamType) {
   switch (streamType) {
     case 'Tailcat':
-      return '正在检测链路';
+      return 'Checking the link';
     case 'Tailcat/P2P':
-      return 'P2P 直连';
+      return 'P2P direct';
     case 'Tailcat/DERP':
-      return 'DERP 中继';
+      return 'DERP relay';
     default:
       return null;
   }
@@ -14,8 +14,8 @@ String? sealDeskConnectionLabel(String streamType) {
 String? sealDeskConnectionDescription(String streamType) {
   final label = sealDeskConnectionLabel(streamType);
   if (label == null) return null;
-  final description = '$label · WireGuard 加密连接';
+  final description = '$label · WireGuard encrypted connection';
   return streamType == 'Tailcat/DERP'
-      ? '$description；打洞未成功，速度可能受限'
+      ? '$description; hole punching failed, speed may be limited'
       : description;
 }

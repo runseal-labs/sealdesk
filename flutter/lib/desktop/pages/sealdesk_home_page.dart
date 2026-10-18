@@ -187,7 +187,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
       setState(() {
         _relay = host.relayStatus;
         _status = host.connectedNames.isNotEmpty
-            ? '已连接：${host.connectedNames.join('、')}'
+            ? 'Connected: {${host.connectedNames.join(', ')}}'
             : host.connectedCount > 0
                 ? '${translate('Connected')} (${host.connectedCount})'
                 : translate('Waiting for connection');
@@ -295,9 +295,11 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
     try {
       await operation();
     } on FormatException catch (error) {
-      if (mounted) setState(() => _error = error.message);
+      if (mounted) setState(() => _error = translate(error.message));
     } catch (_) {
-      if (mounted) setState(() => _error = '操作失败，请重试');
+      if (mounted) {
+        setState(() => _error = translate('Operation failed, please try again'));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }

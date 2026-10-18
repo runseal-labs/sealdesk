@@ -30,8 +30,11 @@ Future<void> scanAndConnectSealDesk(BuildContext context) async {
     await connect(context, pairing.address,
         password: pairing.password, isSharedPassword: false);
   } on FormatException catch (error) {
-    if (context.mounted) showToast(error.message);
+    if (context.mounted) showToast(translate(error.message));
   } catch (_) {
-    if (context.mounted) showToast('无法打开扫码或建立连接，请重试');
+    if (context.mounted) {
+      showToast(
+          translate('Unable to open the scanner or connect. Please try again'));
+    }
   }
 }
