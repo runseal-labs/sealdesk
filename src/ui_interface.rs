@@ -154,6 +154,12 @@ pub fn get_option<T: AsRef<str>>(key: T) -> String {
                 .flatten()
                 .unwrap_or_default();
         }
+        if key.as_ref() == crate::tailcat::OPTION_RELAY_STATUS {
+            return crate::ipc::get_config(key.as_ref())
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+        }
         if key.as_ref() == keys::OPTION_SEALDESK_HOST_MODE {
             return match crate::tailcat::host::query_mode() {
                 Ok(mode) => mode,
@@ -192,6 +198,9 @@ pub fn get_option<T: AsRef<str>>(key: T) -> String {
                     .filter(|conn| conn.conn_type == crate::server::AuthConnType::Remote)
                     .count()
                     .to_string();
+            }
+            crate::tailcat::OPTION_RELAY_STATUS => {
+                return crate::tailcat::host::relay_status();
             }
             _ => {}
         }

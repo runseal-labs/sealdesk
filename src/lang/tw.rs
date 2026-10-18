@@ -850,5 +850,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Place the other device’s SealDesk QR code in the frame", "请将对方的 SealDesk 配对二维码放入框内"),
         ("Scanning is paused. Return to the app and scan again", "掃描已暫停，請返回前景後重新掃描"),
         ("Confirm reset", ""),
+        ("Checking relay...", ""),
+        ("Relay reachable", ""),
+        ("Relay unreachable; scanning will likely time out", ""),
     ].iter().cloned().collect();
 }

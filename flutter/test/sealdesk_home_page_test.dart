@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:sealdesk/common/sealdesk_pairing.dart';
 import 'package:sealdesk/common/sealdesk_qr_image.dart';
 import 'package:sealdesk/desktop/pages/sealdesk_home_page.dart';
+import 'package:sealdesk/models/relay_status.dart';
 import 'package:sealdesk/generated_bridge.dart';
 import 'package:sealdesk/models/platform_model.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -752,5 +753,52 @@ void main() {
     completed.complete();
     await tester.pump();
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'relay chip stays under the QR and init errors replace the placeholder',
+      (tester) async {
+    RelayStatus? relay = RelayStatus.fromJson(
+        '{"running":true,"state":"reachable","probe_rtt_ms":42}');
+    var addr = address;
+    await showPage(tester,
+        loadHost: () async => SealDeskHostState(
+            address: addr,
+            password: 'secret',
+            name: '电脑',
+            relayStatus: relay));
+    expect(find.byType(QrImageView), findsOneWidget);
+    expect(find.text('等待连接'), findsOneWidget);
+    expect(find.text('Relay reachable (42 ms)'), findsOneWidget);
+    expect(find.byKey(const ValueKey('sealdesk-relay')), findsOneWidget);
+
+    relay = RelayStatus.fromJson(
+        '{"running":true,"state":"unreachable","last_error":"dial timeout"}');
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.byType(QrImageView), findsOneWidget);
+    expect(find.text('等待连接'), findsOneWidget);
+    expect(find.text('Relay unreachable; scanning will likely time out'),
+        findsOneWidget);
+    expect(find.text('dial timeout'), findsOneWidget);
+    expect(find.text('Relay reachable (42 ms)'), findsNothing);
+
+    addr = '';
+    relay = RelayStatus.fromJson(
+        '{"running":false,"state":"stopped","init_stage":"start","init_error":"bind"}');
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.byType(QrImageView), findsNothing);
+    expect(find.text('start: bind'), findsOneWidget);
+    expect(find.textContaining('Generating pairing code'), findsNothing);
+    expect(find.byKey(const ValueKey('sealdesk-relay')), findsNothing);
+
+    relay = RelayStatus.fromJson('{"state":"connecting"}');
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.text('Generating pairing code...'), findsOneWidget);
+    expect(find.text('Checking relay...'), findsOneWidget);
+    expect(find.text('start: bind'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
   });
 }

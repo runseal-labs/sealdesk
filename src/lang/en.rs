@@ -328,5 +328,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Scanning is paused. Return to the app and scan again", "Scanning is paused. Return to the app and scan again"),
         ("Cancel", ""),
         ("Confirm reset", ""),
+        ("Checking relay...", "Checking relay..."),
+        ("Relay reachable", "Relay reachable"),
+        ("Relay unreachable; scanning will likely time out", "Relay unreachable; scanning will likely time out"),
     ].iter().cloned().collect();
 }

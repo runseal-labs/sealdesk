@@ -14,6 +14,7 @@ import '../../common/sealdesk_qr_file.dart';
 import '../../common/sealdesk_qr_image.dart';
 import '../../consts.dart';
 import '../../models/platform_model.dart';
+import '../../models/relay_status.dart';
 import '../../models/server_model.dart' show kUsePermanentPassword;
 import 'sealdesk_home_page.dart';
 import '../../common/sealdesk_lan_panel.dart';
@@ -49,6 +50,8 @@ class SealDeskNativeHomePage extends StatelessWidget {
 
   Future<SealDeskHostState> _loadHost() async {
     final address = await bind.mainGetOption(key: 'tailcat-addr');
+    final relayStatus = RelayStatus.fromJson(
+        await bind.mainGetOption(key: 'tailcat-relay-status'));
     final method = await bind.mainGetOption(key: kOptionVerificationMethod);
     final approveMode = await bind.mainGetOption(key: kOptionApproveMode);
     var stopped = await mainGetBoolOption(kOptionStopService);
@@ -67,6 +70,7 @@ class SealDeskNativeHomePage extends StatelessWidget {
       name: await _shareDeviceName(),
       stopped: stopped,
       connectedCount: connectedCount,
+      relayStatus: relayStatus,
     );
   }
 
