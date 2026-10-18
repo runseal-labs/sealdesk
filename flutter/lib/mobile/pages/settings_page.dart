@@ -82,7 +82,6 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   var _allowAutoDisconnect = false;
   var _localIP = "";
   var _directAccessPort = "";
-  var _fingerprint = "";
   var _buildDate = "";
   var _myId = "";
   var _autoDisconnectTimeout = "";
@@ -169,12 +168,6 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
       if (keepScreenOn != _keepScreenOn) {
         update = true;
         _keepScreenOn = keepScreenOn;
-      }
-
-      final fingerprint = await bind.mainGetFingerprint();
-      if (_fingerprint != fingerprint) {
-        update = true;
-        _fingerprint = fingerprint;
       }
 
       final buildDate = await bind.mainGetBuildDate();
@@ -801,15 +794,6 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                   child: Text(_buildDate),
                 ),
                 leading: Icon(Icons.query_builder)),
-            if (isAndroid)
-              SettingsTile(
-                  onPressed: (context) => onCopyFingerprint(_fingerprint),
-                  title: Text(translate("Fingerprint")),
-                  value: Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8),
-                    child: Text(_fingerprint),
-                  ),
-                  leading: Icon(Icons.fingerprint)),
             SettingsTile(
                 onPressed: (context) => onCopyId(_myId),
                 title: Text(_myId.isEmpty

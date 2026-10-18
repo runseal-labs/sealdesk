@@ -1670,10 +1670,6 @@ pub fn main_set_permanent_password_with_result(password: String) -> bool {
     ui_interface::set_permanent_password_with_result(password)
 }
 
-pub fn main_get_fingerprint() -> String {
-    get_fingerprint()
-}
-
 pub fn cm_get_clients_state() -> String {
     crate::ui_cm_interface::get_clients_state()
 }
