@@ -163,6 +163,7 @@ fn build_tailcat() -> Result<(), Box<dyn std::error::Error>> {
     }
     for f in [
         "main.go",
+        "status.go",
         "transport.go",
         "client_cache.go",
         "derp_config.go",

@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:sealdesk/common/sealdesk_pairing.dart';
 import 'package:sealdesk/common/sealdesk_qr_image.dart';
 import 'package:sealdesk/desktop/pages/sealdesk_home_page.dart';
+import 'package:sealdesk/models/relay_status.dart';
 import 'package:sealdesk/generated_bridge.dart';
 import 'package:sealdesk/models/platform_model.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -48,6 +49,9 @@ class _I18nBinding extends Fake implements SealdeskImpl {
       'Connect': '连接',
       'Cancel': '取消',
       'Paste text': '粘贴文本',
+      'Checking relay...': '正在检查中继…',
+      'Relay reachable': '中继可达',
+      'Relay unreachable; scanning will likely time out': '中继不可达，扫码连接很可能会超时',
     };
     return values[name] ?? name;
   }
@@ -862,5 +866,96 @@ void main() {
     completed.complete();
     await tester.pump();
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'relay chip stays under the QR and startup errors use retry',
+      (tester) async {
+    binding.language = 'en';
+    RelayStatus? relay = RelayStatus.fromJson(
+        '{"running":true,"state":"reachable","probe_rtt_ms":42}');
+    var addr = address;
+    var startError = '';
+    await showPage(tester,
+        loadHost: () async => SealDeskHostState(
+            address: addr,
+            password: 'secret',
+            name: '电脑',
+            relayStatus: relay,
+            startError: startError));
+    expect(find.byType(QrImageView), findsOneWidget);
+    expect(find.text('Waiting for connection'), findsOneWidget);
+    expect(find.text('Relay reachable (42 ms)'), findsOneWidget);
+    expect(find.byKey(const ValueKey('sealdesk-relay')), findsOneWidget);
+
+    relay = RelayStatus.fromJson(
+        '{"running":true,"state":"unreachable","last_error":"dial timeout"}');
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.byType(QrImageView), findsOneWidget);
+    expect(find.text('Waiting for connection'), findsOneWidget);
+    expect(find.text('Relay unreachable; scanning will likely time out'),
+        findsOneWidget);
+    expect(find.text('dial timeout'), findsOneWidget);
+    expect(find.text('Relay reachable (42 ms)'), findsNothing);
+
+    addr = '';
+    startError = 'DERP relay/bootstrap: connection refused';
+    relay = RelayStatus.fromJson(
+        '{"running":false,"state":"stopped","init_stage":"relay","init_error":"DERP relay/bootstrap: connection refused"}');
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.byType(QrImageView), findsNothing);
+    expect(find.text('DERP relay/bootstrap: connection refused'), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
+    expect(find.textContaining('Generating pairing code'), findsNothing);
+    expect(find.byKey(const ValueKey('sealdesk-relay')), findsNothing);
+
+    startError = '';
+    relay = RelayStatus.fromJson(
+        '{"running":false,"state":"stopped","init_stage":"start","init_error":"bind"}');
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.text('Generating pairing code...'), findsOneWidget);
+    expect(find.text('start: bind'), findsNothing);
+    expect(find.text('Retry'), findsNothing);
+    expect(find.byKey(const ValueKey('sealdesk-relay')), findsNothing);
+
+    addr = address;
+    relay = RelayStatus.fromJson('{"running":true,"state":"connecting"}');
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.byType(QrImageView), findsOneWidget);
+    expect(find.text('Waiting for connection'), findsOneWidget);
+    expect(find.text('Checking relay...'), findsOneWidget);
+    expect(find.text('Generating pairing code...'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('relay status follows zh-cn', (tester) async {
+    binding.language = 'zh-cn';
+    RelayStatus? relay = RelayStatus.fromJson(
+        '{"running":true,"state":"reachable","probe_rtt_ms":42}');
+    await showPage(tester,
+        loadHost: () async => SealDeskHostState(
+            address: address,
+            password: 'secret',
+            name: '电脑',
+            relayStatus: relay));
+    expect(find.text('中继可达 (42 ms)'), findsOneWidget);
+
+    relay = RelayStatus.fromJson(
+        '{"running":true,"state":"unreachable","last_error":"dial timeout"}');
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.text('中继不可达，扫码连接很可能会超时'), findsOneWidget);
+    expect(find.text('中继可达 (42 ms)'), findsNothing);
+
+    relay = RelayStatus.fromJson('{"state":"connecting"}');
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.text('正在检查中继…'), findsOneWidget);
+    expect(find.text('中继不可达，扫码连接很可能会超时'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
   });
 }

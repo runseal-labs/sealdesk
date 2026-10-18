@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -13,33 +14,65 @@ import '../../common/sealdesk_qr_file.dart';
 import '../../common/sealdesk_qr_image.dart';
 import '../../consts.dart';
 import '../../models/platform_model.dart';
+import '../../models/relay_status.dart';
 import '../../models/server_model.dart' show kUsePermanentPassword;
 import 'sealdesk_home_page.dart';
 import '../../common/sealdesk_lan_panel.dart';
 
+String? _androidShareName;
+
+Future<String> _shareDeviceName() async {
+  if (!isAndroid) return Platform.localHostname;
+  final cached = _androidShareName;
+  if (cached != null && cached.isNotEmpty) return cached;
+  try {
+    final info = await DeviceInfoPlugin().androidInfo;
+    final name = '${info.brand}-${info.model}'.trim();
+    if (name.isNotEmpty && name != '-') {
+      _androidShareName = name;
+      return name;
+    }
+  } catch (_) {}
+  return Platform.localHostname;
+}
+
 class SealDeskNativeHomePage extends StatelessWidget {
   final String? initialInput;
+  final Widget? footer;
+  final bool hostOnly;
 
-  const SealDeskNativeHomePage({super.key, this.initialInput});
+  const SealDeskNativeHomePage({
+    super.key,
+    this.initialInput,
+    this.footer,
+    this.hostOnly = false,
+  });
 
   Future<SealDeskHostState> _loadHost() async {
     final address = await bind.mainGetOption(key: 'tailcat-addr');
     final startError = await bind.mainGetOption(key: 'tailcat-start-error');
+    final relayStatus = RelayStatus.fromJson(
+        await bind.mainGetOption(key: 'tailcat-relay-status'));
     final method = await bind.mainGetOption(key: kOptionVerificationMethod);
     final approveMode = await bind.mainGetOption(key: kOptionApproveMode);
-    final stopped = await mainGetBoolOption(kOptionStopService);
+    var stopped = await mainGetBoolOption(kOptionStopService);
+    // Screen capture is the Android share opt-in. Until it is on, do not
+    // present an empty address as a pairing code that is about to appear.
+    if (isAndroid && !gFFI.serverModel.isStart) stopped = true;
     final password = await bind.mainGetTemporaryPassword();
-    final connectedCount = int.parse(
-        await bind.mainGetOption(key: 'sealdesk-connected-count'));
+    final connectedCount = int.tryParse(
+            await bind.mainGetOption(key: 'sealdesk-connected-count')) ??
+        0;
     final includesPassword =
         method != kUsePermanentPassword && approveMode != 'click';
     return SealDeskHostState(
       address: includesPassword && password.isEmpty ? '' : address,
       password: includesPassword ? password : null,
-      name: Platform.localHostname,
+      name: await _shareDeviceName(),
       stopped: stopped,
       connectedCount: connectedCount,
       startError: startError,
+      relayStatus: relayStatus,
     );
   }
 
@@ -92,10 +125,14 @@ class SealDeskNativeHomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SealDeskHomePage(
+        hostOnly: hostOnly,
+        footer: footer,
         lanPanelBuilder: (host) => SealDeskLanPanel(host: host, connectPeer: (address) async {
           await connect(context, address, isSharedPassword: false);
         }),
-        initialMode: bind.mainGetLocalOption(key: 'sealdesk-mode'),
+        initialMode: hostOnly
+            ? 'host'
+            : bind.mainGetLocalOption(key: 'sealdesk-mode'),
         loadHost: _loadHost,
         loadDerpMapUrl: () => bind.mainGetOption(key: 'tailcat-derp-map-url'),
         saveDerpMapUrl: bind.isDisableSettings() ? null : _saveDerpMapUrl,
@@ -103,7 +140,7 @@ class SealDeskNativeHomePage extends StatelessWidget {
         pickImage: _pickImage,
         loadImageFile: loadSealDeskQrFile,
         pasteImage: _pasteImage,
-        resetAddress: bind.isDisableSettings()
+        resetAddress: isAndroid || bind.isDisableSettings()
             ? null
             : () async {
                 final error = await bind.mainResetSealdeskAddress();

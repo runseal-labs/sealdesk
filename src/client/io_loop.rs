@@ -199,7 +199,7 @@ impl<T: InvokeUiSession> Remote<T> {
             return;
         }
         match connection {
-            Ok(((mut peer, direct, pk, stream_type), _)) => {
+            Ok(((mut peer, direct, _pk, stream_type), _)) => {
                 self.handler
                     .connection_round_state
                     .lock()
@@ -219,11 +219,6 @@ impl<T: InvokeUiSession> Remote<T> {
                     self.handle_disconnected(round);
                     return;
                 }
-                if conn_type == ConnType::DEFAULT_CONN || conn_type == ConnType::VIEW_CAMERA {
-                    self.handler
-                        .set_fingerprint(crate::common::pk_to_fingerprint(pk.unwrap_or_default()));
-                }
-
                 // just build for now
                 #[cfg(not(any(target_os = "windows", feature = "unix-file-copy-paste")))]
                 let (_tx_holder, mut rx_clip_client) = mpsc::unbounded_channel::<i32>();

@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 import 'package:sealdesk/models/peer_model.dart';
 
 import '../../common.dart';
+import '../../common/sealdesk_lan_panel.dart';
 import '../../common/widgets/peer_tab_page.dart';
 import '../../common/widgets/autocomplete.dart';
 import '../../consts.dart';
@@ -86,7 +87,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
         SliverList(
             delegate: SliverChildListDelegate([
           _buildRemoteIDTextField(),
-          if (!isWeb && bind.mainGetAppNameSync() == 'SealDesk')
+          if (!isWeb && bind.mainGetAppNameSync() == 'SealDesk') ...[
             OutlinedButton.icon(
               icon: const Icon(Icons.qr_code_scanner),
               label: const Text('扫码连接 SealDesk'),
@@ -101,6 +102,12 @@ class _ConnectionPageState extends State<ConnectionPage> {
                       }
                     },
             ),
+            SealDeskLanPanel(
+              host: false,
+              connectPeer: (address) =>
+                  connect(context, address, isSharedPassword: false),
+            ),
+          ],
         ])),
         SliverFillRemaining(
           hasScrollBody: true,
@@ -222,7 +229,10 @@ class _ConnectionPageState extends State<ConnectionPage> {
                           color: MyTheme.idColor,
                         ),
                         decoration: InputDecoration(
-                          labelText: translate('Remote ID'),
+                          labelText: translate(
+                              bind.mainGetAppNameSync() == 'SealDesk'
+                                  ? 'Connect to a device'
+                                  : 'Remote ID'),
                           // hintText: 'Enter your remote ID',
                           border: InputBorder.none,
                           helperStyle: const TextStyle(

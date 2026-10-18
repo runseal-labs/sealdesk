@@ -894,6 +894,8 @@ async fn handle(data: Data, stream: &mut Connection) {
                             .count()
                             .to_string(),
                     );
+                } else if name == crate::tailcat::OPTION_RELAY_STATUS {
+                    value = Some(crate::tailcat::host::relay_status());
                 } else if name == "temporary-password" {
                     value = Some(password::temporary_password());
                 } else if name == "permanent-password-storage-and-salt" {
@@ -913,12 +915,6 @@ async fn handle(data: Data, stream: &mut Connection) {
                     });
                 } else if name == "salt" {
                     value = Some(Config::get_salt());
-                } else if name == "fingerprint" {
-                    value = if Config::get_key_confirmed() {
-                        Some(crate::common::pk_to_fingerprint(Config::get_key_pair().1))
-                    } else {
-                        None
-                    };
                 } else if name == "voice-call-input" {
                     value = crate::audio_service::get_voice_call_input_device();
                 } else if name == "unlock-pin" {
@@ -1701,12 +1697,6 @@ pub fn is_permanent_password_preset() -> bool {
         return v == "Y";
     }
     false
-}
-
-pub fn get_fingerprint() -> String {
-    get_config("fingerprint")
-        .unwrap_or_default()
-        .unwrap_or_default()
 }
 
 pub fn set_permanent_password(v: String) -> ResultType<()> {

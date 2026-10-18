@@ -166,6 +166,12 @@ pub fn get_option<T: AsRef<str>>(key: T) -> String {
                 .flatten()
                 .unwrap_or_default();
         }
+        if key.as_ref() == crate::tailcat::OPTION_RELAY_STATUS {
+            return crate::ipc::get_config(key.as_ref())
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+        }
         if key.as_ref() == keys::OPTION_SEALDESK_HOST_MODE {
             return match crate::tailcat::host::query_mode() {
                 Ok(mode) => mode,
@@ -184,6 +190,35 @@ pub fn get_option<T: AsRef<str>>(key: T) -> String {
     }
     #[cfg(any(target_os = "android", target_os = "ios"))]
     {
+        // The mobile UI and the host run in one process, so these values are
+        // read directly instead of through the desktop IPC server.
+        match key.as_ref() {
+            "sealdesk-lan-trusted" => return crate::lan::trusted_json(),
+            "sealdesk-lan-compat" => return crate::lan::compat_addresses_json(),
+            "sealdesk-lan-ready" => {
+                return if crate::lan::ready() {
+                    "Y".to_owned()
+                } else {
+                    "N".to_owned()
+                };
+            }
+            "sealdesk-connected-count" => {
+                return crate::server::AUTHED_CONNS
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|conn| conn.conn_type == crate::server::AuthConnType::Remote)
+                    .count()
+                    .to_string();
+            }
+            crate::tailcat::OPTION_RELAY_STATUS => {
+                return crate::tailcat::host::relay_status();
+            }
+            keys::OPTION_TAILCAT_START_ERROR => {
+                return crate::tailcat::host::start_error();
+            }
+            _ => {}
+        }
         Config::get_option(key.as_ref())
     }
 }
@@ -478,6 +513,12 @@ pub fn set_option(key: String, value: String) {
     }
     #[cfg(any(target_os = "android", target_os = "ios"))]
     {
+        if key == "sealdesk-lan-forget" {
+            if let Err(error) = crate::lan::forget(&value) {
+                log::error!("LAN authorization removal failed: {error}");
+            }
+            return;
+        }
         Config::set_option(key, value);
     }
 }
@@ -1048,17 +1089,6 @@ pub fn set_user_default_option(key: String, value: String) {
 pub fn get_user_default_option(key: String) -> String {
     use hbb_common::config::UserDefaultConfig;
     UserDefaultConfig::load().get(&key)
-}
-
-pub fn get_fingerprint() -> String {
-    #[cfg(any(target_os = "android", target_os = "ios"))]
-    if Config::get_key_confirmed() {
-        return crate::common::pk_to_fingerprint(Config::get_key_pair().1);
-    } else {
-        return "".to_owned();
-    }
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    return ipc::get_fingerprint();
 }
 
 #[cfg(any(target_os = "android", feature = "flutter"))]

@@ -41,6 +41,12 @@ var (
 
 func cstr(s string) *C.char { return C.CString(s) }
 
+func goStringFree(p *C.char) string {
+	s := C.GoString(p)
+	C.free(unsafe.Pointer(p))
+	return s
+}
+
 func cerr(err error) *C.char { return cstr("ERR:" + err.Error()) }
 
 func logf(format string, args ...any) { log.Printf("tailcat: "+format, args...) }
@@ -52,6 +58,7 @@ func TcFree(p *C.char) { C.free(unsafe.Pointer(p)) }
 func TcStopServe() *C.char {
 	mu.Lock()
 	defer mu.Unlock()
+	stopSelfProbeLocked()
 	if server == nil {
 		return cstr("")
 	}
@@ -67,6 +74,7 @@ func TcStopServe() *C.char {
 	}
 	server = nil
 	serverConns = nil
+	serveStartedAt = time.Time{}
 	return cstr("")
 }
 
@@ -74,6 +82,13 @@ type serverKeyFile struct {
 	tailcat.PrivateKey
 	DERPMapURL string `json:",omitempty"`
 }
+
+// TcServeStatus reports whether the controlled-side tunnel is running and
+// whether a self-probe meow over its home DERP has succeeded recently. The
+// result is a JSON object; free it with TcFree.
+//
+//export TcServeStatus
+func TcServeStatus() *C.char { return cstr(marshalServeStatus()) }
 
 func loadOrCreateKey(path string) (*serverKeyFile, bool, error) {
 	b, err := os.ReadFile(path)
@@ -108,6 +123,33 @@ func saveJSON(path string, v any) error {
 	return os.Chmod(path, 0o600)
 }
 
+func stageForServeErr(err error) string {
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+	}
+	switch {
+	case strings.HasPrefix(msg, "DERP map configuration:"),
+		strings.HasPrefix(msg, "host configuration:"),
+		msg == "invalid local transport token":
+		return initStageConfig
+	case strings.HasPrefix(msg, "host identity:"), msg == "invalid saved DERP region":
+		return initStageKey
+	case strings.HasPrefix(msg, "host allow list:"):
+		return initStageAllow
+	case strings.HasPrefix(msg, "DERP map "), strings.HasPrefix(msg, "DERP relay selection:"):
+		return initStageMap
+	case strings.HasPrefix(msg, "DERP relay/"):
+		return initStageRelay
+	default:
+		return initStageConfig
+	}
+}
+
+func recordServeFailureLocked(err error, keyPath string) {
+	setLastInitErrLocked(stageForServeErr(err), err, keyPath)
+}
+
 // TcServe starts the controlled-side tunnel. Every TCP connection on any
 // tunnel port is proxied to 127.0.0.1:targetPort (RustDesk's loopback-only
 // listener). keyPath persists the identity and DERP region, so the address
@@ -123,24 +165,32 @@ func TcServe(keyPath, allow *C.char, targetPort C.int, localToken *C.char) *C.ch
 func TcServeWithDERPMap(keyPath, allow *C.char, targetPort C.int, localToken, derpMapURL *C.char) *C.char {
 	source, err := derpMapSource(C.GoString(derpMapURL))
 	if err != nil {
+		mu.Lock()
+		recordServeFailureLocked(err, "")
+		mu.Unlock()
 		return cerr(err)
 	}
 	mu.Lock()
 	defer mu.Unlock()
 	if server != nil {
 		if server.DERPMapURL != source {
-			return cerr(errors.New("host configuration: stop host before changing DERP map"))
+			err = errors.New("host configuration: stop host before changing DERP map")
+			recordServeFailureLocked(err, "")
+			return cerr(err)
 		}
 		return cstr(string(server.TailcatAddr()))
 	}
 	token, err := decodeLocalToken(C.GoString(localToken))
 	if err != nil {
+		recordServeFailureLocked(err, "")
 		return cerr(err)
 	}
 	path := C.GoString(keyPath)
 	pk, fresh, err := loadOrCreateKey(path)
 	if err != nil {
-		return cerr(errors.New("host identity: could not read or parse saved key"))
+		err = errors.New("host identity: could not read or parse saved key")
+		recordServeFailureLocked(err, path)
+		return cerr(err)
 	}
 	previousSource, _ := derpMapSource(pk.DERPMapURL)
 	sourceChanged := previousSource != source
@@ -156,7 +206,9 @@ func TcServeWithDERPMap(keyPath, allow *C.char, targetPort C.int, localToken, de
 	}
 	if len(pk.Public.Region) > 0 {
 		if pk.Public.Region[0] == nil {
-			return cerr(errors.New("invalid saved DERP region"))
+			err = errors.New("invalid saved DERP region")
+			recordServeFailureLocked(err, path)
+			return cerr(err)
 		}
 		s.Region = pk.Public.Region[0]
 	}
@@ -165,12 +217,18 @@ func TcServeWithDERPMap(keyPath, allow *C.char, targetPort C.int, localToken, de
 		for _, k := range strings.Split(list, ",") {
 			var nk key.NodePublic
 			if err := nk.UnmarshalText([]byte(strings.TrimSpace(k))); err != nil {
-				return cerr(errors.New("host allow list: invalid node key"))
+				err = errors.New("host allow list: invalid node key")
+				recordServeFailureLocked(err, path)
+				return cerr(err)
 			}
 			allowed[nk] = true
 		}
 		s.AllowClient = func(k key.NodePublic) bool { return allowed[k] }
 	}
+	// Generated before Start so the copied AllowClient hook already admits it.
+	// The server never acks a meow AllowClient rejects.
+	probeKey := key.NewNode()
+	s.AllowClient = allowWithProbe(s.AllowClient, probeKey.Public())
 	target := fmt.Sprintf("127.0.0.1:%d", int(targetPort))
 	identities := &peerRegistry{}
 	connections := &incomingConnections{}
@@ -195,15 +253,20 @@ func TcServeWithDERPMap(keyPath, allow *C.char, targetPort C.int, localToken, de
 	ctx, cancel := context.WithTimeout(context.Background(), startupTimeout)
 	defer cancel()
 	if err := prepareServer(ctx, s, source); err != nil {
+		recordServeFailureLocked(err, path)
 		return cerr(err)
 	}
 	if err := s.StartContext(ctx); err != nil {
+		wrapped := transportError(ctx, "DERP relay/bootstrap", err)
+		recordServeFailureLocked(wrapped, path)
 		connections.close()
 		if closeErr := s.Close(); closeErr != nil {
 			logf("cleanup failed server: %v", closeErr)
 		}
-		return cerr(transportError(ctx, "DERP relay/bootstrap", err))
+		return cerr(wrapped)
 	}
+	clearLastInitErrLocked()
+	serveStartedAt = time.Now()
 	addr := s.TailcatAddr()
 	if fresh || sourceChanged || (pk.Public.RegionID == 0 && len(pk.Public.Region) == 0) {
 		// Pin the region picked at first start so the address never changes.
@@ -221,6 +284,7 @@ func TcServeWithDERPMap(keyPath, allow *C.char, targetPort C.int, localToken, de
 	}
 	server = s
 	serverConns = connections
+	startSelfProbeLocked(addr, probeKey, source)
 	return cstr(string(addr))
 }
 

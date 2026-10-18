@@ -857,5 +857,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Applies after sharing restarts or a new tunnel opens. Embedded relay addresses keep their relay.", "重新啟動分享或開啟新通道後生效。內嵌中繼位址仍使用其指定的中繼。"),
         ("Reset to default", "恢復預設設定"),
         ("Unable to save relay settings, please try again", "無法儲存中繼設定，請重試"),
+        ("Checking relay...", ""),
+        ("Relay reachable", ""),
+        ("Relay unreachable; scanning will likely time out", ""),
     ].iter().cloned().collect();
 }

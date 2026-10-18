@@ -10,7 +10,7 @@ pub(crate) fn start_error() -> String {
 }
 
 pub(crate) fn set_start_error(error: String) {
-    *START_ERROR.lock().unwrap() = error;
+    *START_ERROR.lock().unwrap() = scrub_init_error(&error);
 }
 
 pub(crate) fn enabled() -> bool {
@@ -215,6 +215,119 @@ pub(crate) fn stop_for_exit() {
     }
 }
 
+/// Live `TcServeStatus` JSON, with the single startup error attached when Go
+/// left `init_error` empty. Empty when status is unavailable.
+pub(crate) fn relay_status() -> String {
+    let status = super::serve_status();
+    if status.is_empty() {
+        return String::new();
+    }
+    let merged = merge_relay_status(&status, &start_error());
+    if !serde_json::from_str::<serde_json::Value>(&merged)
+        .ok()
+        .is_some_and(|value| value.is_object())
+    {
+        return String::new();
+    }
+    merged
+}
+
+/// Adds `rust_init_error` when `status` is a JSON object whose `init_error` is
+/// missing or empty. Any other input is returned unchanged.
+pub(crate) fn merge_relay_status(status: &str, rust_init_error: &str) -> String {
+    if status.is_empty() || rust_init_error.is_empty() {
+        return status.to_owned();
+    }
+    let Ok(mut value) = serde_json::from_str::<serde_json::Value>(status) else {
+        return status.to_owned();
+    };
+    {
+        let Some(object) = value.as_object_mut() else {
+            return status.to_owned();
+        };
+        let go_init_error_empty = match object.get("init_error") {
+            Some(serde_json::Value::String(text)) => text.is_empty(),
+            Some(serde_json::Value::Null) | None => true,
+            Some(_) => false,
+        };
+        if !go_init_error_empty {
+            return status.to_owned();
+        }
+        object.insert(
+            "rust_init_error".to_owned(),
+            serde_json::Value::String(rust_init_error.to_owned()),
+        );
+    }
+    serde_json::to_string(&value).unwrap_or_else(|_| status.to_owned())
+}
+
+fn scrub_init_error(message: &str) -> String {
+    if message.is_empty() {
+        return String::new();
+    }
+    let path = super::server_key_path();
+    let without_path = if path.is_empty() {
+        message.to_owned()
+    } else {
+        message.replace(&path, "")
+    };
+    let scrubbed = redact_typed_secrets(&without_path);
+    if scrubbed.is_empty() {
+        "[redacted]".to_owned()
+    } else {
+        scrubbed
+    }
+}
+
+fn redact_typed_secrets(message: &str) -> String {
+    let bytes = message.as_bytes();
+    let mut out = String::with_capacity(message.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if let Some(end) = secret_end(bytes, index) {
+            out.push_str("[redacted]");
+            index = end;
+            continue;
+        }
+        let ch = message[index..].chars().next().unwrap_or('\u{FFFD}');
+        out.push(ch);
+        index += ch.len_utf8();
+    }
+    out
+}
+
+fn secret_end(bytes: &[u8], index: usize) -> Option<usize> {
+    const PREFIXES: [&[u8]; 3] = [b"nodekey:", b"privkey:", b"discokey:"];
+    for prefix in PREFIXES {
+        if bytes[index..].len() >= prefix.len()
+            && bytes[index..index + prefix.len()].eq_ignore_ascii_case(prefix)
+        {
+            let mut end = index + prefix.len();
+            let hex_start = end;
+            while end < bytes.len() && bytes[end].is_ascii_hexdigit() {
+                end += 1;
+            }
+            if end > hex_start {
+                return Some(end);
+            }
+        }
+    }
+    if bytes.len() >= index + 2 && bytes[index] == b't' && bytes[index + 1] == b'c' {
+        let mut end = index + 2;
+        while end < bytes.len() && is_tailcat_addr_byte(bytes[end]) {
+            end += 1;
+        }
+        if end - index >= 18 {
+            return Some(end);
+        }
+    }
+    None
+}
+
+fn is_tailcat_addr_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_'
+}
+
 #[cfg(all(test, not(any(target_os = "android", target_os = "ios"))))]
 mod tests {
     use super::*;
@@ -236,5 +349,79 @@ mod tests {
         assert!(!daemon_absent(&hbb_common::anyhow::anyhow!(
             "invalid response"
         )));
+    }
+}
+
+#[cfg(test)]
+mod relay_status_tests {
+    use super::merge_relay_status;
+
+    #[test]
+    fn rust_init_error_fills_only_an_empty_go_init_error() {
+        let with_go =
+            r#"{"running":false,"state":"stopped","init_error":"bind","init_stage":"start"}"#;
+        assert_eq!(merge_relay_status(with_go, "serve: tailcat: bind"), with_go);
+
+        let empty_go = r#"{"running":false,"state":"stopped","init_error":"","init_stage":""}"#;
+        let merged = merge_relay_status(empty_go, "serve: say \"hi\"");
+        let value: serde_json::Value = serde_json::from_str(&merged).unwrap();
+        assert_eq!(value["init_error"], "");
+        assert_eq!(value["state"], "stopped");
+        assert_eq!(value["rust_init_error"], "serve: say \"hi\"");
+
+        let missing = r#"{"running":true,"state":"connecting"}"#;
+        let merged = merge_relay_status(missing, "serve: boom");
+        let value: serde_json::Value = serde_json::from_str(&merged).unwrap();
+        assert_eq!(value["running"], true);
+        assert_eq!(value["rust_init_error"], "serve: boom");
+
+        let null_go = r#"{"state":"stopped","init_error":null}"#;
+        let merged = merge_relay_status(null_go, "serve: nil");
+        let value: serde_json::Value = serde_json::from_str(&merged).unwrap();
+        assert_eq!(value["init_error"], serde_json::Value::Null);
+        assert_eq!(value["rust_init_error"], "serve: nil");
+    }
+
+    #[test]
+    fn empty_rust_init_error_does_not_add_a_field() {
+        let status = r#"{"init_error":"","state":"stopped"}"#;
+        assert_eq!(merge_relay_status(status, ""), status);
+    }
+
+    #[test]
+    fn non_object_status_is_left_unchanged() {
+        assert_eq!(merge_relay_status("", "serve: x"), "");
+        assert_eq!(merge_relay_status("not-json", "serve: x"), "not-json");
+        assert_eq!(merge_relay_status("[1]", "serve: x"), "[1]");
+        assert_eq!(
+            merge_relay_status(r#"{"init_error":1}"#, "serve: x"),
+            r#"{"init_error":1}"#
+        );
+    }
+
+    #[test]
+    fn scrub_redacts_nodekey_privkey_and_tailcat_addresses() {
+        let message = "dial tcABCDEFGHIJKLMNOPQRSTUVWXYZ012345 as nodekey:00112233445566778899aabbccddeeff and PRIVKEY:ffee then discokey:ab; tcp left";
+        let got = super::redact_typed_secrets(message);
+        assert!(!got.to_ascii_lowercase().contains("nodekey:0011"));
+        assert!(!got.contains("00112233"));
+        assert!(!got.to_ascii_lowercase().contains("privkey:ff"));
+        assert!(!got.to_ascii_lowercase().contains("discokey:ab"));
+        assert!(!got.contains("tcABCDEFGHIJKLMNOPQRSTUVWXYZ012345"));
+        assert!(
+            got.contains("dial [redacted] as [redacted] and [redacted] then [redacted]; tcp left")
+        );
+        assert_eq!(super::redact_typed_secrets(""), "");
+        assert_eq!(super::redact_typed_secrets("nodekey:"), "nodekey:");
+        assert_eq!(super::redact_typed_secrets("nodekey:zz"), "nodekey:zz");
+        assert_eq!(super::redact_typed_secrets("tcshort"), "tcshort");
+        assert_eq!(
+            super::redact_typed_secrets("tcABCDEFGHIJKLMNOP"),
+            "[redacted]"
+        );
+        assert_eq!(
+            super::redact_typed_secrets("\u{9519}\u{8bef} nodekey:ab \u{7ed3}\u{675f}"),
+            "\u{9519}\u{8bef} [redacted] \u{7ed3}\u{675f}"
+        );
     }
 }

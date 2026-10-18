@@ -1670,10 +1670,6 @@ pub fn main_set_permanent_password_with_result(password: String) -> bool {
     ui_interface::set_permanent_password_with_result(password)
 }
 
-pub fn main_get_fingerprint() -> String {
-    get_fingerprint()
-}
-
 pub fn cm_get_clients_state() -> String {
     crate::ui_cm_interface::get_clients_state()
 }
@@ -1963,7 +1959,9 @@ pub fn main_stop_service() {
 pub fn main_start_service() {
     #[cfg(target_os = "android")]
     {
-        config::Config::set_option("stop-service".into(), "".into());
+        // Sharing is the Tailcat host, not a rendezvous ID. Turning the
+        // service on is what publishes the device address.
+        crate::tailcat::host::set_mode("host".to_owned());
     }
 }
 
@@ -2769,7 +2767,7 @@ pub mod server_side {
     #[no_mangle]
     pub unsafe extern "system" fn Java_ffi_FFI_startService(_env: JNIEnv, _class: JClass) {
         log::debug!("startService from jvm");
-        config::Config::set_option("stop-service".into(), "".into());
+        crate::tailcat::host::set_mode("host".to_owned());
     }
 
     #[no_mangle]

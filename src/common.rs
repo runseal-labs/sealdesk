@@ -1036,20 +1036,6 @@ pub fn decode64<T: AsRef<[u8]>>(input: T) -> Result<Vec<u8>, base64::DecodeError
     base64::decode(input)
 }
 
-pub fn pk_to_fingerprint(pk: Vec<u8>) -> String {
-    let s: String = pk.iter().map(|u| format!("{:02x}", u)).collect();
-    s.chars()
-        .enumerate()
-        .map(|(i, c)| {
-            if i > 0 && i % 4 == 0 {
-                format!(" {}", c)
-            } else {
-                format!("{}", c)
-            }
-        })
-        .collect()
-}
-
 #[cfg(all(target_os = "windows", not(target_pointer_width = "64")))]
 pub fn check_process(arg: &str, same_session_id: bool) -> bool {
     let mut path = std::env::current_exe().unwrap_or_default();
