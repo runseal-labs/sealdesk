@@ -133,7 +133,9 @@ class HomePageState extends State<HomePage> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
-                    "${currentUser.firstName}   ${currentUser.id}",
+                    isLegacyNumericId(currentUser.id)
+                        ? currentUser.firstName
+                        : "${currentUser.firstName}   ${currentUser.id}",
                   ),
                   if (connected)
                     Container(

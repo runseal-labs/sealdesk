@@ -62,6 +62,14 @@ final isWeb = isWeb_;
 final isWebDesktop = isWebDesktop_;
 final isWebOnWindows = isWebOnWindows_;
 final isWebOnLinux = isWebOnLinux_;
+
+/// RustDesk rendezvous IDs are numeric. Tailcat addresses and direct
+/// endpoints are not, and must stay visible.
+bool isLegacyNumericId(String id) {
+  final bare = id.replaceAll(' ', '');
+  if (bare.length < 6) return false;
+  return int.tryParse(bare) != null;
+}
 final isWebOnMacOs = isWebOnMacOS_;
 var isMobile = isAndroid || isIOS;
 var version = '';

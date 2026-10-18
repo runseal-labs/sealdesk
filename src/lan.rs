@@ -277,10 +277,25 @@ pub fn forget(key: &str) -> ResultType<()> {
 }
 pub fn compat_addresses_json() -> String {
     let addresses: Vec<String> = if ready() && crate::tailcat::host::enabled() {
-        default_net::get_interfaces().into_iter().flat_map(|iface| iface.ipv4)
+        let mut addresses: Vec<String> = default_net::get_interfaces()
+            .into_iter()
+            .flat_map(|iface| iface.ipv4)
             .filter(|ip| ip.addr.is_private())
-            .map(|ip| SocketAddr::new(ip.addr.into(), TCP_PORT).to_string()).collect()
-    } else { vec![] };
+            .map(|ip| SocketAddr::new(ip.addr.into(), TCP_PORT).to_string())
+            .collect();
+        // Android denies netlink, so default_net is empty. The UI already
+        // pushed interface addresses for Tailcat; reuse those for the share list.
+        #[cfg(target_os = "android")]
+        if addresses.is_empty() {
+            addresses = crate::tailcat::android_private_ipv4()
+                .into_iter()
+                .map(|ip| SocketAddr::new(ip.into(), TCP_PORT).to_string())
+                .collect();
+        }
+        addresses
+    } else {
+        vec![]
+    };
     serde_json::to_string(&addresses).unwrap_or_else(|_| "[]".into())
 }
 pub fn ready() -> bool {

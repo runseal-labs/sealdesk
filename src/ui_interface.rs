@@ -172,6 +172,29 @@ pub fn get_option<T: AsRef<str>>(key: T) -> String {
     }
     #[cfg(any(target_os = "android", target_os = "ios"))]
     {
+        // The mobile UI and the host run in one process, so these values are
+        // read directly instead of through the desktop IPC server.
+        match key.as_ref() {
+            "sealdesk-lan-trusted" => return crate::lan::trusted_json(),
+            "sealdesk-lan-compat" => return crate::lan::compat_addresses_json(),
+            "sealdesk-lan-ready" => {
+                return if crate::lan::ready() {
+                    "Y".to_owned()
+                } else {
+                    "N".to_owned()
+                };
+            }
+            "sealdesk-connected-count" => {
+                return crate::server::AUTHED_CONNS
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|conn| conn.conn_type == crate::server::AuthConnType::Remote)
+                    .count()
+                    .to_string();
+            }
+            _ => {}
+        }
         Config::get_option(key.as_ref())
     }
 }
@@ -466,6 +489,12 @@ pub fn set_option(key: String, value: String) {
     }
     #[cfg(any(target_os = "android", target_os = "ios"))]
     {
+        if key == "sealdesk-lan-forget" {
+            if let Err(error) = crate::lan::forget(&value) {
+                log::error!("LAN authorization removal failed: {error}");
+            }
+            return;
+        }
         Config::set_option(key, value);
     }
 }

@@ -39,6 +39,8 @@ class SealDeskHomePage extends StatefulWidget {
   final Future<SealDeskPairing> Function(String)? loadImageFile;
   final Future<void> Function()? resetAddress;
   final Future<SealDeskPairing> Function()? pasteImage;
+  final Widget? footer;
+  final bool hostOnly;
 
   const SealDeskHomePage({
     super.key,
@@ -54,6 +56,8 @@ class SealDeskHomePage extends StatefulWidget {
     this.loadImageFile,
     this.resetAddress,
     this.pasteImage,
+    this.footer,
+    this.hostOnly = false,
   });
 
   @override
@@ -81,9 +85,11 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
   @override
   void initState() {
     super.initState();
-    _mode = const ['host', 'control'].contains(widget.initialMode)
-        ? widget.initialMode
-        : '';
+    _mode = widget.hostOnly
+        ? 'host'
+        : (const ['host', 'control'].contains(widget.initialMode)
+            ? widget.initialMode
+            : '');
     _poll();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) => _poll());
     if (_mode == 'control' && widget.initialInput != null) {
@@ -277,19 +283,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    return DropTarget(
-      enable: _mode == 'control' &&
-          !_busy &&
-          widget.loadImageFile != null &&
-          (ModalRoute.of(context)?.isCurrent ?? true),
-      onDragDone: (details) => _act(() async {
-        if (details.files.length != 1) {
-          throw FormatException(translate('Drop one QR image at a time'));
-        }
-        final pairing = await widget.loadImageFile!(details.files.single.path);
-        if (mounted) await _joinPairing(pairing);
-      }),
-      child: Center(
+    final page = Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: ConstrainedBox(
@@ -301,33 +295,38 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
                     style: Theme.of(context).textTheme.headlineMedium),
                 const SizedBox(height: 12),
                 Text(translate('Scan to connect, no account required')),
-                const SizedBox(height: 24),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  alignment: WrapAlignment.center,
-                  children: [
-                    ChoiceChip(
-                      label: Text(translate('Share this device')),
-                      selected: _mode == 'host',
-                      onSelected: _busy ? null : (_) => _selectMode('host'),
-                    ),
-                    ChoiceChip(
-                      label: Text(translate('Connect to a device')),
-                      selected: _mode == 'control',
-                      onSelected: _busy ? null : (_) => _selectMode('control'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
+                if (!widget.hostOnly) ...[
+                  const SizedBox(height: 24),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    alignment: WrapAlignment.center,
+                    children: [
+                      ChoiceChip(
+                        label: Text(translate('Share this device')),
+                        selected: _mode == 'host',
+                        onSelected: _busy ? null : (_) => _selectMode('host'),
+                      ),
+                      ChoiceChip(
+                        label: Text(translate('Connect to a device')),
+                        selected: _mode == 'control',
+                        onSelected:
+                            _busy ? null : (_) => _selectMode('control'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                ],
                 if (_mode.isEmpty)
                   Text(translate(
                       'Choose how to use SealDesk. Your choice will be remembered.')),
                 if (_mode == 'host') ...[
                   ..._buildHost(),
-                  const SizedBox(height: 12),
-                  Text(translate(
-                      'Switching will disconnect the current session')),
+                  if (!widget.hostOnly) ...[
+                    const SizedBox(height: 12),
+                    Text(translate(
+                        'Switching will disconnect the current session')),
+                  ],
                 ],
                 if (_mode == 'control') ..._buildControl(),
                 if (_mode.isNotEmpty && widget.lanPanelBuilder != null) ...[
@@ -342,11 +341,26 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
                         style: TextStyle(
                             color: Theme.of(context).colorScheme.error)),
                   ),
+                if (widget.footer != null) widget.footer!,
               ],
             ),
           ),
         ),
-      ),
+    );
+    if (isAndroid) return page;
+    return DropTarget(
+      enable: _mode == 'control' &&
+          !_busy &&
+          widget.loadImageFile != null &&
+          (ModalRoute.of(context)?.isCurrent ?? true),
+      onDragDone: (details) => _act(() async {
+        if (details.files.length != 1) {
+          throw FormatException(translate('Drop one QR image at a time'));
+        }
+        final pairing = await widget.loadImageFile!(details.files.single.path);
+        if (mounted) await _joinPairing(pairing);
+      }),
+      child: page,
     );
   }
 

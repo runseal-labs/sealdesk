@@ -183,7 +183,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
         _buildDate = buildDate;
       }
 
-      final myId = await bind.mainGetMyId();
+      final myId = await bind.mainGetOption(key: 'tailcat-addr');
       if (_myId != myId) {
         update = true;
         _myId = myId;
@@ -812,12 +812,10 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                   leading: Icon(Icons.fingerprint)),
             SettingsTile(
                 onPressed: (context) => onCopyId(_myId),
-                title: Text(translate("ID")),
-                value: Padding(
-                  padding: EdgeInsets.symmetric(vertical: 8),
-                  child: Text(_myId),
-                ),
-                leading: Icon(Icons.perm_identity)),
+                title: Text(_myId.isEmpty
+                    ? translate('Generating pairing code...')
+                    : _myId),
+                leading: Icon(Icons.qr_code_2)),
           ],
         ),
       ],

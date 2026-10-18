@@ -1963,7 +1963,9 @@ pub fn main_stop_service() {
 pub fn main_start_service() {
     #[cfg(target_os = "android")]
     {
-        config::Config::set_option("stop-service".into(), "".into());
+        // Sharing is the Tailcat host, not a rendezvous ID. Turning the
+        // service on is what publishes the device address.
+        crate::tailcat::host::set_mode("host".to_owned());
     }
 }
 
@@ -2769,7 +2771,7 @@ pub mod server_side {
     #[no_mangle]
     pub unsafe extern "system" fn Java_ffi_FFI_startService(_env: JNIEnv, _class: JClass) {
         log::debug!("startService from jvm");
-        config::Config::set_option("stop-service".into(), "".into());
+        crate::tailcat::host::set_mode("host".to_owned());
     }
 
     #[no_mangle]

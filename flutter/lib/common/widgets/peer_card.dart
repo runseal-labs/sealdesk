@@ -23,6 +23,15 @@ final peerCardUiType = PeerUiType.grid.obs;
 
 bool? hideUsernameOnCard;
 
+String peerShownId(Peer peer) {
+  if (peer.alias.isNotEmpty) return peer.alias;
+  if (isAndroid && isLegacyNumericId(peer.id)) {
+    if (peer.hostname.isNotEmpty) return peer.hostname;
+    if (peer.username.isNotEmpty) return peer.username;
+  }
+  return formatID(peer.id);
+}
+
 class _PeerCard extends StatefulWidget {
   final Peer peer;
   final PeerTabIndex tab;
@@ -172,7 +181,7 @@ class _PeerCardState extends State<_PeerCard>
                         getOnline(isPortrait ? 4 : 8, peer.online),
                         Expanded(
                             child: Text(
-                          peer.alias.isEmpty ? formatID(peer.id) : peer.alias,
+                          peerShownId(peer),
                           overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.titleSmall,
                         )),
@@ -296,7 +305,7 @@ class _PeerCardState extends State<_PeerCard>
                         getOnline(8, peer.online),
                         Expanded(
                             child: Text(
-                          peer.alias.isEmpty ? formatID(peer.id) : peer.alias,
+                          peerShownId(peer),
                           overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.titleSmall,
                         )),
@@ -673,7 +682,7 @@ abstract class BasePeerCard extends StatelessWidget {
         }
 
         deleteConfirmDialog(onSubmit,
-            '${translate('Delete')} "${peer.alias.isEmpty ? formatID(peer.id) : peer.alias}"?');
+            '${translate('Delete')} "${peerShownId(peer)}"?');
       },
       padding: menuPadding,
       dismissOnClicked: true,
