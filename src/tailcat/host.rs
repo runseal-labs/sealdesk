@@ -247,22 +247,28 @@ fn log_relay_last_error(status: &str) {
         .unwrap_or("")
         .trim();
     static LAST: Mutex<String> = Mutex::new(String::new());
-    let changed = {
-        let mut last = LAST.lock().unwrap();
-        if *last == current {
-            false
-        } else {
-            last.clear();
-            last.push_str(current);
-            true
-        }
+    static THROTTLE: hbb_common::log_throttle::LogThrottle =
+        hbb_common::log_throttle::LogThrottle::new(std::time::Duration::from_secs(60));
+    let mut last = LAST.lock().unwrap();
+    if current.is_empty() {
+        last.clear();
+        return;
+    }
+    if *last == current {
+        return;
+    }
+    // Remember the text only after it is logged, so a change inside the
+    // interval is retried instead of dropped.
+    let Some(n) = THROTTLE.due() else {
+        return;
     };
-    if changed && !current.is_empty() {
-        hbb_common::throttled_log!(
-            std::time::Duration::from_secs(60),
-            error,
-            "Relay unreachable: {current}"
-        );
+    last.clear();
+    last.push_str(current);
+    drop(last);
+    if n > 1 {
+        hbb_common::log::error!("Relay unreachable: {current} (x{n})");
+    } else {
+        hbb_common::log::error!("Relay unreachable: {current}");
     }
 }
 
