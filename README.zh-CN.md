@@ -15,7 +15,7 @@
 > 已在 Linux x64 / x86_64、Windows 和 macOS 上验证：作为被控端和控制端连接均正常。尚未将 Android 作为被控设备测试。macOS 应用未经公证，首次打开可能被 Gatekeeper 拦截：
 >
 > ```bash
-> xattr -d com.apple.quarantine ~/Downloads/sealdesk-0.2.1-*.dmg
+> xattr -d com.apple.quarantine ~/Downloads/sealdesk-*.dmg
 > xattr -r -d com.apple.quarantine /Applications/SealDesk.app
 > ```
 >
