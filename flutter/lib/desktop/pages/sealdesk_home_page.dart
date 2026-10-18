@@ -11,6 +11,9 @@ import '../../models/relay_status.dart';
 
 const _defaultDerpMapUrl = 'https://tailcat.dev/derpmap.json';
 
+String sealDeskInitialPage(String saved) =>
+    saved == 'control' ? 'control' : 'host';
+
 class SealDeskHostState {
   final String address;
   final String? password;
@@ -98,11 +101,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
   @override
   void initState() {
     super.initState();
-    _mode = widget.hostOnly
-        ? 'host'
-        : (const ['host', 'control'].contains(widget.initialMode)
-            ? widget.initialMode
-            : '');
+    _mode = widget.hostOnly ? 'host' : sealDeskInitialPage(widget.initialMode);
     _poll();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) => _poll());
     if (_mode == 'control' && widget.initialInput != null) {
