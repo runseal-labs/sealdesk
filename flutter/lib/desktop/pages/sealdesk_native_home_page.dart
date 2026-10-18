@@ -106,7 +106,10 @@ class SealDeskNativeHomePage extends StatelessWidget {
     );
     if (result == null) return null;
     final path = result.files.single.path;
-    if (path == null) throw const FormatException('无法读取所选图片，请重新选择');
+    if (path == null) {
+      throw const FormatException(
+          'Unable to read the selected image. Please choose again');
+    }
     return loadSealDeskQrFile(path);
   }
 

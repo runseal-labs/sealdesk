@@ -118,8 +118,19 @@ pub fn core_main() -> Option<CoreMainAction> {
             "SealDesk runs as a desktop app; open Share this device or use --host"
         )));
     }
-    let startup_mode = crate::tailcat::launch::startup_mode(sealdesk_launch.as_ref())
-        .as_str().to_owned();
+    let remembered = if sealdesk_launch.is_none()
+        && (args.is_empty()
+            || args
+                .first()
+                .is_some_and(|arg| crate::common::is_empty_uni_link(arg)))
+    {
+        config::LocalConfig::get_option(keys::OPTION_SEALDESK_MODE)
+    } else {
+        "control".to_owned()
+    };
+    let startup_mode = crate::tailcat::launch::startup_mode(sealdesk_launch.as_ref(), &remembered)
+        .as_str()
+        .to_owned();
     no_server = crate::tailcat::launch::controller_only(&startup_mode, no_server);
     #[cfg(target_os = "windows")]
     if args.is_empty() {

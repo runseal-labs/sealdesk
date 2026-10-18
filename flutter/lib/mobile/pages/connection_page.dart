@@ -90,7 +90,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
           if (!isWeb && bind.mainGetAppNameSync() == 'SealDesk') ...[
             OutlinedButton.icon(
               icon: const Icon(Icons.qr_code_scanner),
-              label: const Text('扫码连接 SealDesk'),
+              label: Text(translate('Scan to connect to SealDesk')),
               onPressed: _sealdeskScanning
                   ? null
                   : () async {

@@ -10,30 +10,35 @@ const maxSealDeskQrImageBytes = 20 * 1024 * 1024;
 
 SealDeskPairing decodeSealDeskQrImage(Uint8List bytes, {int? now}) {
   if (bytes.isEmpty || bytes.length > maxSealDeskQrImageBytes) {
-    throw const FormatException('图片为空或超过 20 MB，请选择较小的二维码截图');
+    throw const FormatException(
+        'Image is empty or larger than 20 MB. Choose a smaller QR screenshot');
   }
   img.Image? image;
   try {
     final decoder = img.findDecoderForData(bytes);
     final info = decoder?.startDecode(bytes);
     if (info == null) {
-      throw const FormatException('无法读取图片，请选择 PNG 或 JPG 截图');
+      throw const FormatException(
+          'Unable to read the image. Choose a PNG or JPG screenshot');
     }
     if (info.width <= 0 ||
         info.height <= 0 ||
         info.width > 8192 ||
         info.height > 8192 ||
         info.width * info.height > 16 * 1024 * 1024) {
-      throw const FormatException('图片尺寸过大，请裁剪到二维码区域后重试');
+      throw const FormatException(
+          'Image is too large. Crop to the QR code and try again');
     }
     image = decoder!.decodeFrame(0);
   } on FormatException {
     rethrow;
   } catch (_) {
-    throw const FormatException('图片已损坏或格式不受支持');
+    throw const FormatException(
+        'Image is corrupt or the format is not supported');
   }
   if (image == null) {
-    throw const FormatException('无法读取图片，请选择 PNG 或 JPG 截图');
+    throw const FormatException(
+        'Unable to read the image. Choose a PNG or JPG screenshot');
   }
   final pixels = Int32List(image.width * image.height);
   var index = 0;
@@ -59,20 +64,24 @@ SealDeskPairing decodeSealDeskQrImage(Uint8List bytes, {int? now}) {
       if (segments is! List ||
           segments.length != 1 ||
           segments.single is! Int8List) {
-        throw const FormatException('二维码文字编码无法识别，请改用配对码文本');
+        throw const FormatException(
+            'QR text encoding is not recognized. Use the pairing code text instead');
       }
       final signed = segments.single as Int8List;
       if (utf8.decode(signed, allowMalformed: true) != payload) {
-        throw const FormatException('二维码文字编码无法识别，请改用配对码文本');
+        throw const FormatException(
+            'QR text encoding is not recognized. Use the pairing code text instead');
       }
       try {
         payload = utf8.decode(Uint8List.fromList(signed));
       } on FormatException {
-        throw const FormatException('二维码不是有效的 UTF-8 文本，请改用配对码文本');
+        throw const FormatException(
+            'QR code is not valid UTF-8 text. Use the pairing code text instead');
       }
     }
   } on ReaderException {
-    throw const FormatException('未在图片中找到可识别的二维码，请重新截取清晰图片');
+    throw const FormatException(
+        'No readable QR code was found in the image. Take a clearer screenshot');
   }
   return SealDeskPairing.parse(payload, now: now);
 }

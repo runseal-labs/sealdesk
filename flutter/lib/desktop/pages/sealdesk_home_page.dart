@@ -12,6 +12,9 @@ import '../../models/relay_status.dart';
 
 const _defaultDerpMapUrl = 'https://tailcat.dev/derpmap.json';
 
+String sealDeskInitialPage(String saved) =>
+    saved == 'control' ? 'control' : 'host';
+
 class SealDeskHostState {
   final String address;
   final String? password;
@@ -107,11 +110,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
   @override
   void initState() {
     super.initState();
-    _mode = widget.hostOnly
-        ? 'host'
-        : (const ['host', 'control'].contains(widget.initialMode)
-            ? widget.initialMode
-            : '');
+    _mode = widget.hostOnly ? 'host' : sealDeskInitialPage(widget.initialMode);
     _poll();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) => _poll());
     if (_mode == 'control' && widget.initialInput != null) {
@@ -294,9 +293,11 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
     try {
       await operation();
     } on FormatException catch (error) {
-      if (mounted) setState(() => _error = error.message);
+      if (mounted) setState(() => _error = translate(error.message));
     } catch (_) {
-      if (mounted) setState(() => _error = '操作失败，请重试');
+      if (mounted) {
+        setState(() => _error = translate('Operation failed, please try again'));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }

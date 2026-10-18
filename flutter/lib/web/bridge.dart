@@ -817,11 +817,11 @@ class SealdeskImpl {
   }
 
   Future<String> mainResetSealdeskAddress({dynamic hint}) async {
-    return '网页端不支持重置被控地址';
+    return 'Web does not support resetting the controlled address';
   }
 
   Future<String> mainGetSealdeskClipboardImage({dynamic hint}) async {
-    throw const FormatException('网页端请使用二维码图片导入');
+    throw const FormatException('On the web, import a QR image instead');
   }
 
   String mainGetOptionSync({required String key, dynamic hint}) {
