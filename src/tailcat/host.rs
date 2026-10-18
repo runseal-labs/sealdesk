@@ -258,7 +258,11 @@ fn log_relay_last_error(status: &str) {
         }
     };
     if changed && !current.is_empty() {
-        hbb_common::log::error!("Relay unreachable: {current}");
+        hbb_common::throttled_log!(
+            std::time::Duration::from_secs(60),
+            error,
+            "Relay unreachable: {current}"
+        );
     }
 }
 
