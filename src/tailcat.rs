@@ -7,10 +7,9 @@
 //! a QR code.
 
 use hbb_common::{bail, config::Config, log, ResultType};
-use std::{
-    ffi::{c_char, c_int, CStr, CString},
-    net::Ipv4Addr,
-};
+use std::ffi::{c_char, c_int, CStr, CString};
+#[cfg(any(target_os = "android", test))]
+use std::net::Ipv4Addr;
 #[cfg(target_os = "android")]
 use std::sync::Mutex;
 
