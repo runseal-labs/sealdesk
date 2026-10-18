@@ -209,6 +209,7 @@ class _TerminalPageState extends State<TerminalPage>
             focusNode: _terminalFocusNode,
             // Note: autofocus is not used here because focus is managed manually
             // via _onTabStateChanged() to handle tab switching properly.
+            hardwareKeyboardOnly: true,
             backgroundOpacity: 0.7,
             padding: _calculatePadding(heightPx),
             onSecondaryTapDown: (details, offset) async {

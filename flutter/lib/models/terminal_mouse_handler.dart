@@ -9,6 +9,7 @@ import 'platform_model.dart';
 import 'rustdesk_terminal.dart';
 import 'terminal_copy_shortcut.dart';
 import 'terminal_mouse_drag_reporter.dart';
+import 'terminal_physical_key.dart';
 import 'terminal_scroll_controller.dart';
 
 part 'terminal_mouse_handler_input.dart';
@@ -26,6 +27,7 @@ class TerminalMouseInteraction extends StatefulWidget {
     this.reportTouchInput = false,
     this.shortcuts,
     this.onKeyEvent,
+    this.hardwareKeyboardOnly = false,
     this.backgroundOpacity = 1,
     this.padding,
     this.onSecondaryTapDown,
@@ -40,6 +42,10 @@ class TerminalMouseInteraction extends StatefulWidget {
   final bool reportTouchInput;
   final Map<ShortcutActivator, Intent>? shortcuts;
   final FocusOnKeyEventCallback? onKeyEvent;
+
+  /// Desktop terminals take physical keys directly. A text-input connection
+  /// lets the IME consume Ctrl/Alt/Meta chords before this view can encode them.
+  final bool hardwareKeyboardOnly;
   final double backgroundOpacity;
   final EdgeInsets? padding;
   final void Function(TapDownDetails, CellOffset)? onSecondaryTapDown;
@@ -285,9 +291,10 @@ class _TerminalMouseInteractionState extends State<TerminalMouseInteraction> {
         deleteDetection: widget.deleteDetection,
         backgroundOpacity: widget.backgroundOpacity,
         padding: widget.padding,
+        hardwareKeyboardOnly: widget.hardwareKeyboardOnly,
         shortcuts: widget.shortcuts ?? platformTerminalShortcuts(),
         onKeyEvent: widget.onKeyEvent ??
-            terminalCopyHandler(widget.terminal, widget.controller),
+            terminalPhysicalKeyHandler(widget.terminal, widget.controller),
         onSecondaryTapDown: widget.onSecondaryTapDown,
       ),
     );
