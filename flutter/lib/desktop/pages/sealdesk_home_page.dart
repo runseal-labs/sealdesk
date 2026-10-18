@@ -383,16 +383,21 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
   List<Widget> _relayWidgets() {
     final relay = _relay;
     if (relay == null || !relay.hasChip) return const [];
+    final scheme = Theme.of(context).colorScheme;
     final Widget banner;
     switch (relay.state) {
       case 'connecting':
-        banner = _relayBanner(
-          foreground: const Color(0xFF616161),
-          background: const Color(0xFFEEEEEE),
-          icon: const SizedBox(
-            width: 14,
-            height: 14,
-            child: CircularProgressIndicator(strokeWidth: 2),
+        final foreground = scheme.onSurface.withOpacity(0.6);
+        banner = _relayChip(
+          foreground: foreground,
+          background: scheme.onSurface.withOpacity(0.08),
+          icon: SizedBox(
+            width: 12,
+            height: 12,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: foreground,
+            ),
           ),
           label: translate('Checking relay...'),
         );
@@ -400,23 +405,23 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
       case 'reachable':
         final rtt = relay.probeRttMs;
         final base = translate('Relay reachable');
-        banner = _relayBanner(
-          foreground: const Color(0xFF137333),
-          background: const Color(0xFFE6F4EA),
-          icon: const Icon(Icons.check_circle,
-              size: 16, color: Color(0xFF137333)),
+        final foreground = scheme.primary;
+        banner = _relayChip(
+          foreground: foreground,
+          background: foreground.withOpacity(0.08),
+          icon: Icon(Icons.check_circle, size: 14, color: foreground),
           label: rtt != null && rtt > 0 ? '$base ($rtt ms)' : base,
         );
         break;
       case 'unreachable':
         final error = relay.lastError.trim();
-        banner = _relayBanner(
-          foreground: const Color(0xFFC62828),
-          background: const Color(0xFFFFF3E0),
-          icon: const Icon(Icons.warning_amber_rounded,
-              size: 16, color: Color(0xFFE65100)),
+        final foreground = scheme.error;
+        banner = _relayChip(
+          foreground: foreground,
+          background: foreground.withOpacity(0.08),
+          icon: Icon(Icons.warning_amber_rounded, size: 14, color: foreground),
           label: translate('Relay unreachable; scanning will likely time out'),
-          detail: error.isEmpty ? null : _shortRelayError(error),
+          detail: error.isEmpty ? null : error,
           tooltip: error.isEmpty ? null : error,
         );
         break;
@@ -424,18 +429,12 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
         return const [];
     }
     return [
-      const SizedBox(height: 12),
+      const SizedBox(height: 16),
       banner,
     ];
   }
 
-  String _shortRelayError(String error) {
-    const max = 120;
-    if (error.length <= max) return error;
-    return '${error.substring(0, max)}…';
-  }
-
-  Widget _relayBanner({
+  Widget _relayChip({
     required Color foreground,
     required Color background,
     required Widget icon,
@@ -443,50 +442,59 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
     String? detail,
     String? tooltip,
   }) {
-    final banner = Container(
-      key: const ValueKey('sealdesk-relay'),
-      constraints: const BoxConstraints(maxWidth: 480),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(20),
+    // Loose Flexible keeps a short label at its intrinsic width and ellipsizes
+    // a long one instead of stretching the chip or overflowing the page.
+    final chip = Align(
+      alignment: Alignment.center,
+      child: Container(
+        key: const ValueKey('sealdesk-relay'),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            icon,
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: foreground, fontSize: 13),
+              ),
+            ),
+          ],
+        ),
       ),
-      child: Column(
+    );
+    final Widget body;
+    if (detail == null || detail.isEmpty) {
+      body = chip;
+    } else {
+      body = Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: icon,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  label,
-                  style: TextStyle(color: foreground),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ],
-          ),
-          if (detail != null && detail.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
+          chip,
+          const SizedBox(height: 4),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 280),
+            child: Text(
               detail,
               key: const ValueKey('sealdesk-relay-error'),
               style: TextStyle(color: foreground, fontSize: 12),
               textAlign: TextAlign.center,
-              maxLines: 2,
+              maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
-          ],
+          ),
         ],
-      ),
-    );
-    if (tooltip == null || tooltip.isEmpty) return banner;
-    return Tooltip(message: tooltip, child: banner);
+      );
+    }
+    if (tooltip == null || tooltip.isEmpty) return body;
+    return Tooltip(message: tooltip, child: body);
   }
 
   List<Widget> _buildHost() => [

@@ -71,6 +71,11 @@ var (
 // defaultProbePing is Client.Ping against the controlled server's own
 // tailcat address. Ping's meow/meowed handshake uses DERP and times out
 // internally after 10s; ctx cancellation (TcStopServe) aborts it sooner.
+//
+// Ping times only the first meowed on this client. It closes meowWait once,
+// and a later Ping selects that closed channel immediately, returning a
+// sub-millisecond latency and a nil error even when the meow was not sent.
+// probeLoop therefore passes a client that has not pinged before.
 func defaultProbePing(ctx context.Context, cl *tailcat.Client) (time.Duration, error) {
 	res, err := cl.Ping(ctx)
 	if err != nil {
@@ -105,7 +110,6 @@ func allowWithProbe(user func(key.NodePublic) bool, probe key.NodePublic) func(k
 }
 
 // startSelfProbeLocked launches the DERP self-probe. mu must be held.
-// The goroutine creates one client and reuses it for every ping.
 func startSelfProbeLocked(addr tailcat.Addr, priv key.NodePrivate) {
 	stopSelfProbeLocked()
 	probeAddr = string(addr)
@@ -137,18 +141,15 @@ func stopSelfProbeLocked() {
 
 func probeLoop(ctx context.Context, gen uint64, addr tailcat.Addr, priv key.NodePrivate, done chan struct{}) {
 	defer close(done)
-	cl := tailcat.NewClient(addr)
-	cl.Key = priv
-	cl.Logf = logf
-	defer cl.Close()
-
 	ticker := time.NewTicker(selfProbeInterval)
 	defer ticker.Stop()
 	for {
 		if ctx.Err() != nil {
 			return
 		}
-		rtt, err := probePing(ctx, cl)
+		// A new client each round so Ping waits for this meow. Reusing one
+		// client reports success with a sub-ms latency after the first ack.
+		rtt, err := probeOnce(ctx, addr, priv)
 		if ctx.Err() != nil {
 			return
 		}
@@ -161,6 +162,14 @@ func probeLoop(ctx context.Context, gen uint64, addr tailcat.Addr, priv key.Node
 		case <-ticker.C:
 		}
 	}
+}
+
+func probeOnce(ctx context.Context, addr tailcat.Addr, priv key.NodePrivate) (time.Duration, error) {
+	cl := tailcat.NewClient(addr)
+	cl.Key = priv
+	cl.Logf = logf
+	defer cl.Close()
+	return probePing(ctx, cl)
 }
 
 // noteProbe records one completed probe. It reports false when gen is no
@@ -252,6 +261,21 @@ type serveStateInput struct {
 	ProbeErr  string
 }
 
+// probeRTTMs is the probe round trip in milliseconds, rounded up.
+// Duration.Milliseconds truncates, so a sub-millisecond meow would be stored
+// as 0 and the share chip would omit the reading. A positive duration is at
+// least 1.
+func probeRTTMs(d time.Duration) int64 {
+	if d <= 0 {
+		return 0
+	}
+	ms := (int64(d) + int64(time.Millisecond) - 1) / int64(time.Millisecond)
+	if ms < 1 {
+		return 1
+	}
+	return ms
+}
+
 func deriveServeState(in serveStateInput) serveStatusJSON {
 	code := in.RegionCode
 	if in.SelfRelay != "" {
@@ -278,7 +302,7 @@ func deriveServeState(in serveStateInput) serveStatusJSON {
 			out.LastProbeMs = in.ProbeAt.UnixMilli()
 		}
 		if in.ProbeOK {
-			out.ProbeRTTMs = in.ProbeRTT.Milliseconds()
+			out.ProbeRTTMs = probeRTTMs(in.ProbeRTT)
 		} else {
 			out.LastError = in.ProbeErr
 		}

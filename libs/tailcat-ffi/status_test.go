@@ -155,6 +155,33 @@ func TestServeStatusJSONShape(t *testing.T) {
 	}
 }
 
+func TestReachableProbeRTTJSONIsNonZero(t *testing.T) {
+	at := time.UnixMilli(1_700_000_000_000)
+	out := deriveServeState(serveStateInput{
+		Running: true, Since: time.Second,
+		ProbeDone: true, ProbeOK: true, ProbeAge: time.Second,
+		ProbeAt: at, ProbeRTT: 200 * time.Microsecond,
+	})
+	if out.State != serveStateReachable {
+		t.Fatalf("state = %q", out.State)
+	}
+	raw, err := json.Marshal(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"probe_rtt_ms":`) {
+		t.Fatalf("missing probe_rtt_ms: %s", raw)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal(err)
+	}
+	rtt, _ := fields["probe_rtt_ms"].(float64)
+	if rtt <= 0 {
+		t.Fatalf("reachable probe_rtt_ms = %v, json %s", fields["probe_rtt_ms"], raw)
+	}
+}
+
 func TestScrubProbeError(t *testing.T) {
 	addr := "tcABCDEFGHIJKLMNOPQRSTUVWXYZ012345"
 	pub := "nodekey:00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
