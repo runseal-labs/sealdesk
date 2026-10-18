@@ -30,6 +30,31 @@ void main() {
         _payload(LogicalKeyboardKey.keyX, meta: true),
         '\x1Bx',
       );
+      expect(
+        _payload(
+          LogicalKeyboardKey.digit1,
+          alt: true,
+          shift: true,
+          character: '!',
+        ),
+        '\x1B!',
+      );
+      expect(
+        _payload(
+          LogicalKeyboardKey.keyC,
+          alt: true,
+          capsLock: true,
+        ),
+        '\x1BC',
+      );
+      expect(
+        _payload(
+          LogicalKeyboardKey.keyC,
+          control: true,
+          character: '\x03',
+        ),
+        '\x03',
+      );
     });
 
     test('leaves platform paste and select-all shortcuts to xterm', () {
@@ -87,15 +112,31 @@ void main() {
           child: TerminalMouseInteraction(
             terminal,
             controller: controller,
-            hardwareKeyboardOnly: true,
+            onKeyEvent: terminalPhysicalKeyHandler(terminal, controller),
           ),
         ),
       ));
       await tester.tap(find.byType(TerminalView));
       await tester.pump(kDoubleTapTimeout);
 
-      await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
-      expect(output, ['a']);
+      expect(tester.testTextInput.hasAnyClients, isTrue);
+      tester.testTextInput.enterText('a中');
+      await tester.pump();
+      expect(output, ['a中']);
+      output.clear();
+
+      tester.testTextInput.updateEditingValue(const TextEditingValue(
+        text: 'ni',
+        composing: TextRange(start: 0, end: 2),
+      ));
+      await tester.pump();
+      expect(output, isEmpty);
+      tester.testTextInput.updateEditingValue(const TextEditingValue(
+        text: '你',
+        composing: TextRange.empty,
+      ));
+      await tester.pump();
+      expect(output, ['你']);
       output.clear();
 
       await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
@@ -127,6 +168,7 @@ String? _payload(
   bool meta = false,
   bool shift = false,
   String? character,
+  bool capsLock = false,
 }) {
   return terminalPhysicalComboPayload(
     key: key,
@@ -136,5 +178,6 @@ String? _payload(
     meta: meta,
     shift: shift,
     character: character,
+    capsLock: capsLock,
   );
 }

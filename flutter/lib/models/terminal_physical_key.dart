@@ -18,6 +18,7 @@ String? terminalPhysicalComboPayload({
   required bool meta,
   required bool shift,
   String? character,
+  bool capsLock = false,
   Map<ShortcutActivator, Intent>? shortcuts,
 }) {
   if (!isDown) return null;
@@ -40,7 +41,13 @@ String? terminalPhysicalComboPayload({
   }
 
   final altLike = alt || meta;
-  final base = _baseCharacter(key, shift);
+  // Alt/Meta should send the glyph the layout produced (Shift+1 -> '!').
+  // Ctrl keeps the logical letter so a control chord is not rewritten from a
+  // character the IME already turned into a control byte.
+  final produced = _isPrintableCharacter(character) ? character : null;
+  final base = altLike
+      ? (produced ?? _baseCharacter(key, shift, capsLock: capsLock))
+      : _baseCharacter(key, shift, capsLock: capsLock);
   if (base != null) {
     final encoded = applyTerminalInputModifiers(
       base,
@@ -78,6 +85,7 @@ FocusOnKeyEventCallback terminalPhysicalKeyHandler(
       alt: keyboard.isAltPressed,
       meta: keyboard.isMetaPressed,
       shift: keyboard.isShiftPressed,
+      capsLock: keyboard.lockModesEnabled.contains(KeyboardLockMode.capsLock),
     );
     if (payload == null) return KeyEventResult.ignored;
     terminal.textInput(payload);
@@ -123,14 +131,15 @@ bool _matchesTerminalShortcut({
   return false;
 }
 
-String? _baseCharacter(LogicalKeyboardKey key, bool shift) {
+String? _baseCharacter(LogicalKeyboardKey key, bool shift,
+    {bool capsLock = false}) {
   if (key == LogicalKeyboardKey.space) return ' ';
   final label = key.keyLabel;
   if (label.length != 1) return null;
   final code = label.codeUnitAt(0);
   if (code >= 0x41 && code <= 0x5A) {
     final lower = String.fromCharCode(code + 0x20);
-    return shift ? label : lower;
+    return shift != capsLock ? label : lower;
   }
   if (code >= 0x20 && code < 0x7F) return label;
   return null;
