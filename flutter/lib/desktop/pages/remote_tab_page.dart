@@ -162,25 +162,13 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
                 connectionType.direct.value == ConnectionType.strDirect;
             String msgConn = getConnectionText(
                 secure, direct, connectionType.stream_type.value);
-            var msgFingerprint = '${translate('Fingerprint')}:\n';
-            var fingerprint = FingerprintState.find(key).value;
-            if (fingerprint.isEmpty) {
-              fingerprint = 'N/A';
-            }
-            if (fingerprint.length > 5 * 8) {
-              var first = fingerprint.substring(0, 39);
-              var second = fingerprint.substring(40);
-              msgFingerprint += '$first\n$second';
-            } else {
-              msgFingerprint += fingerprint;
-            }
 
             final tab = Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 icon,
                 Tooltip(
-                  message: '$msgConn\n$msgFingerprint',
+                  message: msgConn,
                   child: SvgPicture.asset(
                     'assets/${connectionType.secure.value}${connectionType.direct.value}.svg',
                     width: themeConf.iconSize,
@@ -315,16 +303,6 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
 
     menu.addAll([
       MenuEntryDivider<String>(),
-      MenuEntryButton<String>(
-        childBuilder: (TextStyle? style) => Text(
-          translate('Copy Fingerprint'),
-          style: style,
-        ),
-        proc: () => onCopyFingerprint(FingerprintState.find(key).value),
-        padding: padding,
-        dismissOnClicked: true,
-        dismissCallback: cancelFunc,
-      ),
       MenuEntryButton<String>(
         childBuilder: (TextStyle? style) => Text(
           translate('Close'),
