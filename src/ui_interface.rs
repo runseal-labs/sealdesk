@@ -154,6 +154,18 @@ pub fn get_option<T: AsRef<str>>(key: T) -> String {
                 .flatten()
                 .unwrap_or_default();
         }
+        if key.as_ref() == keys::OPTION_TAILCAT_DERP_MAP_URL {
+            return crate::ipc::get_config(keys::OPTION_TAILCAT_DERP_MAP_URL)
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| Config::get_option(keys::OPTION_TAILCAT_DERP_MAP_URL));
+        }
+        if key.as_ref() == keys::OPTION_TAILCAT_START_ERROR {
+            return crate::ipc::get_config(keys::OPTION_TAILCAT_START_ERROR)
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+        }
         if key.as_ref() == keys::OPTION_SEALDESK_HOST_MODE {
             return match crate::tailcat::host::query_mode() {
                 Ok(mode) => mode,

@@ -29,6 +29,7 @@ import (
 	"github.com/tailscale/tailcat"
 	"rsc.io/qr"
 	"tailscale.com/types/key"
+	"tailscale.com/types/logger"
 )
 
 var (
@@ -69,10 +70,15 @@ func TcStopServe() *C.char {
 	return cstr("")
 }
 
-func loadOrCreateKey(path string) (*tailcat.PrivateKey, bool, error) {
+type serverKeyFile struct {
+	tailcat.PrivateKey
+	DERPMapURL string `json:",omitempty"`
+}
+
+func loadOrCreateKey(path string) (*serverKeyFile, bool, error) {
 	b, err := os.ReadFile(path)
 	if err == nil {
-		var pk tailcat.PrivateKey
+		var pk serverKeyFile
 		if err := json.Unmarshal(b, &pk); err != nil {
 			return nil, false, fmt.Errorf("parse %s: %w", path, err)
 		}
@@ -81,7 +87,7 @@ func loadOrCreateKey(path string) (*tailcat.PrivateKey, bool, error) {
 	if !errors.Is(err, os.ErrNotExist) {
 		return nil, false, err
 	}
-	return tailcat.NewPrivateKey(), true, nil
+	return &serverKeyFile{PrivateKey: *tailcat.NewPrivateKey()}, true, nil
 }
 
 func saveJSON(path string, v any) error {
@@ -110,9 +116,21 @@ func saveJSON(path string, v any) error {
 //
 //export TcServe
 func TcServe(keyPath, allow *C.char, targetPort C.int, localToken *C.char) *C.char {
+	return TcServeWithDERPMap(keyPath, allow, targetPort, localToken, nil)
+}
+
+//export TcServeWithDERPMap
+func TcServeWithDERPMap(keyPath, allow *C.char, targetPort C.int, localToken, derpMapURL *C.char) *C.char {
+	source, err := derpMapSource(C.GoString(derpMapURL))
+	if err != nil {
+		return cerr(err)
+	}
 	mu.Lock()
 	defer mu.Unlock()
 	if server != nil {
+		if server.DERPMapURL != source {
+			return cerr(errors.New("host configuration: stop host before changing DERP map"))
+		}
 		return cstr(string(server.TailcatAddr()))
 	}
 	token, err := decodeLocalToken(C.GoString(localToken))
@@ -122,13 +140,19 @@ func TcServe(keyPath, allow *C.char, targetPort C.int, localToken *C.char) *C.ch
 	path := C.GoString(keyPath)
 	pk, fresh, err := loadOrCreateKey(path)
 	if err != nil {
-		return cerr(err)
+		return cerr(errors.New("host identity: could not read or parse saved key"))
+	}
+	previousSource, _ := derpMapSource(pk.DERPMapURL)
+	sourceChanged := previousSource != source
+	if sourceChanged {
+		pk.Public.Region = nil
+		pk.Public.RegionID = 0
 	}
 	s := &tailcat.Server{
 		Key:          pk.Private,
 		PresharedKey: pk.Public.PresharedKey,
 		RegionID:     pk.Public.RegionID,
-		Logf:         logf,
+		Logf:         logger.Discard,
 	}
 	if len(pk.Public.Region) > 0 {
 		if pk.Public.Region[0] == nil {
@@ -141,7 +165,7 @@ func TcServe(keyPath, allow *C.char, targetPort C.int, localToken *C.char) *C.ch
 		for _, k := range strings.Split(list, ",") {
 			var nk key.NodePublic
 			if err := nk.UnmarshalText([]byte(strings.TrimSpace(k))); err != nil {
-				return cerr(fmt.Errorf("bad allow key %q: %w", k, err))
+				return cerr(errors.New("host allow list: invalid node key"))
 			}
 			allowed[nk] = true
 		}
@@ -168,18 +192,28 @@ func TcServe(keyPath, allow *C.char, targetPort C.int, localToken *C.char) *C.ch
 			proxyToLocal(c, target, token, address, connections)
 		}
 	}
-	if err := s.Start(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), startupTimeout)
+	defer cancel()
+	if err := prepareServer(ctx, s, source); err != nil {
+		return cerr(err)
+	}
+	if err := s.StartContext(ctx); err != nil {
 		connections.close()
 		if closeErr := s.Close(); closeErr != nil {
 			logf("cleanup failed server: %v", closeErr)
 		}
-		return cerr(err)
+		return cerr(transportError(ctx, "DERP relay/bootstrap", err))
 	}
 	addr := s.TailcatAddr()
-	if fresh || (pk.Public.RegionID == 0 && len(pk.Public.Region) == 0) {
+	if fresh || sourceChanged || (pk.Public.RegionID == 0 && len(pk.Public.Region) == 0) {
 		// Pin the region picked at first start so the address never changes.
 		if ci, err := tailcat.ParseAddr(addr); err == nil {
 			pk.Public = ci
+		}
+		if source != tailcat.DefaultDERPMapURL {
+			pk.DERPMapURL = source
+		} else {
+			pk.DERPMapURL = ""
 		}
 		if err := saveJSON(path, pk); err != nil {
 			logf("save key: %v", err)
@@ -190,19 +224,20 @@ func TcServe(keyPath, allow *C.char, targetPort C.int, localToken *C.char) *C.ch
 	return cstr(string(addr))
 }
 
-func clientFor(ctx context.Context, addr, keyPath string) (tunnelClient, func(), func(), error) {
-	id := addr + "\x00" + keyPath
+func clientFor(ctx context.Context, addr, keyPath, source string) (tunnelClient, func(), func(), error) {
+	id := addr + "\x00" + keyPath + "\x00" + source
 	return clients.acquire(ctx, id, func() (tunnelClient, error) {
 		cl := tailcat.NewClient(tailcat.Addr(addr))
-		cl.Logf = logf
+		cl.Logf = logger.Discard
+		cl.DERPMapURL = source
 		if keyPath != "" {
 			k, err := clientKey(keyPath)
 			if err != nil {
-				return nil, err
+				return nil, errors.New("controller identity: could not read or save key")
 			}
 			cl.Key = k
 		}
-		return cl, nil
+		return &configuredClient{Client: cl}, nil
 	})
 }
 
@@ -245,14 +280,23 @@ func TcClientPubkey(keyPath *C.char) *C.char {
 //
 //export TcForward
 func TcForward(addr, keyPath *C.char, timeoutMs C.int, localToken *C.char) *C.char {
+	return TcForwardWithDERPMap(addr, keyPath, timeoutMs, localToken, nil)
+}
+
+//export TcForwardWithDERPMap
+func TcForwardWithDERPMap(addr, keyPath *C.char, timeoutMs C.int, localToken, derpMapURL *C.char) *C.char {
+	source, err := derpMapSource(C.GoString(derpMapURL))
+	if err != nil {
+		return cerr(err)
+	}
 	token, err := decodeLocalToken(C.GoString(localToken))
 	if err != nil {
 		return cerr(err)
 	}
 	a := C.GoString(addr)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutMs)*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), min(time.Duration(timeoutMs)*time.Millisecond, startupTimeout))
 	defer cancel()
-	cl, release, drain, err := clientFor(ctx, a, C.GoString(keyPath))
+	cl, release, drain, err := clientFor(ctx, a, C.GoString(keyPath), source)
 	if err != nil {
 		return cerr(err)
 	}
@@ -261,7 +305,7 @@ func TcForward(addr, keyPath *C.char, timeoutMs C.int, localToken *C.char) *C.ch
 	first, err := cl.DialTCPPort(ctx, 21118)
 	if err != nil {
 		release()
-		return cerr(fmt.Errorf("tunnel to peer failed: %w", err))
+		return cerr(err)
 	}
 	local, err := newLocalForward(first, token, 5*time.Second, release, drain)
 	if err != nil {

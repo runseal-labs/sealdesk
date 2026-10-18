@@ -850,5 +850,12 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Place the other device’s SealDesk QR code in the frame", "请将对方的 SealDesk 配对二维码放入框内"),
         ("Scanning is paused. Return to the app and scan again", "掃描已暫停，請返回前景後重新掃描"),
         ("Confirm reset", ""),
+        ("Relay settings", "中繼設定"),
+        ("DERP map URL", "DERP 節點清單 URL"),
+        ("Enter an HTTPS URL without credentials or a fragment", "請輸入不含憑證或片段識別碼的 HTTPS URL"),
+        ("Saving restarts sharing and disconnects current sessions.", "儲存會重新啟動分享，並中斷目前的連線。"),
+        ("Applies after sharing restarts or a new tunnel opens. Embedded relay addresses keep their relay.", "重新啟動分享或開啟新通道後生效。內嵌中繼位址仍使用其指定的中繼。"),
+        ("Reset to default", "恢復預設設定"),
+        ("Unable to save relay settings, please try again", "無法儲存中繼設定，請重試"),
     ].iter().cloned().collect();
 }

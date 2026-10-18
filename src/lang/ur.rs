@@ -843,6 +843,13 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Place the other device’s SealDesk QR code in the frame", ""),
         ("Camera permission is required. Allow it in system settings, then reopen the scanner, or load an image", ""),
         ("Camera operation failed. Go back and reopen the scanner", ""),
+        ("Relay settings", ""),
+        ("DERP map URL", ""),
+        ("Enter an HTTPS URL without credentials or a fragment", ""),
+        ("Saving restarts sharing and disconnects current sessions.", ""),
+        ("Applies after sharing restarts or a new tunnel opens. Embedded relay addresses keep their relay.", ""),
+        ("Reset to default", ""),
+        ("Unable to save relay settings, please try again", ""),
     ].iter().cloned().collect();
 }
 

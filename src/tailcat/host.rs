@@ -3,6 +3,15 @@ use hbb_common::config::{option2bool, Config};
 use std::sync::Mutex;
 
 static RUNNING: Mutex<bool> = Mutex::new(false);
+static START_ERROR: Mutex<String> = Mutex::new(String::new());
+
+pub(crate) fn start_error() -> String {
+    START_ERROR.lock().unwrap().clone()
+}
+
+pub(crate) fn set_start_error(error: String) {
+    *START_ERROR.lock().unwrap() = error;
+}
 
 pub(crate) fn enabled() -> bool {
     Config::get_option(keys::OPTION_SEALDESK_HOST_MODE) == "host"
@@ -31,12 +40,16 @@ pub(crate) fn begin_start() -> bool {
     if !enabled() {
         return false;
     }
+    set_start_error(String::new());
     *running = true;
     true
 }
 
 pub(crate) fn set_mode(mode: String) {
     let _running = RUNNING.lock().unwrap();
+    if mode == "control" {
+        set_start_error(String::new());
+    }
     if mode == "host" {
         Config::set_option(keys::OPTION_STOP_SERVICE.to_owned(), String::new());
     }

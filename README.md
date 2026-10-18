@@ -54,6 +54,14 @@ sealdesk --control code.png         # or with a QR image
 sealdesk --tc-reset-address         # revoke the current address
 ```
 
+### Relay map and connection troubleshooting
+
+Desktop **Relay settings** lets you save an HTTPS DERP map URL or restore the
+default. Initialization failures show the map or relay/bootstrap stage and a
+**Retry** action. Saving while sharing restarts sharing and disconnects sessions.
+See [DERP configuration and troubleshooting](docs/DERP.md) for when changes take
+effect, embedded relay addresses, TLS validation, and network limitations.
+
 ## Keep your code private
 
 A pairing code is a key to your computer. Don't post it, screenshot it, or

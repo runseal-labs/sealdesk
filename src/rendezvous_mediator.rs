@@ -55,51 +55,59 @@ async fn tailcat_server(server: ServerPtr) {
             sleep(1.).await;
         }
         crate::tailcat::host::set_running(false);
+        // Keep the failure visible until the user stops sharing to retry.
+        while crate::tailcat::host::enabled() && !crate::tailcat::host::start_error().is_empty() {
+            sleep(0.1).await;
+        }
     }
 }
 
 async fn accept_tailcat(server: ServerPtr) {
-    let listener = loop {
-        if !crate::tailcat::host::enabled() {
+    if !crate::tailcat::host::enabled() {
+        return;
+    }
+    let listener = match hbb_common::tokio::net::TcpListener::bind("127.0.0.1:0").await {
+        Ok(l) => l,
+        Err(err) => {
+            log::error!("tailcat: loopback listen failed: {err}");
+            crate::tailcat::host::set_start_error(
+                "Local listener: unable to bind loopback port".to_owned(),
+            );
             return;
-        }
-        match hbb_common::tokio::net::TcpListener::bind("127.0.0.1:0").await {
-            Ok(l) => break l,
-            Err(err) => {
-                log::error!("tailcat: loopback listen failed: {err}");
-                sleep(1.).await;
-            }
         }
     };
     let port = match listener.local_addr() {
         Ok(a) => a.port(),
         Err(err) => {
             log::error!("tailcat: {err}");
+            crate::tailcat::host::set_start_error(
+                "Local listener: unable to read loopback address".to_owned(),
+            );
             return;
         }
     };
     let local_token = crate::tailcat::transport::local_token();
-    loop {
-        if !crate::tailcat::host::enabled() {
-            return;
-        }
-        match tokio::task::spawn_blocking(move || crate::tailcat::serve(port, &local_token)).await {
-            Ok(Ok(addr)) => {
-                if !crate::tailcat::host::enabled() {
-                    return;
-                }
-                crate::tailcat::host::set_address(addr.clone());
-                log::info!("Tailcat sharing ready");
-                break;
-            }
-            Ok(Err(err)) => log::error!("tailcat serve failed, retrying: {err}"),
-            Err(err) => log::error!("tailcat serve task: {err}"),
-        }
-        for _ in 0..50 {
+    if !crate::tailcat::host::enabled() {
+        return;
+    }
+    match tokio::task::spawn_blocking(move || crate::tailcat::serve(port, &local_token)).await {
+        Ok(Ok(addr)) => {
             if !crate::tailcat::host::enabled() {
                 return;
             }
-            sleep(0.1).await;
+            crate::tailcat::host::set_address(addr.clone());
+            log::info!("Tailcat sharing ready");
+        }
+        Ok(Err(err)) => {
+            crate::tailcat::host::set_start_error(err.to_string());
+            log::error!("Tailcat initialization failed; waiting for retry");
+            return;
+        }
+        Err(_) => {
+            crate::tailcat::host::set_start_error(
+                "Initialization: transport task failed".to_owned(),
+            );
+            return;
         }
     }
     let handshakes = std::sync::Arc::new(tokio::sync::Semaphore::new(64));

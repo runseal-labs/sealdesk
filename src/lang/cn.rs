@@ -859,5 +859,12 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Looking for devices sharing on your local network...", "正在查找同一局域网中开启共享的设备…"),
         ("Revoke access", "撤销授权"),
         ("LAN authorization revoked", "局域网控制授权已撤销"),
+        ("Relay settings", "中继设置"),
+        ("DERP map URL", "DERP 节点列表 URL"),
+        ("Enter an HTTPS URL without credentials or a fragment", "请输入不含凭据或片段标识符的 HTTPS URL"),
+        ("Saving restarts sharing and disconnects current sessions.", "保存会重新启动共享，并断开当前会话。"),
+        ("Applies after sharing restarts or a new tunnel opens. Embedded relay addresses keep their relay.", "重新启动共享或打开新隧道后生效。内嵌中继地址仍使用其指定的中继。"),
+        ("Reset to default", "恢复默认设置"),
+        ("Unable to save relay settings, please try again", "无法保存中继设置，请重试"),
     ].iter().cloned().collect();
 }

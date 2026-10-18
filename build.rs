@@ -165,6 +165,7 @@ fn build_tailcat() -> Result<(), Box<dyn std::error::Error>> {
         "main.go",
         "transport.go",
         "client_cache.go",
+        "derp_config.go",
         "go.mod",
         "go.sum",
     ] {
