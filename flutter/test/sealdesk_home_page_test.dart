@@ -42,7 +42,8 @@ class _I18nBinding extends Fake implements SealdeskImpl {
       'Connected': '已连接',
       'Updating QR code...': '正在更新二维码…',
       'Resetting address...': '正在重置地址…',
-      'This disconnects the current session and invalidates all old QR codes. Share the new code with the other person.': '这会断开当前被控会话，并使所有旧二维码失效。请将新二维码重新分享给对方。',
+      'This disconnects the current session and invalidates all old QR codes. Share the new code with the other person.':
+          '这会断开当前被控会话，并使所有旧二维码失效。请将新二维码重新分享给对方。',
       'QR code hidden': '二维码已遮挡',
       'Unable to get pairing code, please try again': '无法获取二维码，请重试',
       'Connecting...': '正在连接…',
@@ -158,7 +159,7 @@ void main() {
     result.complete(const SealDeskPairing(address: address, expiresAt: 101));
     await tester.pumpAndSettle();
     expect(connects, 0);
-    expect(find.textContaining('已过期'), findsOneWidget);
+    expect(find.textContaining('expired'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -198,7 +199,7 @@ void main() {
     final code = pairing.encode(now: 98);
     await showPage(tester,
         mode: 'control', initialInput: code, connect: (_) async => connects++);
-    expect(find.textContaining('已过期'), findsOneWidget);
+    expect(find.textContaining('expired'), findsOneWidget);
     expect(connects, 0);
     await tester.pumpWidget(const SizedBox());
     await showPage(tester,
@@ -300,7 +301,10 @@ void main() {
     await tester.tap(find.text('载入二维码图片'));
     await tester.pump();
     expect(connected, isFalse);
-    expect(find.text('配对码已过期，请让对方刷新二维码'), findsOneWidget);
+    expect(
+        find.text(
+            'Pairing code has expired. Ask the other person to refresh the QR code'),
+        findsOneWidget);
   });
 
   testWidgets('clipboard QR screenshot connects with its original credentials',
@@ -370,7 +374,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(calls, 1);
     expect(connections, 0);
-    expect(find.textContaining('已过期'), findsOneWidget);
+    expect(find.textContaining('expired'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -419,8 +423,7 @@ void main() {
       count = active;
       await tester.pump(const Duration(seconds: 1));
       await tester.pump();
-      expect(find.text(active == 0 ? '等待连接' : '已连接 ($active)'),
-          findsOneWidget);
+      expect(find.text(active == 0 ? '等待连接' : '已连接 ($active)'), findsOneWidget);
       if (active > 0) expect(find.text('等待连接'), findsNothing);
       expect(find.byType(QrImageView), findsOneWidget);
     }
@@ -508,7 +511,8 @@ void main() {
     expect(find.text('DERP map download failed: HTTP 503'), findsOneWidget);
     expect(find.text('Generating pairing code...'), findsNothing);
     expect(find.byType(QrImageView), findsNothing);
-    expect(find.byKey(const ValueKey('sealdesk-relay-settings')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('sealdesk-relay-settings')), findsOneWidget);
     await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();
     expect(find.text('Sharing could not restart'), findsOneWidget);
@@ -534,7 +538,8 @@ void main() {
     await tester.tap(settings);
     await tester.pumpAndSettle();
     expect(find.text(saved), findsOneWidget);
-    expect(find.text('Saving restarts sharing and disconnects current sessions.'),
+    expect(
+        find.text('Saving restarts sharing and disconnects current sessions.'),
         findsOneWidget);
     await tester.enterText(input, 'https://other.example/derp.json');
     await tester.tap(find.text('Save'));
@@ -783,7 +788,10 @@ void main() {
     await tester.tap(find.text('连接'));
     await tester.pump();
     expect(connected, isFalse);
-    expect(find.text('配对码已过期，请让对方刷新二维码'), findsOneWidget);
+    expect(
+        find.text(
+            'Pairing code has expired. Ask the other person to refresh the QR code'),
+        findsOneWidget);
   });
 
   testWidgets(
@@ -868,8 +876,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets(
-      'relay chip stays under the QR and startup errors use retry',
+  testWidgets('relay chip stays under the QR and startup errors use retry',
       (tester) async {
     binding.language = 'en';
     RelayStatus? relay = RelayStatus.fromJson(
@@ -906,7 +913,8 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     await tester.pump();
     expect(find.byType(QrImageView), findsNothing);
-    expect(find.text('DERP relay/bootstrap: connection refused'), findsOneWidget);
+    expect(
+        find.text('DERP relay/bootstrap: connection refused'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
     expect(find.textContaining('Generating pairing code'), findsNothing);
     expect(find.byKey(const ValueKey('sealdesk-relay')), findsNothing);

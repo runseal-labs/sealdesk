@@ -81,7 +81,10 @@ class _SealDeskScanPageState extends State<SealDeskScanPage>
         _readCode(barcode.code!);
       }
     }, onError: (_) {
-      if (mounted) setState(() => _error = '扫码失败，请返回后重新打开摄像头');
+      if (mounted) {
+        setState(() =>
+            _error = translate('Scan failed. Go back and reopen the camera'));
+      }
     });
     if (!_active) _syncCamera();
   }
@@ -92,8 +95,9 @@ class _SealDeskScanPageState extends State<SealDeskScanPage>
       final pairing = SealDeskPairing.parse(code, now: _now());
       _finish(pairing);
     } on FormatException catch (error) {
-      if (_error != error.message) {
-        setState(() => _error = error.message);
+      final message = translate(error.message);
+      if (_error != message) {
+        setState(() => _error = message);
       }
     }
   }
@@ -117,7 +121,7 @@ class _SealDeskScanPageState extends State<SealDeskScanPage>
       _finished = true;
       Navigator.of(context).pop(pairing);
     } on FormatException catch (error) {
-      setState(() => _error = error.message);
+      setState(() => _error = translate(error.message));
     } finally {
       if (mounted && !_finished) {
         setState(() => _busy = false);
@@ -137,7 +141,7 @@ class _SealDeskScanPageState extends State<SealDeskScanPage>
       final pairing = await widget.pickImage!();
       if (mounted && pairing != null) await _finish(pairing, fromImage: true);
     } on FormatException catch (error) {
-      if (mounted) setState(() => _error = error.message);
+      if (mounted) setState(() => _error = translate(error.message));
     } catch (_) {
       if (mounted)
         setState(() => _error = translate(
