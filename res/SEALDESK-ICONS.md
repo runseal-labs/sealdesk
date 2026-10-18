@@ -7,10 +7,10 @@ The approved artwork is the original front-facing seal hugging a mint cat with w
 - `res/sealdesk-icon-monochrome.png`: luminance-derived platform template.
 - `res/sealdesk-icon.svg` and other existing SVG names: compatibility wrappers embedding the approved PNG, not vector artwork.
 
-Regenerate all platform assets with Pillow:
+Regenerate all platform assets with Pillow and NumPy:
 
 ```sh
-uv run --with pillow res/generate_sealdesk_icons.py
+uv run --with pillow --with numpy res/generate_sealdesk_icons.py
 ```
 
 To reproduce the master from the approved sheet first:
