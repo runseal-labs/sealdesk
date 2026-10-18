@@ -134,7 +134,7 @@ class HomePageState extends State<HomePage> {
                 children: [
                   Text(
                     isLegacyNumericId(currentUser.id)
-                        ? currentUser.firstName
+                        ? currentUser.firstName ?? ''
                         : "${currentUser.firstName}   ${currentUser.id}",
                   ),
                   if (connected)
