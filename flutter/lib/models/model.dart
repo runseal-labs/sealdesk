@@ -428,8 +428,6 @@ class FfiModel with ChangeNotifier {
         parent.target?.chatModel.onVoiceCallIncoming();
       } else if (name == 'update_voice_call_state') {
         parent.target?.serverModel.updateVoiceCallState(evt);
-      } else if (name == 'fingerprint') {
-        FingerprintState.find(peerId).value = evt['fingerprint'] ?? '';
       } else if (name == "cm_file_transfer_log") {
         if (isDesktop) {
           gFFI.cmFileModel.onFileTransferLog(evt);

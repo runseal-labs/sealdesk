@@ -752,13 +752,6 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi) {
       ));
     }
   }
-  // fingerprint
-  if (!(isDesktop || isWebDesktop)) {
-    v.add(TTextMenu(
-      child: Text(translate('Copy Fingerprint')),
-      onPressed: () => onCopyFingerprint(FingerprintState.find(id).value),
-    ));
-  }
   // Register tagged TTextMenu callbacks. The else-unregister is defense in
   // depth for actionIds tagged but missing from `_kToolbarOwnedActionIds`.
   for (final menu in v) {

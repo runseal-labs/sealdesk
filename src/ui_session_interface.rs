@@ -1741,7 +1741,6 @@ pub trait InvokeUiSession: Send + Sync + Clone + 'static + Sized + Default {
             if direct { "Tailcat/P2P" } else { "Tailcat/DERP" },
         );
     }
-    fn set_fingerprint(&self, fingerprint: String);
     fn job_error(&self, id: i32, err: String, file_num: i32);
     fn job_done(&self, id: i32, file_num: i32);
     fn clear_all_jobs(&self);

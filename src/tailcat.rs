@@ -8,6 +8,10 @@
 
 use hbb_common::{bail, config::Config, log, ResultType};
 use std::ffi::{c_char, c_int, CStr, CString};
+#[cfg(any(target_os = "android", test))]
+use std::net::Ipv4Addr;
+#[cfg(target_os = "android")]
+use std::sync::Mutex;
 
 pub(crate) mod auth_limit;
 #[cfg(test)]
@@ -36,8 +40,54 @@ extern "C" {
 }
 
 #[cfg(target_os = "android")]
+static ANDROID_INTERFACES: Mutex<String> = Mutex::new(String::new());
+
+#[cfg(target_os = "android")]
 pub(crate) fn set_android_interfaces(payload: &std::ffi::CStr) {
+    if let Ok(text) = payload.to_str() {
+        *ANDROID_INTERFACES.lock().unwrap() = text.to_owned();
+    }
     unsafe { TcSetAndroidInterfaces(payload.as_ptr()) }
+}
+
+#[cfg(target_os = "android")]
+pub(crate) fn android_private_ipv4() -> Vec<Ipv4Addr> {
+    let payload = ANDROID_INTERFACES.lock().unwrap().clone();
+    private_ipv4_from_interface_json(&payload)
+}
+
+/// `flags`: 1 = up, 4 = loopback. Addresses are `ip/prefix` strings.
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn private_ipv4_from_interface_json(payload: &str) -> Vec<Ipv4Addr> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) else {
+        return Vec::new();
+    };
+    let Some(list) = value.as_array() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for iface in list {
+        let flags = iface.get("flags").and_then(|v| v.as_u64()).unwrap_or(0);
+        if flags & 1 == 0 || flags & 4 != 0 {
+            continue;
+        }
+        let Some(addrs) = iface.get("addrs").and_then(|v| v.as_array()) else {
+            continue;
+        };
+        for addr in addrs {
+            let Some(text) = addr.as_str() else {
+                continue;
+            };
+            let ip = text.split('/').next().unwrap_or("");
+            let Ok(ip) = ip.parse::<Ipv4Addr>() else {
+                continue;
+            };
+            if ip.is_private() && !out.contains(&ip) {
+                out.push(ip);
+            }
+        }
+    }
+    out
 }
 
 extern "C" {

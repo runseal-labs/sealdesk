@@ -1247,10 +1247,6 @@ class SealdeskImpl {
     return Future.value('');
   }
 
-  Future<String> mainGetFingerprint({dynamic hint}) {
-    return Future.value('');
-  }
-
   Future<String> cmGetClientsState({dynamic hint}) {
     throw UnimplementedError("cmGetClientsState");
   }

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sealdesk/desktop/pages/desktop_home_page.dart';
+import 'package:sealdesk/desktop/pages/sealdesk_native_home_page.dart';
 import 'package:sealdesk/mobile/widgets/dialog.dart';
 import 'package:sealdesk/models/chat_model.dart';
 import 'package:get/get.dart';
@@ -61,13 +62,16 @@ class _DropDownAction extends StatelessWidget {
           final isAllowNumericOneTimePassword =
               gFFI.serverModel.allowNumericOneTimePassword;
           return [
-            if (!isChangeIdDisabled())
+            if (!isChangeIdDisabled() &&
+                bind.mainGetAppNameSync() != 'SealDesk')
               PopupMenuItem(
                 enabled: gFFI.serverModel.isStart,
                 value: "changeID",
                 child: Text(translate("Change ID")),
               ),
-            if (!isChangeIdDisabled()) const PopupMenuDivider(),
+            if (!isChangeIdDisabled() &&
+                bind.mainGetAppNameSync() != 'SealDesk')
+              const PopupMenuDivider(),
             PopupMenuItem(
               value: 'AcceptSessionsViaPassword',
               child: listTile(
@@ -200,6 +204,25 @@ class _ServerPageState extends State<ServerPage> {
   @override
   Widget build(BuildContext context) {
     checkService();
+    if (bind.mainGetAppNameSync() == 'SealDesk') {
+      return ChangeNotifierProvider.value(
+        value: gFFI.serverModel,
+        child: Consumer<ServerModel>(
+          builder: (context, serverModel, child) => SealDeskNativeHomePage(
+            hostOnly: true,
+            footer: Column(
+              children: [
+                buildPresetPasswordWarningMobile(),
+                if (!serverModel.isStart) ServiceNotRunningNotification(),
+                const ConnectionManager(),
+                const PermissionChecker(),
+                SizedBox.fromSize(size: const Size(0, 15.0)),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     return ChangeNotifierProvider.value(
         value: gFFI.serverModel,
         child: Consumer<ServerModel>(
@@ -861,8 +884,11 @@ class ClientInfo extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                     Text(client.name, style: const TextStyle(fontSize: 18)),
-                    const SizedBox(width: 8),
-                    Text(client.peerId, style: const TextStyle(fontSize: 10))
+                    if (!isLegacyNumericId(client.peerId)) ...[
+                      const SizedBox(width: 8),
+                      Text(client.peerId,
+                          style: const TextStyle(fontSize: 10)),
+                    ],
                   ]))
             ],
           ),

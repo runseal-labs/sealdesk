@@ -82,7 +82,6 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   var _allowAutoDisconnect = false;
   var _localIP = "";
   var _directAccessPort = "";
-  var _fingerprint = "";
   var _buildDate = "";
   var _myId = "";
   var _autoDisconnectTimeout = "";
@@ -171,19 +170,13 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
         _keepScreenOn = keepScreenOn;
       }
 
-      final fingerprint = await bind.mainGetFingerprint();
-      if (_fingerprint != fingerprint) {
-        update = true;
-        _fingerprint = fingerprint;
-      }
-
       final buildDate = await bind.mainGetBuildDate();
       if (_buildDate != buildDate) {
         update = true;
         _buildDate = buildDate;
       }
 
-      final myId = await bind.mainGetMyId();
+      final myId = await bind.mainGetOption(key: 'tailcat-addr');
       if (_myId != myId) {
         update = true;
         _myId = myId;
@@ -801,23 +794,12 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                   child: Text(_buildDate),
                 ),
                 leading: Icon(Icons.query_builder)),
-            if (isAndroid)
-              SettingsTile(
-                  onPressed: (context) => onCopyFingerprint(_fingerprint),
-                  title: Text(translate("Fingerprint")),
-                  value: Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8),
-                    child: Text(_fingerprint),
-                  ),
-                  leading: Icon(Icons.fingerprint)),
             SettingsTile(
                 onPressed: (context) => onCopyId(_myId),
-                title: Text(translate("ID")),
-                value: Padding(
-                  padding: EdgeInsets.symmetric(vertical: 8),
-                  child: Text(_myId),
-                ),
-                leading: Icon(Icons.perm_identity)),
+                title: Text(_myId.isEmpty
+                    ? translate('Generating pairing code...')
+                    : _myId),
+                leading: Icon(Icons.qr_code_2)),
           ],
         ),
       ],
