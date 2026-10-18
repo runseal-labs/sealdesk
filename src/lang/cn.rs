@@ -859,5 +859,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Looking for devices sharing on your local network...", "正在查找同一局域网中开启共享的设备…"),
         ("Revoke access", "撤销授权"),
         ("LAN authorization revoked", "局域网控制授权已撤销"),
+        ("Checking relay...", "正在检查中继…"),
+        ("Relay reachable", "中继可达"),
+        ("Relay unreachable; scanning will likely time out", "中继不可达，扫码连接很可能会超时"),
     ].iter().cloned().collect();
 }

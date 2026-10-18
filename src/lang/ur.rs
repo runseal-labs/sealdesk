@@ -843,6 +843,9 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Place the other device’s SealDesk QR code in the frame", ""),
         ("Camera permission is required. Allow it in system settings, then reopen the scanner, or load an image", ""),
         ("Camera operation failed. Go back and reopen the scanner", ""),
+        ("Checking relay...", ""),
+        ("Relay reachable", ""),
+        ("Relay unreachable; scanning will likely time out", ""),
     ].iter().cloned().collect();
 }
 

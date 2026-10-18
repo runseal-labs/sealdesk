@@ -890,6 +890,8 @@ async fn handle(data: Data, stream: &mut Connection) {
                             .count()
                             .to_string(),
                     );
+                } else if name == crate::tailcat::OPTION_RELAY_STATUS {
+                    value = Some(crate::tailcat::host::relay_status());
                 } else if name == "temporary-password" {
                     value = Some(password::temporary_password());
                 } else if name == "permanent-password-storage-and-salt" {

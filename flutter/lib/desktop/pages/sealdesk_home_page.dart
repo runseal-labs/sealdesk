@@ -7,6 +7,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../common.dart';
 import '../../common/sealdesk_pairing.dart';
+import '../../models/relay_status.dart';
 
 class SealDeskHostState {
   final String address;
@@ -15,6 +16,7 @@ class SealDeskHostState {
   final List<String> connectedNames;
   final int connectedCount;
   final bool stopped;
+  final RelayStatus? relayStatus;
 
   const SealDeskHostState({
     required this.address,
@@ -23,6 +25,7 @@ class SealDeskHostState {
     this.connectedNames = const [],
     this.connectedCount = 0,
     this.stopped = false,
+    this.relayStatus,
   });
 }
 
@@ -72,8 +75,10 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
   String? _code;
   String? _revokedAddress;
   String _status = 'Generating pairing code...';
+  String? _initFailure;
+  RelayStatus? _relay;
 
-  String get _statusText => translate(_status);
+  String get _statusText => _initFailure ?? translate(_status);
   String? _error;
   bool _hidden = false;
   bool _loading = false;
@@ -131,6 +136,8 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
         setState(() {
           _pairing = null;
           _code = null;
+          _relay = host.relayStatus;
+          _initFailure = null;
           _status = 'Updating QR code...';
         });
         return;
@@ -139,6 +146,8 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
         setState(() {
           _pairing = null;
           _code = null;
+          _relay = host.relayStatus;
+          _initFailure = host.stopped ? null : host.relayStatus?.initFailure;
           _status = host.stopped
               ? translate('Sharing stopped')
               : translate('Generating pairing code...');
@@ -161,6 +170,8 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
         _code = _pairing!.encode(now: now);
       }
       setState(() {
+        _relay = host.relayStatus;
+        _initFailure = null;
         _status = host.connectedNames.isNotEmpty
             ? '已连接：${host.connectedNames.join('、')}'
             : host.connectedCount > 0
@@ -172,6 +183,8 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
         setState(() {
           _pairing = null;
           _code = null;
+          _relay = null;
+          _initFailure = null;
           _status = 'Unable to get pairing code, please try again';
         });
       }
@@ -188,6 +201,8 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
         _mode = mode;
         _pairing = null;
         _code = null;
+        _relay = null;
+        _initFailure = null;
         _status = 'Generating pairing code...';
       });
       await _poll(force: true);
@@ -218,6 +233,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
           _revokedAddress = _pairing?.address ?? _revokedAddress;
           _pairing = null;
           _code = null;
+          _initFailure = null;
           _status = 'Resetting address...';
         });
         await widget.resetAddress!();
@@ -364,6 +380,123 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
     );
   }
 
+  List<Widget> _relayWidgets() {
+    final relay = _relay;
+    if (relay == null || !relay.hasChip) return const [];
+    final scheme = Theme.of(context).colorScheme;
+    final Widget banner;
+    switch (relay.state) {
+      case 'connecting':
+        final foreground = scheme.onSurface.withOpacity(0.6);
+        banner = _relayChip(
+          foreground: foreground,
+          background: scheme.onSurface.withOpacity(0.08),
+          icon: SizedBox(
+            width: 12,
+            height: 12,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: foreground,
+            ),
+          ),
+          label: translate('Checking relay...'),
+        );
+        break;
+      case 'reachable':
+        final rtt = relay.probeRttMs;
+        final base = translate('Relay reachable');
+        final foreground = scheme.primary;
+        banner = _relayChip(
+          foreground: foreground,
+          background: foreground.withOpacity(0.08),
+          icon: Icon(Icons.check_circle, size: 14, color: foreground),
+          label: rtt != null && rtt > 0 ? '$base ($rtt ms)' : base,
+        );
+        break;
+      case 'unreachable':
+        final error = relay.lastError.trim();
+        final foreground = scheme.error;
+        banner = _relayChip(
+          foreground: foreground,
+          background: foreground.withOpacity(0.08),
+          icon: Icon(Icons.warning_amber_rounded, size: 14, color: foreground),
+          label: translate('Relay unreachable; scanning will likely time out'),
+          detail: error.isEmpty ? null : error,
+          tooltip: error.isEmpty ? null : error,
+        );
+        break;
+      default:
+        return const [];
+    }
+    return [
+      const SizedBox(height: 16),
+      banner,
+    ];
+  }
+
+  Widget _relayChip({
+    required Color foreground,
+    required Color background,
+    required Widget icon,
+    required String label,
+    String? detail,
+    String? tooltip,
+  }) {
+    // Loose Flexible keeps a short label at its intrinsic width and ellipsizes
+    // a long one instead of stretching the chip or overflowing the page.
+    final chip = Align(
+      alignment: Alignment.center,
+      child: Container(
+        key: const ValueKey('sealdesk-relay'),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            icon,
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: foreground, fontSize: 13),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    final Widget body;
+    if (detail == null || detail.isEmpty) {
+      body = chip;
+    } else {
+      body = Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          chip,
+          const SizedBox(height: 4),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 280),
+            child: Text(
+              detail,
+              key: const ValueKey('sealdesk-relay-error'),
+              style: TextStyle(color: foreground, fontSize: 12),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      );
+    }
+    if (tooltip == null || tooltip.isEmpty) return body;
+    return Tooltip(message: tooltip, child: body);
+  }
+
   List<Widget> _buildHost() => [
         Text(_statusText, key: const ValueKey('sealdesk-status')),
         const SizedBox(height: 16),
@@ -381,6 +514,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
                   )
                 : _buildQr(),
           ),
+        ..._relayWidgets(),
         const SizedBox(height: 16),
         Wrap(
           spacing: 8,

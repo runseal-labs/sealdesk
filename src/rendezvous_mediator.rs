@@ -85,6 +85,7 @@ async fn accept_tailcat(server: ServerPtr) {
         }
         match tokio::task::spawn_blocking(move || crate::tailcat::serve(port, &local_token)).await {
             Ok(Ok(addr)) => {
+                crate::tailcat::host::clear_init_error();
                 if !crate::tailcat::host::enabled() {
                     return;
                 }
@@ -92,7 +93,10 @@ async fn accept_tailcat(server: ServerPtr) {
                 log::info!("Tailcat sharing ready");
                 break;
             }
-            Ok(Err(err)) => log::error!("tailcat serve failed, retrying: {err}"),
+            Ok(Err(err)) => {
+                let err = crate::tailcat::host::set_init_error("serve", &err.to_string());
+                log::error!("tailcat serve failed, retrying: {err}");
+            }
             Err(err) => log::error!("tailcat serve task: {err}"),
         }
         for _ in 0..50 {

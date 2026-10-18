@@ -40,6 +40,12 @@ var (
 
 func cstr(s string) *C.char { return C.CString(s) }
 
+func goStringFree(p *C.char) string {
+	s := C.GoString(p)
+	C.free(unsafe.Pointer(p))
+	return s
+}
+
 func cerr(err error) *C.char { return cstr("ERR:" + err.Error()) }
 
 func logf(format string, args ...any) { log.Printf("tailcat: "+format, args...) }
@@ -51,6 +57,7 @@ func TcFree(p *C.char) { C.free(unsafe.Pointer(p)) }
 func TcStopServe() *C.char {
 	mu.Lock()
 	defer mu.Unlock()
+	stopSelfProbeLocked()
 	if server == nil {
 		return cstr("")
 	}
@@ -66,8 +73,16 @@ func TcStopServe() *C.char {
 	}
 	server = nil
 	serverConns = nil
+	serveStartedAt = time.Time{}
 	return cstr("")
 }
+
+// TcServeStatus reports whether the controlled-side tunnel is running and
+// whether a self-probe meow over its home DERP has succeeded recently. The
+// result is a JSON object; free it with TcFree.
+//
+//export TcServeStatus
+func TcServeStatus() *C.char { return cstr(marshalServeStatus()) }
 
 func loadOrCreateKey(path string) (*tailcat.PrivateKey, bool, error) {
 	b, err := os.ReadFile(path)
@@ -122,6 +137,7 @@ func TcServe(keyPath, allow *C.char, targetPort C.int, localToken *C.char) *C.ch
 	path := C.GoString(keyPath)
 	pk, fresh, err := loadOrCreateKey(path)
 	if err != nil {
+		setLastInitErrLocked(initStageKey, err, path)
 		return cerr(err)
 	}
 	s := &tailcat.Server{
@@ -147,6 +163,10 @@ func TcServe(keyPath, allow *C.char, targetPort C.int, localToken *C.char) *C.ch
 		}
 		s.AllowClient = func(k key.NodePublic) bool { return allowed[k] }
 	}
+	// Generated before Start so the copied AllowClient hook already admits it.
+	// The server never acks a meow AllowClient rejects.
+	probeKey := key.NewNode()
+	s.AllowClient = allowWithProbe(s.AllowClient, probeKey.Public())
 	target := fmt.Sprintf("127.0.0.1:%d", int(targetPort))
 	identities := &peerRegistry{}
 	connections := &incomingConnections{}
@@ -169,12 +189,15 @@ func TcServe(keyPath, allow *C.char, targetPort C.int, localToken *C.char) *C.ch
 		}
 	}
 	if err := s.Start(); err != nil {
+		setLastInitErrLocked(initStageStart, err, path)
 		connections.close()
 		if closeErr := s.Close(); closeErr != nil {
 			logf("cleanup failed server: %v", closeErr)
 		}
 		return cerr(err)
 	}
+	clearLastInitErrLocked()
+	serveStartedAt = time.Now()
 	addr := s.TailcatAddr()
 	if fresh || (pk.Public.RegionID == 0 && len(pk.Public.Region) == 0) {
 		// Pin the region picked at first start so the address never changes.
@@ -187,6 +210,7 @@ func TcServe(keyPath, allow *C.char, targetPort C.int, localToken *C.char) *C.ch
 	}
 	server = s
 	serverConns = connections
+	startSelfProbeLocked(addr, probeKey)
 	return cstr(string(addr))
 }
 

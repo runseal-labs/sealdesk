@@ -92,6 +92,7 @@ pub(crate) fn private_ipv4_from_interface_json(payload: &str) -> Vec<Ipv4Addr> {
 
 extern "C" {
     fn TcFree(p: *mut c_char);
+    fn TcServeStatus() -> *mut c_char;
     fn TcStopServe() -> *mut c_char;
     fn TcServe(
         key_path: *const c_char,
@@ -118,6 +119,8 @@ pub const APP_NAME: &str = "SealDesk";
 pub const OPTION_ALLOW: &str = "tailcat-allow";
 /// This machine's tailcat address, published by the server for the UI.
 pub const OPTION_ADDR: &str = "tailcat-addr";
+/// Live controlled-side tunnel status JSON. Read through the service; not stored.
+pub const OPTION_RELAY_STATUS: &str = "tailcat-relay-status";
 
 fn cstring(s: &str) -> ResultType<CString> {
     Ok(CString::new(s)?)
@@ -187,6 +190,18 @@ pub fn serve(target_port: u16, token: &[u8; 32]) -> ResultType<String> {
 pub(crate) fn stop_serving() -> ResultType<()> {
     take(unsafe { TcStopServe() })?;
     Ok(())
+}
+
+/// Controlled-side tunnel status JSON from `TcServeStatus`. Empty when the
+/// library returns nothing or an `ERR:` result. The pointer is freed with `TcFree`.
+pub(crate) fn serve_status() -> String {
+    match take(unsafe { TcServeStatus() }) {
+        Ok(status) => status,
+        Err(error) => {
+            log::trace!("tailcat status unavailable: {error}");
+            String::new()
+        }
+    }
 }
 
 /// This machine's controller identity, for the peer's allow list.
