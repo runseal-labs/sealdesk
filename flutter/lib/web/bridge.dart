@@ -1609,6 +1609,18 @@ class SealdeskImpl {
     throw UnimplementedError("mainIsCanInputMonitoring");
   }
 
+  bool mainShowPermissionGuide({required String kind, dynamic hint}) {
+    return false;
+  }
+
+  bool mainScreenRecordingAccessObserved({dynamic hint}) {
+    return false;
+  }
+
+  bool mainRelaunchApp({dynamic hint}) {
+    return false;
+  }
+
   bool mainIsShareRdp({dynamic hint}) {
     throw UnimplementedError("mainIsShareRdp");
   }

@@ -12,6 +12,7 @@ import 'package:sealdesk/common/widgets/animated_rotation_widget.dart';
 import 'package:sealdesk/mobile/widgets/dialog.dart';
 import 'package:sealdesk/common/widgets/custom_password.dart';
 import 'package:sealdesk/consts.dart';
+import 'package:sealdesk/desktop/macos_permission_guide.dart';
 import 'package:sealdesk/desktop/pages/connection_page.dart';
 import 'package:sealdesk/desktop/pages/desktop_setting_page.dart';
 import 'package:sealdesk/desktop/pages/desktop_tab_page.dart';
@@ -53,6 +54,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   var watchIsCanScreenRecording = false;
   var watchIsProcessTrust = false;
   var watchIsInputMonitoring = false;
+  var _screenRecordingRestartPrompted = false;
   var watchIsCanRecordAudio = false;
   Timer? _updateTimer;
   bool isCardClosed = false;
@@ -432,6 +434,47 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
+  void _requestMacPermission(String kind) {
+    switch (kind) {
+      case 'screen':
+        bind.mainIsCanScreenRecording(prompt: true);
+        watchIsCanScreenRecording = true;
+        _screenRecordingRestartPrompted = false;
+        break;
+      case 'accessibility':
+        bind.mainIsProcessTrusted(prompt: true);
+        watchIsProcessTrust = true;
+        break;
+      case 'input':
+        bind.mainIsCanInputMonitoring(prompt: true);
+        watchIsInputMonitoring = true;
+        break;
+      default:
+        return;
+    }
+    bind.mainShowPermissionGuide(kind: kind);
+  }
+
+  Future<void> _promptScreenRecordingRestart() async {
+    if (!mounted) return;
+    final restart = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => CustomAlertDialog(
+        title: const Icon(Icons.fiber_manual_record,
+            color: Colors.redAccent, size: 22),
+        content: Text(translate('Screen recording needs a restart.')),
+        actions: [
+          dialogButton('Later',
+              onPressed: () => Navigator.pop(ctx, false), isOutline: true),
+          dialogButton('Restart', onPressed: () => Navigator.pop(ctx, true)),
+        ],
+      ),
+    );
+    if (restart == true) {
+      bind.mainRelaunchApp();
+    }
+  }
+
   Widget buildHelpCards() {
     if (systemError.isNotEmpty) {
       return buildInstallCard("", systemError, "", () {});
@@ -458,24 +501,17 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       if (!(isOutgoingOnly || bind.mainIsCanScreenRecording(prompt: false))) {
         return buildInstallCard("Permissions", "config_screen", "Configure",
             () async {
-          bind.mainIsCanScreenRecording(prompt: true);
-          // macOS shows the request prompt only once per app, so later
-          // presses would do nothing without opening the settings pane.
-          launchUrl(Uri.parse(
-              'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'));
-          watchIsCanScreenRecording = true;
+          _requestMacPermission('screen');
         });
       } else if (!isOutgoingOnly && !bind.mainIsProcessTrusted(prompt: false)) {
         return buildInstallCard("Permissions", "config_acc", "Configure",
             () async {
-          bind.mainIsProcessTrusted(prompt: true);
-          watchIsProcessTrust = true;
+          _requestMacPermission('accessibility');
         });
       } else if (!bind.mainIsCanInputMonitoring(prompt: false)) {
         return buildInstallCard("Permissions", "config_input", "Configure",
             () async {
-          bind.mainIsCanInputMonitoring(prompt: true);
-          watchIsInputMonitoring = true;
+          _requestMacPermission('input');
         });
       } else if (!isOutgoingOnly &&
           !svcStopped.value &&
@@ -694,7 +730,16 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         setState(() {});
       }
       if (watchIsCanScreenRecording) {
-        if (bind.mainIsCanScreenRecording(prompt: false)) {
+        final granted = bind.mainIsCanScreenRecording(prompt: false);
+        if (shouldPromptScreenRecordingRestart(
+          watching: true,
+          observed: granted || bind.mainScreenRecordingAccessObserved(),
+          alreadyPrompted: _screenRecordingRestartPrompted,
+        )) {
+          _screenRecordingRestartPrompted = true;
+          unawaited(_promptScreenRecordingRestart());
+        }
+        if (granted) {
           watchIsCanScreenRecording = false;
           setState(() {});
         }

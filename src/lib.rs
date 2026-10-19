@@ -18,6 +18,7 @@ mod client;
 mod rendezvous_mediator;
 pub mod tailcat;
 pub mod lan;
+pub mod permission_privacy;
 pub mod sealdesk_records;
 #[cfg(not(any(target_os = "ios")))]
 pub use self::rendezvous_mediator::*;

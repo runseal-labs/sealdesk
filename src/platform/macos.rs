@@ -17,6 +17,7 @@ use cocoa::{
 };
 use core_foundation::{
     array::{CFArrayGetCount, CFArrayGetValueAtIndex},
+    base::CFRelease,
     dictionary::CFDictionaryRef,
     string::CFStringRef,
 };
@@ -38,7 +39,10 @@ use std::{
     os::unix::process::CommandExt,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::Mutex,
+    sync::{
+        atomic::{AtomicPtr, Ordering},
+        Mutex,
+    },
 };
 pub use update_temp::try_remove_temp_update_dir;
 use update_temp::{copy_dmg_to_update_temp_file, get_update_temp_dir_string};
@@ -115,6 +119,7 @@ extern "C" {
         numModes: *mut u32,
     ) -> BOOL;
     fn majorVersion() -> u32;
+    fn RelaunchApp() -> BOOL;
     fn MacGetMode(display: u32, width: *mut u32, height: *mut u32) -> BOOL;
     fn MacSetMode(display: u32, width: u32, height: u32, tryHiDPI: bool) -> BOOL;
     fn CGWarpMouseCursorPosition(newCursorPosition: CGPoint) -> CGError;
@@ -153,6 +158,79 @@ pub fn is_can_screen_recording(prompt: bool) -> bool {
     autoreleasepool(|| unsafe_is_can_screen_recording(prompt))
 }
 
+static PERMISSION_GUIDE_HANDLER: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
+
+#[no_mangle]
+pub extern "C" fn sealdesk_set_permission_guide_handler(handler: extern "C" fn(i32)) {
+    PERMISSION_GUIDE_HANDLER.store(
+        unsafe { std::mem::transmute::<extern "C" fn(i32), *mut ()>(handler) },
+        Ordering::Release,
+    );
+}
+
+#[no_mangle]
+pub extern "C" fn sealdesk_open_listen_event_settings() {
+    open_privacy_settings(crate::permission_privacy::PrivacyKind::Input);
+}
+
+fn open_system_url(url: &str) -> bool {
+    autoreleasepool(|| unsafe {
+        let string = NSString::alloc(nil).init_str(url);
+        let nsurl: id = msg_send![class!(NSURL), URLWithString: string];
+        if nsurl.is_null() {
+            return false;
+        }
+        let workspace: id = msg_send![class!(NSWorkspace), sharedWorkspace];
+        let opened: BOOL = msg_send![workspace, openURL: nsurl];
+        opened == YES
+    })
+}
+
+fn open_privacy_settings(kind: crate::permission_privacy::PrivacyKind) -> bool {
+    let urls = crate::permission_privacy::privacy_settings_urls(major_version(), kind.anchor());
+    for url in urls {
+        if open_system_url(&url) {
+            return true;
+        }
+    }
+    false
+}
+
+#[cfg(feature = "flutter")]
+pub fn show_permission_guide(kind: &str) -> bool {
+    let Some(kind) = crate::permission_privacy::PrivacyKind::parse(kind) else {
+        return false;
+    };
+    let opened = open_privacy_settings(kind);
+    let handler = PERMISSION_GUIDE_HANDLER.load(Ordering::Acquire);
+    if !handler.is_null() {
+        let show = unsafe { std::mem::transmute::<*mut (), extern "C" fn(i32)>(handler) };
+        show(kind.code());
+    }
+    opened
+}
+
+#[cfg(feature = "flutter")]
+pub fn screen_recording_access_observed() -> bool {
+    if is_can_screen_recording(false) {
+        return true;
+    }
+    // Preflight caches a denial for this process, so a grant made in System
+    // Settings can stay invisible until restart. Other apps' window titles are
+    // not part of that cache on macOS 11+.
+    unsafe {
+        if CanUseNewApiForScreenCaptureCheck() == YES {
+            return other_app_window_names_visible();
+        }
+    }
+    false
+}
+
+#[cfg(feature = "flutter")]
+pub fn relaunch_app() -> bool {
+    unsafe { RelaunchApp() == YES }
+}
+
 // macOS >= 10.15
 // https://stackoverflow.com/questions/56597221/detecting-screen-recording-settings-on-macos-catalina/
 // remove just one app from all the permissions: tccutil reset All com.runseal.sealdesk
@@ -165,12 +243,26 @@ fn unsafe_is_can_screen_recording(prompt: bool) -> bool {
             return IsCanScreenRecording(if prompt { YES } else { NO }) == YES;
         }
     }
-    let mut can_record_screen: bool = false;
+    let can_record_screen = other_app_window_names_visible();
+    if !can_record_screen && prompt {
+        use scrap::{Capturer, Display};
+        if let Ok(d) = Display::primary() {
+            Capturer::new(d).ok();
+        }
+    }
+    can_record_screen
+}
+
+fn other_app_window_names_visible() -> bool {
     unsafe {
         let our_pid: i32 = std::process::id() as _;
         let our_pid: id = msg_send![class!(NSNumber), numberWithInteger: our_pid];
         let window_list =
             CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID);
+        if window_list.is_null() {
+            return false;
+        }
+        let mut visible = false;
         let n = CFArrayGetCount(window_list);
         let dock = NSString::alloc(nil).init_str("Dock");
         for i in 0..n {
@@ -203,17 +295,12 @@ fn unsafe_is_can_screen_recording(prompt: bool) -> bool {
                 // ignore the Dock, which provides the desktop picture
                 continue;
             }
-            can_record_screen = true;
+            visible = true;
             break;
         }
+        CFRelease(window_list.cast());
+        visible
     }
-    if !can_record_screen && prompt {
-        use scrap::{Capturer, Display};
-        if let Ok(d) = Display::primary() {
-            Capturer::new(d).ok();
-        }
-    }
-    can_record_screen
 }
 
 pub fn install_service() -> bool {

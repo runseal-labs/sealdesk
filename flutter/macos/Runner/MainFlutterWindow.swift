@@ -57,6 +57,7 @@ class MainFlutterWindow: NSWindow {
 
     override func awakeFromNib() {
         rustdesk_core_main();
+        PermissionGuideRegistration.register()
         _ = MainFlutterWindow.fullscreenObserver
         let flutterViewController = FlutterViewController.init()
         let windowFrame = self.frame
