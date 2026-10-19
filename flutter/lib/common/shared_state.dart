@@ -87,13 +87,18 @@ class ConnectionType {
   static String get strInsecure => 'insecure';
   static String get strDirect => '';
   static String get strIndirect => '_relay';
+  static String get strUnknown => 'unknown';
 
   void setSecure(bool v) {
     _secure.value = v ? strSecure : strInsecure;
   }
 
-  void setDirect(bool v) {
-    _direct.value = v ? strDirect : strIndirect;
+  void setDirect(bool? v) {
+    if (v == null) {
+      _direct.value = strUnknown;
+    } else {
+      _direct.value = v ? strDirect : strIndirect;
+    }
   }
 
   void setStreamType(String v) {

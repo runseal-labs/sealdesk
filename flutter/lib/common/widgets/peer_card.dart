@@ -633,6 +633,9 @@ abstract class BasePeerCard extends StatelessWidget {
     );
   }
 
+  // Issue #75: the tunnel does not read force-always-relay yet.
+  bool get _showForceAlwaysRelayMenu => false;
+
   @protected
   Future<bool> _isForceAlwaysRelay(String id) async {
     return option2bool(kOptionForceAlwaysRelay,
@@ -830,7 +833,8 @@ class RecentPeerCard extends BasePeerCard {
       menuItems.add(_tcpTunnelingAction(context));
     }
     // menuItems.add(await _openNewConnInOptAction(peer.id));
-    if (!isWeb) {
+    // Issue #75: hide until the tunnel honors force-always-relay. The option stays.
+    if (_showForceAlwaysRelayMenu && !isWeb) {
       menuItems.add(await _forceAlwaysRelayAction(peer.id));
     }
     if (isWindows && peer.platform == kPeerPlatformWindows) {
@@ -886,7 +890,8 @@ class FavoritePeerCard extends BasePeerCard {
       menuItems.add(_tcpTunnelingAction(context));
     }
     // menuItems.add(await _openNewConnInOptAction(peer.id));
-    if (!isWeb) {
+    // Issue #75: hide until the tunnel honors force-always-relay. The option stays.
+    if (_showForceAlwaysRelayMenu && !isWeb) {
       menuItems.add(await _forceAlwaysRelayAction(peer.id));
     }
     if (isWindows && peer.platform == kPeerPlatformWindows) {

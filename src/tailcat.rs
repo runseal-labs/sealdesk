@@ -360,22 +360,51 @@ fn path_is_direct(path: &str) -> Option<bool> {
     }
 }
 
+/// `None` until disco reports DERP (`false`) or a direct endpoint (`true`).
+pub(crate) fn initial_tailcat_direct() -> Option<bool> {
+    None
+}
+
+pub(crate) fn tailcat_stream_type(direct: Option<bool>) -> &'static str {
+    match direct {
+        Some(true) => "Tailcat/P2P",
+        Some(false) => "Tailcat/DERP",
+        None => "Tailcat",
+    }
+}
+
+pub(crate) fn direct_flag(direct: Option<bool>) -> &'static str {
+    match direct {
+        Some(true) => "true",
+        Some(false) => "false",
+        None => "unknown",
+    }
+}
+
+/// Direct flag to publish for this disco report, if it is new.
+pub(crate) fn publish_path_change(previous: Option<bool>, report: &str) -> Option<bool> {
+    let direct = path_is_direct(report)?;
+    if previous == Some(direct) {
+        None
+    } else {
+        Some(direct)
+    }
+}
+
 pub(crate) async fn watch_path(addr: &str, mut update: impl FnMut(bool)) {
     use hbb_common::tokio::{
         task::spawn_blocking,
         time::{sleep, Duration},
     };
 
-    let mut previous = None;
+    let mut previous = initial_tailcat_direct();
     loop {
         let address = addr.to_owned();
         match spawn_blocking(move || path(&address, 1_000)).await {
             Ok(Ok(path)) => {
-                if let Some(direct) = path_is_direct(&path) {
-                    if previous != Some(direct) {
-                        update(direct);
-                        previous = Some(direct);
-                    }
+                if let Some(direct) = publish_path_change(previous, &path) {
+                    update(direct);
+                    previous = Some(direct);
                 }
             }
             Ok(Err(error)) => log::trace!("tailcat path probe: {error}"),
@@ -527,5 +556,38 @@ mod tests {
         assert_eq!(path_is_direct("direct "), None);
         assert_eq!(path_is_direct(""), None);
         assert_eq!(path_is_direct("ERR:no active tunnel"), None);
+    }
+
+    #[test]
+    fn path_state_moves_from_unknown_through_derp_and_p2p() {
+        fn apply(state: &mut Option<bool>, report: &str) -> Option<bool> {
+            let published = super::publish_path_change(*state, report);
+            if let Some(direct) = published {
+                *state = Some(direct);
+            }
+            published
+        }
+
+        assert_eq!(super::initial_tailcat_direct(), None);
+        assert_eq!(super::tailcat_stream_type(None), "Tailcat");
+        assert_eq!(super::direct_flag(None), "unknown");
+
+        let mut state = super::initial_tailcat_direct();
+        assert_eq!(apply(&mut state, ""), None);
+        assert_eq!(state, None);
+
+        assert_eq!(apply(&mut state, "derp"), Some(false));
+        assert_eq!(super::tailcat_stream_type(state), "Tailcat/DERP");
+        assert_eq!(super::direct_flag(state), "false");
+        assert_eq!(apply(&mut state, "derp"), None);
+
+        assert_eq!(apply(&mut state, "direct 192.0.2.1:9"), Some(true));
+        assert_eq!(super::tailcat_stream_type(state), "Tailcat/P2P");
+        assert_eq!(super::direct_flag(state), "true");
+
+        assert_eq!(apply(&mut state, "derp"), Some(false));
+        assert_eq!(state, Some(false));
+        assert_eq!(super::tailcat_stream_type(state), "Tailcat/DERP");
+        assert_eq!(super::direct_flag(state), "false");
     }
 }

@@ -150,12 +150,13 @@ class _ViewCameraTabPageState extends State<ViewCameraTabPage> {
               ],
             );
           } else {
+            final streamType = connectionType.stream_type.value;
             bool secure =
                 connectionType.secure.value == ConnectionType.strSecure;
             bool direct =
                 connectionType.direct.value == ConnectionType.strDirect;
-            String msgConn = getConnectionText(
-                secure, direct, connectionType.stream_type.value);
+            String msgConn = getConnectionText(secure, direct, streamType);
+            final pathLabel = sealDeskConnectionLabel(streamType);
 
             final tab = Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -163,10 +164,24 @@ class _ViewCameraTabPageState extends State<ViewCameraTabPage> {
                 icon,
                 Tooltip(
                   message: msgConn,
-                  child: SvgPicture.asset(
-                    'assets/${connectionType.secure.value}${connectionType.direct.value}.svg',
-                    width: themeConf.iconSize,
-                    height: themeConf.iconSize,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SvgPicture.asset(
+                        sealDeskConnectionAsset(
+                          connectionType.secure.value,
+                          streamType,
+                          connectionType.direct.value,
+                        ),
+                        width: themeConf.iconSize,
+                        height: themeConf.iconSize,
+                      ),
+                      if (pathLabel != null)
+                        Text(
+                          translate(pathLabel),
+                          style: TextStyle(fontSize: themeConf.iconSize),
+                        ).paddingOnly(left: 4),
+                    ],
                   ).paddingOnly(right: 5),
                 ),
                 label,

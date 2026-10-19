@@ -32,6 +32,7 @@ import 'package:window_size/window_size.dart' as window_size;
 
 import '../consts.dart';
 import 'common/sealdesk_connection.dart';
+export 'common/sealdesk_connection.dart';
 import 'common/system_ui_style.dart';
 import 'common/widgets/overlay.dart';
 import 'mobile/pages/file_manager_page.dart';

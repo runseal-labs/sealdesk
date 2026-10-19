@@ -341,7 +341,8 @@ impl<T: InvokeUiSession> Remote<T> {
                             self.video_threads.iter().for_each(|(_, v)| {
                                 *v.frame_count.write().unwrap() = 0;
                             });
-                            self.fps_control(direct, fps.clone());
+                            // None is an unprobed tailcat path. Auto-fps keeps the direct cap it had when this flag was fixed true.
+                            self.fps_control(direct.unwrap_or(true), fps.clone());
                             let chroma = self.chroma.read().unwrap().clone();
                             let chroma = match chroma {
                                 Some(Chroma::I444) => "4:4:4",
