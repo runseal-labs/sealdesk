@@ -831,6 +831,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Reset address", "重置地址"),
         ("Show QR code", "显示二维码"),
         ("Hide QR code", "遮挡二维码"),
+        ("Tap to show", "点按显示"),
         ("QR codes are valid for 10 minutes. Refresh the password to invalidate old codes. Share carefully.", "二维码 10 分钟内有效。刷新密码可阻止旧码登录，请勿随意分享。"),
         ("Pairing code", "配对码"),
         ("Paste a pairing code starting with SEALDESK:", "粘贴 SEALDESK: 开头的配对码"),
