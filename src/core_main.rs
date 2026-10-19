@@ -118,6 +118,8 @@ pub fn core_main() -> Option<CoreMainAction> {
             "SealDesk runs as a desktop app; open Share this device or use --host"
         )));
     }
+    // Last page (`sealdesk-mode`) is not an input. Leftover `control` must not
+    // skip the server or be overwritten when the sidebar share card is shown.
     let remembered = if sealdesk_launch.is_none()
         && (args.is_empty()
             || args
@@ -126,12 +128,28 @@ pub fn core_main() -> Option<CoreMainAction> {
     {
         config::LocalConfig::get_option(keys::OPTION_SEALDESK_MODE)
     } else {
-        "control".to_owned()
+        String::new()
     };
-    let startup_mode = crate::tailcat::launch::startup_mode(sealdesk_launch.as_ref(), &remembered)
-        .as_str()
-        .to_owned();
-    no_server = crate::tailcat::launch::controller_only(&startup_mode, no_server);
+    let explicit_control = sealdesk_launch
+        .as_ref()
+        .is_some_and(|launch| launch.mode == crate::tailcat::launch::Mode::Control);
+    let stop_service = config::option2bool(
+        keys::OPTION_STOP_SERVICE,
+        &config::Config::get_option(keys::OPTION_STOP_SERVICE),
+    );
+    let service_plan = crate::tailcat::launch::plan_startup_service(
+        &remembered,
+        crate::tailcat::launch::HostServiceGate {
+            explicit_control,
+            no_server,
+            outgoing_only: config::is_outgoing_only(),
+            stop_service,
+        },
+    );
+    #[cfg(windows)]
+    {
+        no_server = !service_plan.start_server;
+    }
     #[cfg(target_os = "windows")]
     if args.is_empty() {
         let should_check_start_tray = crate::platform::is_self_service_running()
@@ -240,14 +258,11 @@ pub fn core_main() -> Option<CoreMainAction> {
         return None;
     }
     if args.is_empty() || crate::common::is_empty_uni_link(&args[0]) {
-        let requested = if no_server { "control" } else { "host" };
-        if let Err(error) = crate::tailcat::host::request_mode(requested) {
-            return Some(CoreMainAction::ExitFailure(error));
+        if let Some(mode) = service_plan.request_mode {
+            if let Err(error) = crate::tailcat::host::request_mode(mode) {
+                return Some(CoreMainAction::ExitFailure(error));
+            }
         }
-        config::LocalConfig::set_option(
-            keys::OPTION_SEALDESK_MODE.to_owned(),
-            requested.to_owned(),
-        );
         #[cfg(target_os = "linux")]
         hbb_common::allow_err!(crate::platform::check_autostart_config());
         #[cfg(target_os = "macos")]
@@ -260,7 +275,9 @@ pub fn core_main() -> Option<CoreMainAction> {
             crate::platform::try_remove_temp_update_files();
             hbb_common::config::PeerConfig::preload_peers();
         }
-        std::thread::spawn(move || crate::start_server(false, no_server));
+        crate::tailcat::launch::apply_startup_service(&service_plan, || {
+            std::thread::spawn(|| crate::start_server(false, false));
+        });
     } else {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         // Root CLI management commands must talk to the user `--server` main IPC.

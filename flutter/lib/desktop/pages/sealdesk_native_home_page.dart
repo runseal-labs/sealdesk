@@ -142,7 +142,6 @@ class SealDeskNativeHomePage extends StatelessWidget {
                 connectPeer: (address) async {
                   await connect(context, address, isSharedPassword: false);
                 }),
-        outgoingOnly: bind.isOutgoingOnly(),
         initialMode: hostOnly || sidePane
             ? 'host'
             : bind.mainGetLocalOption(key: 'sealdesk-mode'),

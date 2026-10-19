@@ -415,13 +415,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn remembered_control_starts_server_only_from_the_share_card() {
-        use super::super::launch::{controller_only, startup_mode, Mode};
-        assert_eq!(startup_mode(None, "control"), Mode::Control);
-        assert_eq!(startup_mode(None, "host"), Mode::Host);
-        assert_eq!(startup_mode(None, ""), Mode::Host);
-        assert!(controller_only("control", false));
-        assert!(!controller_only("host", false));
+    fn explicit_host_request_starts_the_server_only_if_the_daemon_is_absent() {
         assert!(matches!(
             host_request_action("control", false, true).unwrap(),
             HostRequest::ControlWithoutServer

@@ -104,7 +104,7 @@ void main() {
     Future<SealDeskPairing> Function()? pasteImage,
     bool sidePane = false,
     bool hostOnly = false,
-    bool outgoingOnly = false,
+    Future<void> Function()? onStart,
     Size surface = const Size(800, 900),
   }) async {
     await tester.binding.setSurfaceSize(surface);
@@ -117,7 +117,6 @@ void main() {
             final page = SealDeskHomePage(
               sidePane: sidePane,
               hostOnly: hostOnly || sidePane,
-              outgoingOnly: outgoingOnly,
               initialMode: mode,
               initialInput: initialInput,
               loadHost: loadHost ??
@@ -126,6 +125,7 @@ void main() {
               refreshPassword: refresh ?? () async {},
               connect: connect ?? (_) async {},
               saveMode: saveMode ?? (_) async {},
+              onStart: onStart,
               now: now ?? () => 100,
               pickImage: pickImage,
               loadImageFile: loadImageFile,
@@ -483,35 +483,15 @@ void main() {
     }
   });
 
-  test('saved page policy is unchanged from restoring the last page', () {
+  test('saved page is only which screen to restore', () {
     expect(sealDeskInitialPage('control'), 'control');
     expect(sealDeskInitialPage('host'), 'host');
     expect(sealDeskInitialPage(''), 'host');
     expect(sealDeskInitialPage('nope'), 'host');
-    expect(
-      sealDeskShareCardStartsHost(
-          hostOnly: false, sidePane: false, outgoingOnly: false),
-      isFalse,
-    );
-    expect(
-      sealDeskShareCardStartsHost(
-          hostOnly: true, sidePane: false, outgoingOnly: false),
-      isTrue,
-    );
-    expect(
-      sealDeskShareCardStartsHost(
-          hostOnly: false, sidePane: true, outgoingOnly: false),
-      isTrue,
-    );
-    expect(
-      sealDeskShareCardStartsHost(
-          hostOnly: true, sidePane: true, outgoingOnly: true),
-      isFalse,
-    );
   });
 
   testWidgets(
-      'control mode share card calls saveMode host so the service can start',
+      'opening the share page does not rewrite mode or report switch failure',
       (tester) async {
     for (final forced in [
       (sidePane: true, hostOnly: false),
@@ -523,27 +503,44 @@ void main() {
         mode: 'control',
         sidePane: forced.sidePane,
         hostOnly: forced.hostOnly,
-        saveMode: (mode) async => saved.add(mode),
+        saveMode: (mode) async {
+          saved.add(mode);
+          throw const FormatException('切换失败，请重试');
+        },
       );
-      expect(saved, ['host']);
-      expect(find.byType(QrImageView), findsOneWidget);
+      expect(saved, isEmpty);
+      expect(find.text('切换失败，请重试'), findsNothing);
+      await tester.pump(const Duration(seconds: 1));
+      expect(saved, isEmpty);
+      expect(find.text('切换失败，请重试'), findsNothing);
       await tester.pumpWidget(const SizedBox());
     }
   });
 
-  testWidgets('outgoing-only share card does not start the host service',
+  testWidgets('stopped share card stays stopped until start is pressed',
       (tester) async {
+    var starts = 0;
     final saved = <String>[];
     await showPage(
       tester,
       mode: 'control',
-      sidePane: true,
-      outgoingOnly: true,
+      hostOnly: true,
       saveMode: (mode) async => saved.add(mode),
+      onStart: () async {
+        starts += 1;
+      },
+      loadHost: () async => const SealDeskHostState(
+        address: '',
+        password: null,
+        name: '电脑',
+        stopped: true,
+      ),
     );
+    expect(find.text('共享已停止'), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('sealdesk-start-service')), findsOneWidget);
     expect(saved, isEmpty);
-    await tester.pump(const Duration(seconds: 1));
-    expect(saved, isEmpty);
+    expect(starts, 0);
     await tester.pumpWidget(const SizedBox());
   });
 
