@@ -494,11 +494,10 @@ void main() {
     }
   });
 
-  test('saved page is only which screen to restore', () {
-    expect(sealDeskInitialPage('control'), 'control');
-    expect(sealDeskInitialPage('host'), 'host');
-    expect(sealDeskInitialPage(''), 'host');
-    expect(sealDeskInitialPage('nope'), 'host');
+  test('default page is fixed and a stored mode is not restored', () {
+    expect(sealDeskInitialPage(), 'host');
+    expect(sealDeskPersistsUiMode(desktop: true), isFalse);
+    expect(sealDeskPersistsUiMode(desktop: false), isTrue);
   });
 
   testWidgets(
@@ -555,7 +554,8 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('startup restores the connect page and saves the next choice',
+  testWidgets(
+      'explicit control session opens connect and saves the next choice',
       (tester) async {
     final saved = <String>[];
     await showPage(tester,

@@ -14,10 +14,38 @@ import '../../models/relay_status.dart';
 
 const _defaultDerpMapUrl = 'https://tailcat.dev/derpmap.json';
 
-/// Last page only. Whether the controlled service runs is decided at
-/// process start, not by rewriting this value when the share card opens.
-String sealDeskInitialPage(String saved) =>
-    saved == 'control' ? 'control' : 'host';
+/// Fixed desktop startup page. #30 restored `sealdesk-mode` (`control`
+/// opened Connect). Desktop no longer reads that key, so cold start does
+/// not restore the last page. Callers may still pass an explicit session
+/// `initialMode` of `host` or `control`; that value is not loaded from disk.
+String sealDeskInitialPage() => 'host';
+
+/// Mobile keeps storing its page in `sealdesk-mode`. Desktop must not.
+bool sealDeskPersistsUiMode({required bool desktop}) => !desktop;
+
+Future<void> applySealDeskUiMode(String mode) async {
+  if (!sealDeskPersistsUiMode(desktop: isDesktop)) {
+    await bind.mainSetOption(key: 'sealdesk-host-mode', value: mode);
+    if (await bind.mainGetOption(key: 'sealdesk-host-mode') != mode) {
+      throw FormatException(translate('Switch failed, please try again'));
+    }
+    return;
+  }
+  await bind.mainSetLocalOption(key: 'sealdesk-mode', value: mode);
+  final applied = await bind.mainGetOption(key: 'sealdesk-host-mode');
+  if (applied != mode ||
+      bind.mainGetLocalOption(key: 'sealdesk-mode') != mode) {
+    throw FormatException(translate('Switch failed, please try again'));
+  }
+}
+
+Future<bool> sealDeskRelayHosting() async {
+  if (sealDeskPersistsUiMode(desktop: isDesktop)) {
+    return bind.mainGetLocalOption(key: 'sealdesk-mode') == 'host';
+  }
+  return await bind.mainGetOption(key: 'sealdesk-host-mode') == 'host' &&
+      !await mainGetBoolOption('stop-service');
+}
 
 class SealDeskHostState {
   final String address;
@@ -123,7 +151,9 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
     super.initState();
     _mode = widget.hostOnly || widget.sidePane
         ? 'host'
-        : sealDeskInitialPage(widget.initialMode);
+        : (widget.initialMode == 'host' || widget.initialMode == 'control'
+            ? widget.initialMode
+            : sealDeskInitialPage());
     _poll();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) => _poll());
     if (_mode == 'control' && widget.initialInput != null) {
@@ -505,9 +535,6 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
                 ),
                 const SizedBox(height: 24),
               ],
-              if (_mode.isEmpty)
-                Text(translate(
-                    'Choose how to use SealDesk. Your choice will be remembered.')),
               if (_mode == 'host') ...[
                 ..._buildHost(),
                 if (_phase == SealDeskSharePhase.running &&
@@ -1198,17 +1225,8 @@ class _SealDeskRelaySettingsDialogState
 }
 
 Future<void> saveSealDeskDerpMapUrl(String value) async {
-  Future<void> applyMode(String mode) async {
-    await bind.mainSetLocalOption(key: 'sealdesk-mode', value: mode);
-    final applied = await bind.mainGetOption(key: 'sealdesk-host-mode');
-    if (applied != mode ||
-        bind.mainGetLocalOption(key: 'sealdesk-mode') != mode) {
-      throw FormatException(translate('Switch failed, please try again'));
-    }
-  }
-
-  final hosting = bind.mainGetLocalOption(key: 'sealdesk-mode') == 'host';
-  if (hosting) await applyMode('control');
+  final hosting = await sealDeskRelayHosting();
+  if (hosting) await applySealDeskUiMode('control');
   try {
     await bind.mainSetOption(key: 'tailcat-derp-map-url', value: value);
     if (await bind.mainGetOption(key: 'tailcat-derp-map-url') != value) {
@@ -1216,7 +1234,7 @@ Future<void> saveSealDeskDerpMapUrl(String value) async {
           translate('Unable to save relay settings, please try again'));
     }
   } finally {
-    if (hosting) await applyMode('host');
+    if (hosting) await applySealDeskUiMode('host');
   }
 }
 
@@ -1224,7 +1242,7 @@ Future<void> showSealDeskRelaySettings(BuildContext context) async {
   if (bind.isDisableSettings()) return;
   final current = await bind.mainGetOption(key: 'tailcat-derp-map-url');
   if (!context.mounted) return;
-  final hosting = bind.mainGetLocalOption(key: 'sealdesk-mode') == 'host';
+  final hosting = await sealDeskRelayHosting();
   final value = await showDialog<String>(
     context: context,
     builder: (context) => SealDeskRelaySettingsDialog(
