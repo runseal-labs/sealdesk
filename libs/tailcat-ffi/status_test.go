@@ -498,9 +498,9 @@ func TestProbeLoopParksUntilDemandChanges(t *testing.T) {
 	savedPing := probePing
 	setProbeUi(false, false, false)
 	setProbeIncoming(false)
-	var calls int
+	var calls atomic.Int32
 	probePing = func(ctx context.Context, cl *tailcat.Client) (time.Duration, error) {
-		calls++
+		calls.Add(1)
 		return 5 * time.Millisecond, nil
 	}
 	t.Cleanup(func() {
@@ -527,26 +527,26 @@ func TestProbeLoopParksUntilDemandChanges(t *testing.T) {
 	startSelfProbeLocked("tc-probe-park", key.NewNode(), "https://tailcat.example/derpmap.json")
 	mu.Unlock()
 	time.Sleep(40 * time.Millisecond)
-	if calls != 0 {
-		t.Fatalf("probed while idle: %d", calls)
+	if calls.Load() != 0 {
+		t.Fatalf("probed while idle: %d", calls.Load())
 	}
 	setProbeUi(true, true, false)
 	time.Sleep(40 * time.Millisecond)
-	if calls != 0 {
-		t.Fatalf("probed in background with no session: %d", calls)
+	if calls.Load() != 0 {
+		t.Fatalf("probed in background with no session: %d", calls.Load())
 	}
 	setProbeIncoming(true)
 	deadline := time.Now().Add(2 * time.Second)
-	for calls == 0 && time.Now().Before(deadline) {
+	for calls.Load() == 0 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
-	if calls != 1 {
-		t.Fatalf("incoming session probes = %d", calls)
+	if calls.Load() != 1 {
+		t.Fatalf("incoming session probes = %d", calls.Load())
 	}
 	setProbeIncoming(false)
 	time.Sleep(40 * time.Millisecond)
-	if calls != 1 {
-		t.Fatalf("kept probing after the session ended: %d", calls)
+	if calls.Load() != 1 {
+		t.Fatalf("kept probing after the session ended: %d", calls.Load())
 	}
 }
 
@@ -605,7 +605,6 @@ func TestProbeVisibilityReturnIgnoresBackoff(t *testing.T) {
 	probeUIMu.Unlock()
 
 	t.Cleanup(func() {
-		probeDelayNow = savedDelay
 		mu.Lock()
 		cancel := probeCancel
 		done := probeDone
@@ -621,6 +620,9 @@ func TestProbeVisibilityReturnIgnoresBackoff(t *testing.T) {
 				t.Errorf("probe goroutine still running")
 			}
 		}
+		// probeLoop reads probeDelayNow until it returns. Restoring the hook
+		// before done is closed races with that read under -race.
+		probeDelayNow = savedDelay
 		probePing = savedPing
 		setProbeUi(false, false, false)
 		setProbeIncoming(false)
