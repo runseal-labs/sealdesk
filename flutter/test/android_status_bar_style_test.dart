@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -42,6 +44,53 @@ void main() {
     expect(dark.statusBarBrightness, Brightness.dark);
     expect(dark.systemStatusBarContrastEnforced, isFalse);
     expect(dark.systemNavigationBarContrastEnforced, isFalse);
+  });
+
+  test('MainActivity uses NormalTheme without changing LaunchTheme', () {
+    final manifest =
+        File('android/app/src/main/AndroidManifest.xml').readAsStringSync();
+    final activityStart = manifest.indexOf('android:name=".MainActivity"');
+    final activityEnd = manifest.indexOf('</activity>', activityStart);
+    final activity = manifest.substring(activityStart, activityEnd);
+    expect(activity, contains('android:theme="@style/LaunchTheme"'));
+    expect(
+      activity,
+      contains('android:name="io.flutter.embedding.android.NormalTheme"'),
+    );
+    expect(activity, contains('android:resource="@style/NormalTheme"'));
+
+    const themes = [
+      'android/app/src/main/res/values/styles.xml',
+      'android/app/src/main/res/values-night/styles.xml',
+      'android/app/src/main/res/values-v29/styles.xml',
+      'android/app/src/main/res/values-night-v29/styles.xml',
+    ];
+    for (final path in themes) {
+      final xml = File(path).readAsStringSync();
+      final launch = _styleBlock(xml, 'LaunchTheme');
+      final normal = _styleBlock(xml, 'NormalTheme');
+      expect(launch, contains('@drawable/launch_background'), reason: path);
+      expect(normal, contains('?android:colorBackground'), reason: path);
+      expect(launch.contains('windowLayoutInDisplayCutoutMode'), isFalse,
+          reason: path);
+    }
+
+    for (final path in themes.where((path) => path.contains('v29'))) {
+      final normal = _styleBlock(File(path).readAsStringSync(), 'NormalTheme');
+      expect(
+        normal,
+        contains('android:windowLayoutInDisplayCutoutMode">shortEdges'),
+        reason: path,
+      );
+      expect(normal, contains('@android:color/transparent'), reason: path);
+    }
+
+    final legacy = _styleBlock(
+      File('android/app/src/main/res/values/styles.xml').readAsStringSync(),
+      'NormalTheme',
+    );
+    expect(legacy.contains('statusBarColor'), isFalse);
+    expect(legacy.contains('windowLayoutInDisplayCutoutMode'), isFalse);
   });
 
   testWidgets('light surface keeps dark status-bar icons and clears the inset',
@@ -155,4 +204,11 @@ void _expectStyle({
 void _expectContentBelowStatusBar(WidgetTester tester) {
   final top = tester.getTopLeft(find.byKey(const Key('content'))).dy;
   expect(top, greaterThanOrEqualTo(40));
+}
+
+String _styleBlock(String xml, String name) {
+  final start = xml.indexOf('<style name="$name"');
+  expect(start, greaterThanOrEqualTo(0), reason: name);
+  final end = xml.indexOf('</style>', start);
+  return xml.substring(start, end);
 }
