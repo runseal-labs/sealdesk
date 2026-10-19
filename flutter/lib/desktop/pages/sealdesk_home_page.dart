@@ -834,9 +834,9 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
     final expires = _pairing?.expiresAt;
     if (expires == null) return null;
     final left = (expires - _now()).clamp(0, 24 * 60 * 60);
-    final minutes = left ~/ 60;
-    final seconds = (left % 60).toString().padLeft(2, '0');
-    return '$minutes:$seconds';
+    // Round up so the chip stays accurate until that minute has elapsed.
+    final minutes = (left + 59) ~/ 60;
+    return translate('QR refreshes in {$minutes} min');
   }
 
   List<Widget> _buildRunning() {

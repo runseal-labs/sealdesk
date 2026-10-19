@@ -23,7 +23,16 @@ class _I18nBinding extends Fake implements SealdeskImpl {
   @override
   String translate(
       {required String name, required String locale, dynamic hint}) {
-    if (language == 'en') return name;
+    final match = RegExp(r'\{(.*?)\}').firstMatch(name);
+    var key = name;
+    String? value;
+    if (match != null) {
+      value = match.group(1);
+      key = name.replaceFirst(match.group(0)!, '{}');
+    }
+    if (language == 'en') {
+      return value == null ? key : key.replaceFirst('{}', value);
+    }
     const values = {
       'Load QR image': '载入二维码图片',
       'Drop one QR image at a time': '请一次拖入一张二维码图片',
@@ -62,8 +71,10 @@ class _I18nBinding extends Fake implements SealdeskImpl {
       'Cannot reach the relay server. Check the network or relay settings':
           '连不上中继服务器，请检查网络或中继设置',
       'Error details': '错误详情',
+      'QR refreshes in {} min': '二维码 {} 分钟后刷新',
     };
-    return values[name] ?? name;
+    final text = values[key] ?? key;
+    return value == null ? text : text.replaceFirst('{}', value);
   }
 }
 
@@ -818,6 +829,30 @@ void main() {
     final renewed = await copyPairing(tester, now: now);
     expect(renewed.expiresAt, 1300);
     expect(renewed.password, 'secret');
+  });
+
+  testWidgets('countdown chip counts QR refresh minutes, not a session limit',
+      (tester) async {
+    var now = 100;
+    await showPage(tester, now: () => now);
+    Text chipText() => tester.widget<Text>(find.descendant(
+        of: find.byKey(const ValueKey('sealdesk-qr-ttl')),
+        matching: find.byType(Text)));
+    expect(chipText().data, '二维码 10 分钟后刷新');
+    expect(find.textContaining('10 分钟内有效'), findsNothing);
+    final expiresAt = (await copyPairing(tester)).expiresAt;
+    now = 160;
+    await tester.pump(const Duration(seconds: 1));
+    expect(chipText().data, '二维码 9 分钟后刷新');
+    now = 641;
+    await tester.pump(const Duration(seconds: 1));
+    expect(chipText().data, '二维码 1 分钟后刷新');
+    expect((await copyPairing(tester)).expiresAt, expiresAt);
+    binding.language = 'en';
+    now = 100;
+    await tester.pump(const Duration(seconds: 1));
+    expect(chipText().data, 'QR refreshes in 10 min');
+    await tester.pumpWidget(const SizedBox());
   });
 
   testWidgets('mask hides QR and restores it on demand', (tester) async {

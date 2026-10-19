@@ -12,8 +12,11 @@ const address = 'tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-';
 class _I18n extends Fake implements SealdeskImpl {
   @override
   String translate(
-          {required String name, required String locale, dynamic hint}) =>
-      name;
+      {required String name, required String locale, dynamic hint}) {
+    final match = RegExp(r'\{(.*?)\}').firstMatch(name);
+    if (match == null) return name;
+    return name.replaceFirst(match.group(0)!, match.group(1)!);
+  }
 }
 
 void main() {
@@ -144,6 +147,8 @@ void main() {
     expect(
         find.textContaining('QR codes are valid for 10 minutes'), findsNothing);
     expect(find.byKey(const ValueKey('sealdesk-qr-ttl')), findsOneWidget);
+    expect(find.text('QR refreshes in 10 min'), findsOneWidget);
+    expect(find.text('10:00'), findsNothing);
     expect(find.byKey(const ValueKey('sealdesk-trusted')), findsNothing);
     final qr = tester.getRect(find.byKey(const ValueKey('sealdesk-qr')));
     expect(qr.top, greaterThanOrEqualTo(0));

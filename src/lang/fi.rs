@@ -912,5 +912,6 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("LAN", "LAN"),
         ("Tap to show", "Näytä napauttamalla"),
         ("Invalid connection address", "Virheellinen yhteysosoite"),
+        ("QR refreshes in {} min", "QR päivittyy {} min kuluttua"),
     ].iter().cloned().collect();
 }
