@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sealdesk/common.dart';
 import 'package:sealdesk/common/sealdesk_share_settings.dart';
+import 'package:sealdesk/common/sealdesk_startup.dart';
 import 'package:sealdesk/common/widgets/animated_rotation_widget.dart';
 import 'package:sealdesk/mobile/widgets/dialog.dart';
 import 'package:sealdesk/common/widgets/custom_password.dart';
@@ -40,6 +41,7 @@ const borderColor = Color(0xFF2F65BA);
 class _DesktopHomePageState extends State<DesktopHomePage>
     with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
   final _leftPaneScrollController = ScrollController();
+  final _sealdeskInitialInput = SealDeskStartup.takeTarget();
 
   @override
   bool get wantKeepAlive => true;

@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../common.dart';
 import '../sealdesk_connect.dart';
 import '../sealdesk_connect_target.dart';
+import '../sealdesk_connection_record.dart';
 import '../sealdesk_pairing.dart';
 import '../sealdesk_qr_file.dart';
 import '../sealdesk_qr_image.dart';
@@ -121,7 +122,7 @@ class _SealDeskConnectFieldState extends State<SealDeskConnectField> {
             ),
             _icon(
               key: const ValueKey('sealdesk-connect-file'),
-              tooltip: kSealDeskGalleryTooltip,
+              tooltip: kSealDeskImageTooltip,
               icon: const Icon(Icons.image_search),
               onPressed: _busy ? null : _file,
             ),
@@ -386,9 +387,9 @@ class SealDeskLanMark extends StatelessWidget {
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Text(
-        translate(kSealDeskLanTab),
-        style: const TextStyle(fontSize: 11),
+      child: const Text(
+        sealDeskLanBadge,
+        style: TextStyle(fontSize: 11),
       ),
     );
   }

@@ -11,6 +11,7 @@ import '../../common.dart';
 import '../../common/formatter/id_formatter.dart';
 import '../sealdesk_connect.dart';
 import '../sealdesk_connect_target.dart';
+import '../sealdesk_connection_record.dart';
 import 'sealdesk_connect_field.dart';
 import '../../models/peer_model.dart';
 import '../../models/platform_model.dart';
@@ -27,13 +28,7 @@ final peerCardUiType = PeerUiType.grid.obs;
 bool? hideUsernameOnCard;
 
 String peerShownId(Peer peer) {
-  if (isSealDeskApp()) {
-    return sealDeskRecordLabel(
-      id: peer.id,
-      alias: peer.alias,
-      hostname: peer.hostname,
-    ).line;
-  }
+  if (isSealDeskApp()) return sealDeskPeerLine(peer);
   if (peer.alias.isNotEmpty) return peer.alias;
   if (isAndroid && isLegacyNumericId(peer.id)) {
     if (peer.hostname.isNotEmpty) return peer.hostname;
@@ -42,22 +37,24 @@ String peerShownId(Peer peer) {
   return formatID(peer.id);
 }
 
+String sealDeskPeerLine(Peer peer) {
+  final shown = sealDeskDisplayAddress(peer.id);
+  final name = peer.alias.isNotEmpty ? peer.alias : peer.hostname;
+  if (name.isEmpty || name == shown) return shown;
+  return '$name  $shown';
+}
+
 Widget sealDeskPeerTitle(Peer peer, TextStyle? style) {
-  final label = sealDeskRecordLabel(
-    id: peer.id,
-    alias: peer.alias,
-    hostname: peer.hostname,
-  );
   return Row(
     children: [
       Flexible(
         child: Text(
-          label.line,
+          sealDeskPeerLine(peer),
           overflow: TextOverflow.ellipsis,
           style: style,
         ),
       ),
-      if (label.lanMark) const SealDeskLanMark(),
+      if (sealDeskRecordBadge(peer.id) != null) const SealDeskLanMark(),
     ],
   );
 }

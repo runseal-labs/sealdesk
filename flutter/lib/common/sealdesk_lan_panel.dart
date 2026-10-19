@@ -130,7 +130,7 @@ class _SealDeskLanPanelState extends State<SealDeskLanPanel> {
                   ? (item['key'] as String).substring(0, 12)
                   : item['protocol'] == 'rustdesk'
                       ? translate('Compatible with RustDesk · Unencrypted')
-                      : translate('Direct and encrypted connection')),
+                      : translate('Encrypted direct connection')),
               trailing: TextButton(
                   onPressed: () async {
                     if (widget.host) {

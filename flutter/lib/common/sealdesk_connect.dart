@@ -8,6 +8,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge.dart';
 import '../common.dart';
 import '../models/platform_model.dart';
 import 'sealdesk_connect_target.dart';
+import 'sealdesk_connection_record.dart';
 import 'sealdesk_pairing.dart';
 import 'sealdesk_qr_file.dart';
 import 'sealdesk_qr_image.dart';
@@ -107,8 +108,21 @@ Future<void> prepareSealDeskRecord(SealDeskConnectTarget target) async {
   await bind.mainSetPeerOption(
       id: target.id, key: kSealDeskPasswordKind, value: target.passwordKind);
   await bind.mainSetPeerOption(id: target.id, key: kSealDeskHideRecent, value: '');
-  if (!sealDeskOfferRememberPassword(target.passwordKind)) {
+  final permanent = target.passwordKind == kSealDeskPasswordPermanent;
+  if (!permanent) {
     await bind.mainForgetPassword(id: target.id);
+  }
+  try {
+    sealDeskConnectionRecords.upsert(SealDeskConnectEvent(
+      address: target.id,
+      alias: target.alias ?? '',
+      password: target.password ?? '',
+      usedPermanentPassword: permanent,
+      rememberPassword: false,
+      connectedAtMillis: DateTime.now().millisecondsSinceEpoch,
+    ));
+  } on FormatException {
+    return;
   }
 }
 
@@ -216,7 +230,10 @@ bool sealDeskHistoryVisible(String id) {
   }
 }
 
+final sealDeskConnectionRecords = SealDeskConnectionRecordStore();
+
 Future<void> clearSealDeskHistory(Iterable<String> ids) async {
+  sealDeskConnectionRecords.clearHistory();
   for (final id in ids) {
     await bind.mainSetPeerOption(
         id: id, key: kSealDeskHideRecent, value: 'Y');

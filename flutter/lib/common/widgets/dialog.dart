@@ -16,6 +16,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../common.dart';
 import '../sealdesk_connect_target.dart';
+import '../sealdesk_connection_record.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
 
@@ -922,8 +923,10 @@ void wrongPasswordDialog(SessionID sessionId,
 bool _sealDeskOfferRemember() {
   if (!isSealDeskApp()) return true;
   try {
-    return sealDeskOfferRememberPassword(bind.mainGetPeerOptionSync(
-        id: gFFI.id, key: kSealDeskPasswordKind));
+    return sealDeskOfferRememberPassword(
+        usedPermanentPassword: bind.mainGetPeerOptionSync(
+                id: gFFI.id, key: kSealDeskPasswordKind) ==
+            kSealDeskPasswordPermanent);
   } catch (_) {
     return false;
   }

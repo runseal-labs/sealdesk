@@ -467,7 +467,8 @@ class _PeerTabPageState extends State<PeerTabPage>
           context: context,
           builder: (context) => AlertDialog(
             key: const ValueKey('sealdesk-clear-history'),
-            title: Text(translate(kSealDeskClearHistory)),
+            title: Text(translate(kSealDeskClearHistoryTitle)),
+            content: Text(translate(kSealDeskClearHistoryBody)),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),

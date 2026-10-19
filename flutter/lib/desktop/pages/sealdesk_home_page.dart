@@ -7,6 +7,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../common.dart';
 import '../../common/sealdesk_pairing.dart';
+import '../../common/sealdesk_qr_mask.dart';
 import '../../models/platform_model.dart';
 import '../../models/relay_status.dart';
 
@@ -107,8 +108,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
   String? _hostDetail;
   SealDeskSharePhase _phase = SealDeskSharePhase.starting;
   bool _hidden = false;
-  bool _maskReady = false;
-  int _connectedCount = 0;
+  final _qrMask = SealDeskQrMask();
   bool _loading = false;
   bool _busy = false;
 
@@ -337,17 +337,22 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
         if (mounted && pairing != null) await _joinPairing(pairing);
       });
 
-  /// Mask when a controller attaches (including a card that opens already
-  /// connected). Revealing stays put until the count falls to zero and a
-  /// later session attaches again.
+  void _syncMask() => _hidden = _qrMask.obscured;
+
+  /// Start the mask at zero and feed every count, so the first positive
+  /// reading (including a card that opens already connected) obscures it.
   void _noteConnected(int count) {
-    if (!_maskReady) {
-      _maskReady = true;
-      if (count > 0) _hidden = true;
-    } else if (_connectedCount == 0 && count > 0) {
-      _hidden = true;
+    _qrMask.onConnectedCount(count);
+    _syncMask();
+  }
+
+  void _toggleQrMask() {
+    if (_qrMask.obscured) {
+      _qrMask.show();
+    } else {
+      _qrMask.hide();
     }
-    _connectedCount = count;
+    _syncMask();
   }
 
   Widget _buildQr(double size, Key key) {
@@ -378,7 +383,10 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
     final child = _hidden
         ? GestureDetector(
             key: const ValueKey('sealdesk-qr-mask'),
-            onTap: () => setState(() => _hidden = false),
+            onTap: () => setState(() {
+              _qrMask.onQrTap();
+              _syncMask();
+            }),
             child: ColoredBox(
               color: const Color(0xFFE6E6E6),
               child: Center(
@@ -965,7 +973,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
           TextButton.icon(
             icon: Icon(_hidden ? Icons.visibility : Icons.visibility_off),
             label: Text(translate(_hidden ? 'Show QR code' : 'Hide QR code')),
-            onPressed: () => setState(() => _hidden = !_hidden),
+            onPressed: () => setState(_toggleQrMask),
           ),
         ],
       );
@@ -1000,7 +1008,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
         IconButton(
           key: const ValueKey('sealdesk-hide'),
           tooltip: translate(_hidden ? 'Show QR code' : 'Hide QR code'),
-          onPressed: () => setState(() => _hidden = !_hidden),
+          onPressed: () => setState(_toggleQrMask),
           icon:
               Icon(_hidden ? Icons.visibility : Icons.visibility_off, size: 20),
         ),
