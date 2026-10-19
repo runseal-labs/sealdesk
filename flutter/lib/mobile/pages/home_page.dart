@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:sealdesk/mobile/pages/server_page.dart';
 import 'package:sealdesk/mobile/pages/settings_page.dart';
 import 'package:sealdesk/web/settings_page.dart';
-import 'package:get/get.dart';
 import '../../common.dart';
 import '../../common/widgets/chat_page.dart';
 import '../../models/platform_model.dart';
@@ -73,12 +72,6 @@ class HomePageState extends State<HomePage> {
           return false;
         },
         child: Scaffold(
-          // backgroundColor: MyTheme.grayBg,
-          appBar: AppBar(
-            centerTitle: true,
-            title: appTitle(),
-            actions: _pages.elementAt(_selectedIndex).appBarActions,
-          ),
           bottomNavigationBar: BottomNavigationBar(
             key: navigationBarKey,
             items: _pages
@@ -102,57 +95,11 @@ class HomePageState extends State<HomePage> {
               }
             }),
           ),
-          body: _pages.elementAt(_selectedIndex),
+          body: SafeArea(
+            bottom: false,
+            child: _pages.elementAt(_selectedIndex),
+          ),
         ));
-  }
-
-  Widget appTitle() {
-    final currentUser = gFFI.chatModel.currentUser;
-    final currentKey = gFFI.chatModel.currentKey;
-    if (isChatPageCurrentTab &&
-        currentUser != null &&
-        currentKey.peerId.isNotEmpty) {
-      final connected =
-          gFFI.serverModel.clients.any((e) => e.id == currentKey.connId);
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Tooltip(
-            message: currentKey.isOut
-                ? translate('Outgoing connection')
-                : translate('Incoming connection'),
-            child: Icon(
-              currentKey.isOut
-                  ? Icons.call_made_rounded
-                  : Icons.call_received_rounded,
-            ),
-          ),
-          Expanded(
-            child: Center(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    isLegacyNumericId(currentUser.id)
-                        ? currentUser.firstName ?? ''
-                        : "${currentUser.firstName}   ${currentUser.id}",
-                  ),
-                  if (connected)
-                    Container(
-                      width: 10,
-                      height: 10,
-                      decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Color.fromARGB(255, 133, 246, 199)),
-                    ).marginSymmetric(horizontal: 2),
-                ],
-              ),
-            ),
-          ),
-        ],
-      );
-    }
-    return Text(bind.mainGetAppNameSync());
   }
 }
 

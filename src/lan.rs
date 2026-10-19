@@ -27,6 +27,56 @@ pub(crate) const TCP_PORT: u16 = 21118;
 const DISCOVERY_PORT: u16 = 21119;
 const DOMAIN: &[u8] = b"sealdesk-lan-v1";
 const FRAME_LIMIT: usize = 4096;
+/// How long a LAN accept waits for the SealDesk preface before treating the peer as RustDesk.
+pub const PREFACE_WAIT: Duration = Duration::from_millis(1500);
+pub(crate) const OPTION_RUSTDESK_COMPAT: &str = "sealdesk-rustdesk-compat";
+static PREFACE_WAIT_OVERRIDE: Mutex<Option<Duration>> = Mutex::new(None);
+
+fn preface_wait() -> Duration {
+    PREFACE_WAIT_OVERRIDE
+        .lock()
+        .unwrap()
+        .unwrap_or(PREFACE_WAIT)
+}
+
+#[cfg(test)]
+fn set_preface_wait_for_test(wait: Option<Duration>) {
+    *PREFACE_WAIT_OVERRIDE.lock().unwrap() = wait;
+}
+
+pub(crate) fn rustdesk_compat_enabled() -> bool {
+    // Missing option is on: `option2bool` is true unless the value is "N".
+    hbb_common::config::option2bool(
+        OPTION_RUSTDESK_COMPAT,
+        &Config::get_option(OPTION_RUSTDESK_COMPAT),
+    )
+}
+
+fn compat_notify() -> &'static tokio::sync::Notify {
+    static NOTIFY: std::sync::OnceLock<tokio::sync::Notify> = std::sync::OnceLock::new();
+    NOTIFY.get_or_init(tokio::sync::Notify::new)
+}
+
+pub(crate) fn compat_disabled_notify() -> &'static tokio::sync::Notify {
+    compat_notify()
+}
+
+pub(crate) fn note_rustdesk_compat(was_enabled: bool) {
+    if was_enabled && !rustdesk_compat_enabled() {
+        compat_notify().notify_waiters();
+    }
+}
+
+fn sealdesk_discovery(query: &PeerDiscovery) -> bool {
+    query.misc == String::from_utf8_lossy(DOMAIN)
+        || hex::decode(&query.id)
+            .map(|bytes| bytes.len() == 32)
+            .unwrap_or(false)
+}
+
+fn answer_discovery_ping(query: &PeerDiscovery) -> bool {
+    query.cmd == "ping" && (sealdesk_discovery(query) || rustdesk_compat_enabled())
+}
 static READY: AtomicBool = AtomicBool::new(false);
 static TRUST_LOCK: Mutex<()> = Mutex::new(());
 static REVOKED: Mutex<BTreeMap<String, u64>> = Mutex::new(BTreeMap::new());
@@ -161,8 +211,18 @@ pub async fn accept_shared(stream: &mut Stream) -> ResultType<Option<String>> {
     stream.set_max_packet_length(FRAME_LIMIT);
     // Original RustDesk waits for Hash; SealDesk declares encryption before any login.
     // A delayed/malformed SealDesk preface can fail the connection, never downgrade its client.
-    match tokio::time::timeout(Duration::from_millis(500), stream.next()).await {
-        Err(_) => return Ok(None),
+    match tokio::time::timeout(preface_wait(), stream.next()).await {
+        Err(_) => {
+            if rustdesk_compat_enabled() {
+                return Ok(None);
+            }
+            hbb_common::throttled_log!(
+                Duration::from_secs(30),
+                info,
+                "rejected RustDesk compatible LAN connection"
+            );
+            bail!("RustDesk compatible connections are disabled");
+        }
         Ok(Some(Ok(bytes))) if bytes.as_ref() == DOMAIN => {}
         _ => bail!("Invalid LAN protocol preface"),
     }
@@ -276,7 +336,10 @@ pub fn forget(key: &str) -> ResultType<()> {
     Ok(())
 }
 pub fn compat_addresses_json() -> String {
-    let addresses: Vec<String> = if ready() && crate::tailcat::host::enabled() {
+    let addresses: Vec<String> = if ready()
+        && crate::tailcat::host::enabled()
+        && rustdesk_compat_enabled()
+    {
         let mut addresses: Vec<String> = default_net::get_interfaces()
             .into_iter()
             .flat_map(|iface| iface.ipv4)
@@ -341,10 +404,11 @@ async fn serve_round(server: crate::server::ServerPtr) -> ResultType<()> {
                 if replies>=20 { continue; }
                 let Ok(msg)=RendezvousMessage::parse_from_bytes(&buf[..n]) else { continue; };
                 let Some(rendezvous_message::Union::PeerDiscovery(query))=msg.union else { continue; };
-                if query.cmd!="ping" { continue; }
+                if !answer_discovery_ping(&query) { continue; }
                 let (key,_)=identity()?; let key=hex::encode(key.0); if query.id==key { continue; }
                 let mut reply=RendezvousMessage::new();
-                let (id,misc)=if query.misc==String::from_utf8_lossy(DOMAIN) || hex::decode(&query.id).map(|b|b.len()==32).unwrap_or(false) {
+                let sealdesk_ping = sealdesk_discovery(&query);
+                let (id,misc)=if sealdesk_ping {
                     (key.clone(),serde_json::to_string(&Hint{version:1,key,port:TCP_PORT})?)
                 } else {
                     // Original clients dial the discovered ID; advertise a direct endpoint, not a rendezvous ID.
@@ -528,6 +592,7 @@ mod tests {
     }
     #[tokio::test]
     async fn native_transport_is_encrypted_and_rejects_changed_host_identity() {
+        let (_lock, _reset) = lan_test_env();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let (public, _) = identity().unwrap();
@@ -563,6 +628,8 @@ mod tests {
     }
     #[tokio::test]
     async fn shared_port_accepts_legacy_waiters_but_rejects_bad_encryption_prefaces() {
+        let (_lock, _reset) = lan_test_env();
+        set_preface_wait_for_test(Some(Duration::from_millis(30)));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let socket = tokio::net::TcpStream::connect(listener.local_addr().unwrap()).await.unwrap();
         let (accepted, _) = listener.accept().await.unwrap();
@@ -587,5 +654,183 @@ mod tests {
         let (mut peer, _) = hello(1, &[]).unwrap();
         peer.ephemeral = vec![0; 32];
         assert!(encrypt(&mut stream, &ours, &peer, &private, false).is_err());
+    }
+
+    fn lan_test_env() -> (std::sync::MutexGuard<'static, ()>, impl Drop) {
+        static LAN_TESTS: Mutex<()> = Mutex::new(());
+        let guard = LAN_TESTS.lock().unwrap();
+        set_preface_wait_for_test(None);
+        Config::set_option(OPTION_RUSTDESK_COMPAT.to_owned(), String::new());
+        struct Reset;
+        impl Drop for Reset {
+            fn drop(&mut self) {
+                set_preface_wait_for_test(None);
+                Config::set_option(OPTION_RUSTDESK_COMPAT.to_owned(), String::new());
+            }
+        }
+        (guard, Reset)
+    }
+
+    #[test]
+    fn preface_wait_defaults_to_1500ms_and_can_be_shortened() {
+        let (_lock, _reset) = lan_test_env();
+        assert_eq!(PREFACE_WAIT, Duration::from_millis(1500));
+        assert_eq!(preface_wait(), Duration::from_millis(1500));
+        set_preface_wait_for_test(Some(Duration::from_millis(5)));
+        assert_eq!(preface_wait(), Duration::from_millis(5));
+    }
+
+    #[test]
+    fn rustdesk_compat_defaults_on_and_off_means_n() {
+        let (_lock, _reset) = lan_test_env();
+        assert!(rustdesk_compat_enabled());
+        Config::set_option(OPTION_RUSTDESK_COMPAT.to_owned(), "N".into());
+        assert!(!rustdesk_compat_enabled());
+        Config::set_option(OPTION_RUSTDESK_COMPAT.to_owned(), "Y".into());
+        assert!(rustdesk_compat_enabled());
+    }
+
+    #[test]
+    fn rustdesk_pings_are_not_answered_when_compat_is_off() {
+        let (_lock, _reset) = lan_test_env();
+        let sealdesk = PeerDiscovery {
+            cmd: "ping".into(),
+            id: hex::encode([9u8; 32]),
+            misc: String::from_utf8_lossy(DOMAIN).into_owned(),
+            ..Default::default()
+        };
+        let rustdesk = PeerDiscovery {
+            cmd: "ping".into(),
+            id: "123456789".into(),
+            ..Default::default()
+        };
+        assert!(answer_discovery_ping(&sealdesk));
+        assert!(answer_discovery_ping(&rustdesk));
+        Config::set_option(OPTION_RUSTDESK_COMPAT.to_owned(), "N".into());
+        assert!(answer_discovery_ping(&sealdesk));
+        assert!(!answer_discovery_ping(&rustdesk));
+        assert!(!answer_discovery_ping(&PeerDiscovery {
+            cmd: "pong".into(),
+            ..sealdesk
+        }));
+    }
+
+    #[test]
+    fn disabling_compat_notifies_waiters_immediately() {
+        let (_lock, _reset) = lan_test_env();
+        let waiting = compat_disabled_notify().notified();
+        let mut waiting = std::pin::pin!(waiting);
+        let waker = noop_waker();
+        let mut cx = std::task::Context::from_waker(&waker);
+        assert!(
+            std::future::Future::poll(waiting.as_mut(), &mut cx).is_pending(),
+            "waiter must be registered before the switch flips"
+        );
+        Config::set_option(OPTION_RUSTDESK_COMPAT.to_owned(), "N".into());
+        note_rustdesk_compat(true);
+        assert!(std::future::Future::poll(waiting.as_mut(), &mut cx).is_ready());
+    }
+
+    fn noop_waker() -> std::task::Waker {
+        use std::task::{RawWaker, RawWakerVTable, Waker};
+        unsafe fn clone(p: *const ()) -> RawWaker {
+            RawWaker::new(p, &VTABLE)
+        }
+        unsafe fn wake(_: *const ()) {}
+        unsafe fn wake_by_ref(_: *const ()) {}
+        unsafe fn drop(_: *const ()) {}
+        static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake_by_ref, drop);
+        unsafe { Waker::from_raw(RawWaker::new(std::ptr::null(), &VTABLE)) }
+    }
+
+    async fn connect_preface_after(addr: std::net::SocketAddr, delay: Duration) -> Stream {
+        let socket = tokio::net::TcpStream::connect(addr).await.unwrap();
+        socket.set_nodelay(true).unwrap();
+        let local = socket.local_addr().unwrap();
+        let mut stream = Stream::from(socket, local);
+        stream.set_max_packet_length(FRAME_LIMIT);
+        if !delay.is_zero() {
+            tokio::time::sleep(delay).await;
+        }
+        stream.0.send_raw(DOMAIN.to_vec()).await.unwrap();
+        let prior = receive(&mut stream).await.unwrap();
+        let remote: Hello = serde_json::from_slice(&prior).unwrap();
+        let (public, _) = identity().unwrap();
+        assert_eq!(verify(&remote, 0, &[]).unwrap(), public);
+        let (our, private) = hello(1, &prior).unwrap();
+        stream
+            .0
+            .send_raw(serde_json::to_vec(&our).unwrap())
+            .await
+            .unwrap();
+        encrypt(&mut stream, &our, &remote, &private, true).unwrap();
+        assert_eq!(receive(&mut stream).await.unwrap(), DOMAIN);
+        stream.0.send_raw(DOMAIN.to_vec()).await.unwrap();
+        stream
+    }
+
+    #[tokio::test]
+    async fn delayed_sealdesk_preface_handshakes_and_timeout_follows_the_switch() {
+        let (_lock, _reset) = lan_test_env();
+        set_preface_wait_for_test(Some(Duration::from_millis(80)));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (public, _) = identity().unwrap();
+        let expected = hex::encode(public.0);
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let local = socket.local_addr().unwrap();
+            let mut stream = Stream::from(socket, local);
+            assert_eq!(
+                accept_shared(&mut stream).await.unwrap().as_deref(),
+                Some(expected.as_str())
+            );
+        });
+        let mut client = connect_preface_after(addr, Duration::from_millis(40)).await;
+        assert!(client.is_secured());
+        server.await.unwrap();
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let socket = tokio::net::TcpStream::connect(listener.local_addr().unwrap())
+            .await
+            .unwrap();
+        let (accepted, _) = listener.accept().await.unwrap();
+        let local = accepted.local_addr().unwrap();
+        let mut server = Stream::from(accepted, local);
+        let started = Instant::now();
+        assert!(accept_shared(&mut server).await.unwrap().is_none());
+        assert!(started.elapsed() < Duration::from_millis(400));
+        drop(socket);
+
+        Config::set_option(OPTION_RUSTDESK_COMPAT.to_owned(), "N".into());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let socket = tokio::net::TcpStream::connect(listener.local_addr().unwrap())
+            .await
+            .unwrap();
+        let (accepted, _) = listener.accept().await.unwrap();
+        let local = accepted.local_addr().unwrap();
+        let mut server = Stream::from(accepted, local);
+        let started = Instant::now();
+        let error = accept_shared(&mut server).await.unwrap_err();
+        assert!(error.to_string().contains("disabled"));
+        assert!(started.elapsed() < Duration::from_millis(400));
+        drop(socket);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (public, _) = identity().unwrap();
+        let expected = hex::encode(public.0);
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let local = socket.local_addr().unwrap();
+            let mut stream = Stream::from(socket, local);
+            assert_eq!(
+                accept_shared(&mut stream).await.unwrap().as_deref(),
+                Some(expected.as_str())
+            );
+        });
+        let client = connect_preface_after(addr, Duration::from_millis(40)).await;
+        assert!(client.is_secured());
+        server.await.unwrap();
     }
 }

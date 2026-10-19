@@ -9,12 +9,11 @@ import 'package:sealdesk/common.dart';
 import 'package:sealdesk/common/widgets/audio_input.dart';
 import 'package:sealdesk/common/widgets/setting_widgets.dart';
 import 'package:sealdesk/consts.dart';
-import 'package:sealdesk/desktop/pages/desktop_home_page.dart';
+import 'package:sealdesk/desktop/pages/sealdesk_home_page.dart';
 import 'package:sealdesk/common/widgets/keyboard_shortcuts/page_body.dart';
 import 'package:sealdesk/desktop/pages/desktop_keyboard_shortcuts_page.dart';
 import 'package:sealdesk/desktop/pages/desktop_tab_page.dart';
 import 'package:sealdesk/desktop/widgets/remote_toolbar.dart';
-import 'package:sealdesk/mobile/widgets/dialog.dart';
 import 'package:sealdesk/models/platform_model.dart';
 import 'package:sealdesk/models/printer_model.dart';
 import 'package:sealdesk/models/server_model.dart';
@@ -394,6 +393,7 @@ class _GeneralState extends State<_General> {
       controller: scrollController,
       children: [
         if (!isWeb) service(),
+        network(context),
         theme(),
         _Card(title: 'Language', children: [language()]),
         if (!isWeb) hwcodec(),
@@ -604,7 +604,6 @@ class _GeneralState extends State<_General> {
           isServer: false,
         ),
       ],
-      if (!incomingOnly) ...webrtcOptions(context),
       if (!isWeb && !incomingOnly)
         Tooltip(
           message: translate('sync-clipboard-between-sessions-tip'),
@@ -880,83 +879,18 @@ class _GeneralState extends State<_General> {
     });
   }
 
-  // How long an already-connected relay is held back to give the direct WebRTC
-  // attempt a chance to win. It only means anything while WebRTC is on, so it
-  // follows the checkbox as an indented sub-option and is hidden outright when
-  // the box is clear — the shape `directIp` uses for its port.
-  List<Widget> webrtcOptions(BuildContext context) {
-    final stored = bind.mainGetLocalOption(key: kOptionRelayFallbackDelay);
-    final controller = TextEditingController(text: stored);
-    // What the field holds against what is saved. Apply is offered only while
-    // the two differ, so an untouched field shows no button at all, and neither
-    // does one typed back to its saved value or cleared when nothing was saved
-    // — the state an "edited" flag alone would still call dirty.
-    final typed = RxString(stored);
-    final saved = RxString(stored);
-    return [
+  Widget network(BuildContext context) {
+    return _Card(title: 'Network', children: [
+      _Button('Relay settings', () {
+        showSealDeskRelaySettings(context);
+      }),
       _OptionCheckBox(
         context,
-        'Enable WebRTC P2P connection',
-        kOptionEnableWebrtc,
-        isServer: false,
-        update: (_) => setState(() {}),
+        'Allow RustDesk compatible connections',
+        kOptionSealDeskRustDeskCompat,
+        enabled: !bind.isDisableSettings(),
       ),
-      () {
-        final enabled = mainGetLocalBoolOptionSync(kOptionEnableWebrtc);
-        final isOptFixed = isOptionFixed(kOptionRelayFallbackDelay);
-        return Offstage(
-          offstage: !enabled,
-          child: Tooltip(
-            message: translate('relay-fallback-delay-tip'),
-            child: _SubLabeledWidget(
-              context,
-              'Relay fallback delay in seconds',
-              Row(children: [
-                SizedBox(
-                  width: 95,
-                  child: TextField(
-                    controller: controller,
-                    enabled: enabled && !isOptFixed,
-                    onChanged: (v) => typed.value = v,
-                    inputFormatters: [
-                      // Seconds, at most one decimal. Clearing the field is
-                      // allowed and restores the built-in default.
-                      FilteringTextInputFormatter.allow(
-                          RegExp(r'^([0-9]|[1-9][0-9])(\.[0-9]?)?$')),
-                    ],
-                    decoration: const InputDecoration(
-                      hintText: '2.5',
-                      contentPadding:
-                          EdgeInsets.symmetric(vertical: 12, horizontal: 12),
-                    ),
-                  ).workaroundFreezeLinuxMint().marginOnly(right: 15),
-                ),
-                Obx(() => Offstage(
-                      offstage: typed.value.trim() == saved.value.trim(),
-                      child: ElevatedButton(
-                        onPressed: enabled &&
-                                !isOptFixed &&
-                                !typed.value.trim().endsWith('.') &&
-                                double.tryParse(typed.value.trim()) != 0
-                            ? () async {
-                                final v = controller.text.trim();
-                                await bind.mainSetLocalOption(
-                                    key: kOptionRelayFallbackDelay, value: v);
-                                if (controller.text != v) controller.text = v;
-                                typed.value = v;
-                                saved.value = v;
-                              }
-                            : null,
-                        child: Text(translate('Apply')),
-                      ),
-                    ))
-              ]),
-              enabled: enabled && !isOptFixed,
-            ),
-          ),
-        );
-      }(),
-    ];
+    ]);
   }
 }
 
@@ -994,7 +928,6 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
               block: locked,
               child: Column(children: [
                 permissions(context),
-                password(context),
                 _Card(title: '2FA', children: [tfa()]),
                 more(context),
               ]),
@@ -1175,163 +1108,6 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
     }
 
     return tmpWrapper();
-  }
-
-  Widget password(BuildContext context) {
-    return ChangeNotifierProvider.value(
-        value: gFFI.serverModel,
-        child: Consumer<ServerModel>(builder: ((context, model, child) {
-          List<String> passwordKeys = [
-            kUseTemporaryPassword,
-            kUsePermanentPassword,
-            kUseBothPasswords,
-          ];
-          List<String> passwordValues = [
-            translate('Use one-time password'),
-            translate('Use permanent password'),
-            translate('Use both passwords'),
-          ];
-          bool tmpEnabled = model.verificationMethod != kUsePermanentPassword;
-          bool permEnabled = model.verificationMethod != kUseTemporaryPassword;
-          String currentValue =
-              passwordValues[passwordKeys.indexOf(model.verificationMethod)];
-          List<Widget> radios = passwordValues
-              .map((value) => _Radio<String>(
-                    context,
-                    value: value,
-                    groupValue: currentValue,
-                    label: value,
-                    onChanged: locked
-                        ? null
-                        : ((value) async {
-                            callback() async {
-                              await model.setVerificationMethod(
-                                  passwordKeys[passwordValues.indexOf(value)]);
-                              await model.updatePasswordModel();
-                            }
-
-                            if (value ==
-                                    passwordValues[passwordKeys
-                                        .indexOf(kUsePermanentPassword)] &&
-                                (await bind.mainGetCommon(
-                                        key: "permanent-password-set")) !=
-                                    "true") {
-                              if (isChangePermanentPasswordDisabled()) {
-                                await callback();
-                                return;
-                              }
-                              setPasswordDialog(notEmptyCallback: callback);
-                            } else {
-                              await callback();
-                            }
-                          }),
-                  ))
-              .toList();
-
-          var onChanged = tmpEnabled && !locked
-              ? (value) {
-                  if (value != null) {
-                    () async {
-                      await model.setTemporaryPasswordLength(value.toString());
-                      await model.updatePasswordModel();
-                    }();
-                  }
-                }
-              : null;
-          List<Widget> lengthRadios = ['6', '8', '10']
-              .map((value) => GestureDetector(
-                    child: Row(
-                      children: [
-                        Radio(
-                            value: value,
-                            groupValue: model.temporaryPasswordLength,
-                            onChanged: onChanged),
-                        Text(
-                          value,
-                          style: TextStyle(
-                              color: disabledTextColor(
-                                  context, onChanged != null)),
-                        ),
-                      ],
-                    ).paddingOnly(right: 10),
-                    onTap: () => onChanged?.call(value),
-                  ))
-              .toList();
-
-          final isOptFixedNumOTP =
-              isOptionFixed(kOptionAllowNumericOneTimePassword);
-          final isNumOPTChangable = !isOptFixedNumOTP && tmpEnabled && !locked;
-          final numericOneTimePassword = GestureDetector(
-            child: InkWell(
-                child: Row(
-              children: [
-                Checkbox(
-                        value: model.allowNumericOneTimePassword,
-                        onChanged: isNumOPTChangable
-                            ? (bool? v) {
-                                model.switchAllowNumericOneTimePassword();
-                              }
-                            : null)
-                    .marginOnly(right: 5),
-                Expanded(
-                    child: Text(
-                  translate('Numeric one-time password'),
-                  style: TextStyle(
-                      color: disabledTextColor(context, isNumOPTChangable)),
-                ))
-              ],
-            )),
-            onTap: isNumOPTChangable
-                ? () => model.switchAllowNumericOneTimePassword()
-                : null,
-          ).marginOnly(left: _kContentHSubMargin - 5);
-
-          final modeKeys = <String>[
-            'password',
-            'click',
-            defaultOptionApproveMode
-          ];
-          final modeValues = [
-            translate('Accept sessions via password'),
-            translate('Accept sessions via click'),
-            translate('Accept sessions via both'),
-          ];
-          var modeInitialKey = model.approveMode;
-          if (!modeKeys.contains(modeInitialKey)) {
-            modeInitialKey = defaultOptionApproveMode;
-          }
-          final usePassword = model.approveMode != 'click';
-
-          final isApproveModeFixed = isOptionFixed(kOptionApproveMode);
-          return _Card(title: 'Password', children: [
-            ComboBox(
-              enabled: !locked && !isApproveModeFixed,
-              keys: modeKeys,
-              values: modeValues,
-              initialKey: modeInitialKey,
-              onChanged: (key) => model.setApproveMode(key),
-            ).marginOnly(left: _kContentHMargin),
-            if (usePassword) radios[0],
-            if (usePassword)
-              _SubLabeledWidget(
-                  context,
-                  'One-time password length',
-                  Row(
-                    children: [
-                      ...lengthRadios,
-                    ],
-                  ),
-                  enabled: tmpEnabled && !locked),
-            if (usePassword) numericOneTimePassword,
-            if (usePassword) radios[1],
-            if (usePassword && !isChangePermanentPasswordDisabled())
-              _SubButton('Set permanent password', setPasswordDialog,
-                  permEnabled && !locked),
-            // if (usePassword)
-            //   hide_cm(!locked).marginOnly(left: _kContentHSubMargin - 6),
-            if (usePassword) radios[2],
-          ]);
-        })));
   }
 
   Widget more(BuildContext context) {
@@ -2567,20 +2343,6 @@ Widget _Button(String label, Function() onPressed,
   return Row(children: [
     child,
   ]).marginOnly(left: _kContentHMargin);
-}
-
-// ignore: non_constant_identifier_names
-Widget _SubButton(String label, Function() onPressed, [bool enabled = true]) {
-  return Row(
-    children: [
-      ElevatedButton(
-        onPressed: enabled ? onPressed : null,
-        child: Text(
-          translate(label),
-        ).marginSymmetric(horizontal: 15),
-      ),
-    ],
-  ).marginOnly(left: _kContentHSubMargin);
 }
 
 // ignore: non_constant_identifier_names

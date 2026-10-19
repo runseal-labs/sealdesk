@@ -108,11 +108,12 @@ class _SealDeskLanPanelState extends State<SealDeskLanPanel> {
               onPressed: _poll,
               icon: const Icon(Icons.refresh)),
         ]),
-        if (widget.host)
-          Text(
-              translate(
-                  "Remembered controllers connect automatically. Revoke access to require approval again."),
-              style: TextStyle(fontSize: 12)),
+        if (widget.host && _peers.isNotEmpty)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(translate('Trusted controllers'),
+                key: const ValueKey('sealdesk-trusted')),
+          ),
         if (widget.host && _compatAddresses.isNotEmpty)
           SelectableText(
               "SealDesk · ${translate('Direct and unencrypted connection')}\n${_compatAddresses.join(' / ')}",
