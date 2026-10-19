@@ -121,8 +121,9 @@ class SealDeskShareSettingsView extends StatelessWidget {
 
   bool get _showPassword => approveMode != 'click';
 
-  String get _approveKey =>
-      approveMode == 'password' || approveMode == 'click' ? approveMode : 'both';
+  String get _approveKey => approveMode == 'password' || approveMode == 'click'
+      ? approveMode
+      : 'both';
 
   @override
   Widget build(BuildContext context) {
@@ -131,115 +132,122 @@ class SealDeskShareSettingsView extends StatelessWidget {
         !permanentPasswordDisabled;
     final showOneTime =
         _showPassword && verificationMethod != kUsePermanentPassword;
+    final method = verificationMethod == kUseTemporaryPassword ||
+            verificationMethod == kUsePermanentPassword ||
+            verificationMethod == kUseBothPasswords
+        ? verificationMethod
+        : kUseBothPasswords;
     return Column(
       key: const ValueKey('sealdesk-share-settings'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(translate('Share settings'),
-            style: Theme.of(context).textTheme.titleSmall),
-        const SizedBox(height: 8),
-        Card(
-          margin: EdgeInsets.zero,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _label(context, 'Access method'),
-                _radio('password', 'Accept sessions via password', _approveKey,
-                    approveFixed ? null : (value) => onApprove(value),
-                    const ValueKey('sealdesk-approve-password')),
-                _radio('click', 'Accept sessions via click', _approveKey,
-                    approveFixed ? null : (value) => onApprove(value),
-                    const ValueKey('sealdesk-approve-click')),
-                _radio('both', 'Accept sessions via both', _approveKey,
-                    approveFixed
-                        ? null
-                        : (value) => onApprove(defaultOptionApproveMode),
-                    const ValueKey('sealdesk-approve-both')),
-                if (_showPassword) ...[
-                  _label(context, 'Password type'),
-                  _radio(
-                      kUseTemporaryPassword,
-                      'Use one-time password',
-                      verificationMethod,
-                      (value) => onVerification(value),
-                      const ValueKey('sealdesk-verify-temporary')),
-                  _radio(
-                      kUsePermanentPassword,
-                      'Use permanent password',
-                      verificationMethod,
-                      (value) => onVerification(value),
-                      const ValueKey('sealdesk-verify-permanent')),
-                  _radio(
-                      kUseBothPasswords,
-                      'Use both passwords',
-                      verificationMethod,
-                      (value) => onVerification(value),
-                      const ValueKey('sealdesk-verify-both')),
-                ],
-              ],
-            ),
-          ),
+        _menu(
+          const ValueKey('sealdesk-approve'),
+          _approveKey,
+          [
+            _item('password', 'Accept sessions via password',
+                const ValueKey('sealdesk-approve-password')),
+            _item('click', 'Accept sessions via click',
+                const ValueKey('sealdesk-approve-click')),
+            _item('both', 'Accept sessions via both',
+                const ValueKey('sealdesk-approve-both')),
+          ],
+          approveFixed
+              ? null
+              : (value) {
+                  if (value == null) return;
+                  if (value == 'both') {
+                    onApprove(defaultOptionApproveMode);
+                  } else {
+                    onApprove(value);
+                  }
+                },
         ),
-        if (showPermanent || showOneTime) ...[
-          const SizedBox(height: 8),
-          Card(
-            margin: EdgeInsets.zero,
-            child: Column(
-              children: [
-                if (showPermanent)
-                  ListTile(
-                    key: const ValueKey('sealdesk-set-permanent'),
-                    title: Text(translate('Set permanent password')),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: onSetPermanent,
-                  ),
-                if (showOneTime)
-                  ListTile(
-                    key: const ValueKey('sealdesk-otp-length'),
-                    title: Text(translate('One-time password length')),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(otpLength),
-                        const Icon(Icons.chevron_right),
-                      ],
-                    ),
-                    onTap: onSetOtpLength,
-                  ),
-                if (showOneTime)
-                  SwitchListTile(
-                    key: const ValueKey('sealdesk-otp-numeric'),
-                    title: Text(translate('Numeric one-time password')),
-                    value: numeric,
-                    onChanged: numericFixed ? null : (_) => onToggleNumeric(),
-                  ),
-              ],
-            ),
+        if (_showPassword) ...[
+          const SizedBox(height: 4),
+          _menu(
+            const ValueKey('sealdesk-verify'),
+            method,
+            [
+              _item(kUseTemporaryPassword, 'Use one-time password',
+                  const ValueKey('sealdesk-verify-temporary')),
+              _item(kUsePermanentPassword, 'Use permanent password',
+                  const ValueKey('sealdesk-verify-permanent')),
+              _item(kUseBothPasswords, 'Use both passwords',
+                  const ValueKey('sealdesk-verify-both')),
+            ],
+            (value) {
+              if (value != null) onVerification(value);
+            },
           ),
+        ],
+        if (showPermanent || showOneTime) ...[
+          if (showPermanent)
+            ListTile(
+              key: const ValueKey('sealdesk-set-permanent'),
+              dense: true,
+              visualDensity: VisualDensity.compact,
+              contentPadding: EdgeInsets.zero,
+              title: Text(translate('Set permanent password')),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: onSetPermanent,
+            ),
+          if (showOneTime)
+            ListTile(
+              key: const ValueKey('sealdesk-otp-length'),
+              dense: true,
+              visualDensity: VisualDensity.compact,
+              contentPadding: EdgeInsets.zero,
+              title: Text(translate('One-time password length')),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(otpLength),
+                  const Icon(Icons.chevron_right),
+                ],
+              ),
+              onTap: onSetOtpLength,
+            ),
+          if (showOneTime)
+            SwitchListTile(
+              key: const ValueKey('sealdesk-otp-numeric'),
+              dense: true,
+              visualDensity: VisualDensity.compact,
+              contentPadding: EdgeInsets.zero,
+              title: Text(translate('Numeric one-time password')),
+              value: numeric,
+              onChanged: numericFixed ? null : (_) => onToggleNumeric(),
+            ),
         ],
       ],
     );
   }
 
-  Widget _label(BuildContext context, String key) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-        child: Text(translate(key),
-            style: Theme.of(context).textTheme.labelLarge),
+  DropdownMenuItem<String> _item(String value, String label, Key key) =>
+      DropdownMenuItem<String>(
+        key: key,
+        value: value,
+        child: Text(
+          translate(label),
+          overflow: TextOverflow.ellipsis,
+        ),
       );
 
-  Widget _radio(String value, String label, String group,
-          void Function(String value)? onChanged, Key key) =>
-      RadioListTile<String>(
+  Widget _menu(
+    Key key,
+    String value,
+    List<DropdownMenuItem<String>> items,
+    ValueChanged<String?>? onChanged,
+  ) {
+    return DropdownButtonHideUnderline(
+      child: DropdownButton<String>(
         key: key,
-        dense: true,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-        title: Text(translate(label)),
+        isDense: true,
+        isExpanded: true,
         value: value,
-        groupValue: group,
-        onChanged: onChanged == null ? null : (selected) {
-          if (selected != null) onChanged(selected);
-        },
-      );
+        items: items,
+        onChanged: onChanged,
+      ),
+    );
+  }
 }

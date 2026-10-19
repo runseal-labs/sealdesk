@@ -15,6 +15,7 @@ import 'package:sealdesk/consts.dart';
 import 'package:sealdesk/desktop/pages/connection_page.dart';
 import 'package:sealdesk/desktop/pages/desktop_setting_page.dart';
 import 'package:sealdesk/desktop/pages/desktop_tab_page.dart';
+import 'package:sealdesk/desktop/widgets/desktop_sidebar.dart';
 import 'package:sealdesk/desktop/widgets/update_progress.dart';
 import 'package:sealdesk/models/platform_model.dart';
 import 'package:sealdesk/models/server_model.dart';
@@ -42,6 +43,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
   final _leftPaneScrollController = ScrollController();
   final _sealdeskInitialInput = SealDeskStartup.takeTarget();
+  String _savedSidebarWidth = '';
 
   @override
   bool get wantKeepAlive => true;
@@ -64,15 +66,42 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   Widget build(BuildContext context) {
     super.build(context);
     final isIncomingOnly = bind.isIncomingOnly();
+    final isOutgoingOnly = bind.isOutgoingOnly();
+    final sealDesk = bind.mainGetAppNameSync() == 'SealDesk';
+    final narrow = MediaQuery.sizeOf(context).width < 800;
+    final defaultWidth = isIncomingOnly
+        ? 280.0
+        : (sealDesk && !narrow
+            ? kDesktopSidebarDefaultWidth
+            : kDesktopSidebarMinWidth);
     return _buildBlock(
-        child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        buildLeftPane(context),
-        if (!isIncomingOnly) const VerticalDivider(width: 1),
-        if (!isIncomingOnly) Expanded(child: buildRightPane(context)),
-      ],
-    ));
+      child: DesktopSidebarScaffold(
+        savedWidth: _savedSidebarWidth,
+        defaultWidth: defaultWidth,
+        onSave: (value) {
+          unawaited(bind.mainSetLocalOption(
+              key: kDesktopSidebarWidthOption, value: value));
+        },
+        scrollController: _leftPaneScrollController,
+        split: !isIncomingOnly,
+        fixedWidth: 280,
+        columnKey: _childKey,
+        background: Theme.of(context).colorScheme.background,
+        overlay: isOutgoingOnly ? _outgoingSettingsButton(context) : null,
+        leftChildren: [
+          ChangeNotifierProvider.value(
+            value: gFFI.serverModel,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: _leftPaneChildren(
+                  context, isIncomingOnly, isOutgoingOnly, sealDesk),
+            ),
+          ),
+        ],
+        right:
+            isIncomingOnly ? const SizedBox.shrink() : buildRightPane(context),
+      ),
+    );
   }
 
   Widget _buildBlock({required Widget child}) {
@@ -80,11 +109,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         block: _block, mask: true, use: canBeBlocked, child: child);
   }
 
-  Widget buildLeftPane(BuildContext context) {
-    final isIncomingOnly = bind.isIncomingOnly();
-    final isOutgoingOnly = bind.isOutgoingOnly();
-    final sealDesk = bind.mainGetAppNameSync() == 'SealDesk';
-    final narrow = MediaQuery.sizeOf(context).width < 800;
+  List<Widget> _leftPaneChildren(BuildContext context, bool isIncomingOnly,
+      bool isOutgoingOnly, bool sealDesk) {
     final children = <Widget>[
       if (!isOutgoingOnly) buildPresetPasswordWarning(),
       if (!sealDesk)
@@ -112,54 +138,30 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         ).marginOnly(bottom: 6, right: 6)
       ]);
     }
+    return children;
+  }
+
+  Widget _outgoingSettingsButton(BuildContext context) {
     final textColor = Theme.of(context).textTheme.titleLarge?.color;
-    return ChangeNotifierProvider.value(
-      value: gFFI.serverModel,
-      child: Container(
-        width: isIncomingOnly ? 280.0 : (sealDesk && !narrow ? 300.0 : 200.0),
-        color: Theme.of(context).colorScheme.background,
-        child: Stack(
-          children: [
-            Column(
-              children: [
-                SingleChildScrollView(
-                  controller: _leftPaneScrollController,
-                  child: Column(
-                    key: _childKey,
-                    children: children,
-                  ),
-                ),
-                Expanded(child: Container())
-              ],
+    return Positioned(
+      bottom: 6,
+      left: 12,
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: InkWell(
+          child: Obx(
+            () => Icon(
+              Icons.settings,
+              color:
+                  _editHover.value ? textColor : Colors.grey.withOpacity(0.5),
+              size: 22,
             ),
-            if (isOutgoingOnly)
-              Positioned(
-                bottom: 6,
-                left: 12,
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: InkWell(
-                    child: Obx(
-                      () => Icon(
-                        Icons.settings,
-                        color: _editHover.value
-                            ? textColor
-                            : Colors.grey.withOpacity(0.5),
-                        size: 22,
-                      ),
-                    ),
-                    onTap: () => {
-                      if (DesktopSettingPage.tabKeys.isNotEmpty)
-                        {
-                          DesktopSettingPage.switch2page(
-                              DesktopSettingPage.tabKeys[0])
-                        }
-                    },
-                    onHover: (value) => _editHover.value = value,
-                  ),
-                ),
-              )
-          ],
+          ),
+          onTap: () => {
+            if (DesktopSettingPage.tabKeys.isNotEmpty)
+              {DesktopSettingPage.switch2page(DesktopSettingPage.tabKeys[0])}
+          },
+          onHover: (value) => _editHover.value = value,
         ),
       ),
     );
@@ -677,6 +679,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   @override
   void initState() {
     super.initState();
+    _savedSidebarWidth =
+        bind.mainGetLocalOption(key: kDesktopSidebarWidthOption);
     _updateTimer = periodic_immediate(const Duration(seconds: 1), () async {
       await gFFI.serverModel.fetchID();
       final error = await bind.mainGetError();

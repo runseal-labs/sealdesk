@@ -169,8 +169,8 @@ void main() {
     );
     final line = find.byKey(const ValueKey('sealdesk-scam-line'));
     expect(line, findsOneWidget);
-    final text = tester.widget<Text>(
-        find.descendant(of: line, matching: find.byType(Text)));
+    final text = tester
+        .widget<Text>(find.descendant(of: line, matching: find.byType(Text)));
     expect(text.maxLines, 1);
     expect(text.data, 'Stranger asks you to share? Hang up');
     expect(find.text('Sharing stopped'), findsOneWidget);
@@ -307,15 +307,22 @@ void main() {
     }
 
     await pump(approve: 'password-click', method: kUseTemporaryPassword);
-    expect(find.byKey(const ValueKey('sealdesk-share-settings')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('sealdesk-share-settings')), findsOneWidget);
     expect(find.text('Accept sessions via both'), findsOneWidget);
     expect(find.text('Use one-time password'), findsOneWidget);
     expect(find.byKey(const ValueKey('sealdesk-set-permanent')), findsNothing);
     expect(find.text('One-time password length'), findsOneWidget);
     expect(find.text('6'), findsOneWidget);
-    await tester.tap(find.text('Accept sessions via password'));
+    await tester.tap(find.byKey(const ValueKey('sealdesk-approve')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Accept sessions via password').last);
+    await tester.pumpAndSettle();
     expect(approved, ['password']);
-    await tester.tap(find.text('Use permanent password'));
+    await tester.tap(find.byKey(const ValueKey('sealdesk-verify')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Use permanent password').last);
+    await tester.pumpAndSettle();
     expect(methods, [kUsePermanentPassword]);
     await tester.tap(find.byKey(const ValueKey('sealdesk-otp-length')));
     expect(lengths, 1);
@@ -327,8 +334,8 @@ void main() {
         numericFixed: true);
     expect(find.text('Use both passwords'), findsNothing);
     expect(find.byKey(const ValueKey('sealdesk-otp-numeric')), findsNothing);
-    final password = tester.widget<RadioListTile<String>>(
-        find.byKey(const ValueKey('sealdesk-approve-password')));
+    final password = tester.widget<DropdownButton<String>>(
+        find.byKey(const ValueKey('sealdesk-approve')));
     expect(password.onChanged, isNull);
 
     await pump(
@@ -340,7 +347,8 @@ void main() {
     expect(find.text('One-time password length'), findsNothing);
 
     await pump(approve: 'password', method: kUseBothPasswords);
-    expect(find.byKey(const ValueKey('sealdesk-set-permanent')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('sealdesk-set-permanent')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('sealdesk-set-permanent')));
     expect(permanent, 1);
     final numeric = tester.widget<SwitchListTile>(
