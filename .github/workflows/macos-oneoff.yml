@@ -1,0 +1,13 @@
+name: One-off macOS build
+on:
+  workflow_dispatch:
+jobs:
+  build:
+    permissions:
+      contents: write
+    uses: ./.github/workflows/flutter-build.yml
+    secrets: inherit
+    with:
+      upload-artifact: true
+      publish-release: false
+      platforms: macos
