@@ -57,21 +57,22 @@ features back merely to apply an unrelated fix.
 ### Review checkpoint: 2026-10-16
 
 Reviewed through upstream
-`e400bb75546cebf4f72a5ef3cf6e4a3efa2c3aa7`. This is a review checkpoint,
+`53996e3c404ea5083df0775057e4149e49102084`. This is a review checkpoint,
 not a claim that all intervening changes were merged.
 
 | Upstream commit | Decision | Reason |
 | --- | --- | --- |
 | `0d36ac0cb` | Applied | GTK close handling avoids a destroyed window; retained with upstream authorship |
-| `392188596` | Deferred | Encoder-state changes and hwcodec 0.8.0 need separate validation |
-| `f705902ec` | Deferred | Windows installer temporary-directory hardening needs platform validation |
-| `f1fa432bc` | Deferred | F-Droid bridge changes need SealDesk library/build adaptation |
-| `e400bb755` | Deferred | Bridge lockfile enforcement conflicts with the current dependency recipe |
+| `392188596` | In progress | Static-frame re-encode and hwcodec 0.8.0 (#16128); separate PR, merge after macOS device testing |
+| `f705902ec` | Ported | Windows installer scripts use a protected temporary directory (#16554, this PR) |
+| `f1fa432bc` | Deferred | F-Droid bridge changes (#16560) remain postponed |
+| `e400bb755` | Deferred | F-Droid lockfile enforcement (#16560) remains postponed |
 | `c0750fb50` | Skipped | Removed WebRTC connection-racing path |
 | `e614de83f` | Skipped | Removed executable host-configuration path |
-| `538126d42` | Deferred | Portuguese translations |
-| `9c6d3fcb4` | Deferred | Italian translations |
-| `c230c5713` | Deferred | Dutch translation wording needs review |
+| `53996e3c` | Ported | Russian translations (#16570, this PR); WebRTC strings omitted |
+| `538126d42` | Ported | Portuguese translations (#16555, this PR); WebRTC strings omitted |
+| `9c6d3fcb4` | Ported | Italian translations (#16551, this PR); WebRTC strings omitted |
+| `c230c5713` | Ported | Dutch translations (#16540, this PR); WebRTC strings omitted |
 
 After the pre-publication history cleanup, fork commits are grouped by feature;
 use upstream source IDs rather than superseded local commit IDs in maintenance
