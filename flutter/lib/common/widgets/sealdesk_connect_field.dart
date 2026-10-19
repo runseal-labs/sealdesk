@@ -1,10 +1,13 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../../common.dart';
+import '../../models/platform_model.dart';
 import '../sealdesk_connect.dart';
 import '../sealdesk_connect_target.dart';
 import '../sealdesk_connection_record.dart';
@@ -12,8 +15,29 @@ import '../sealdesk_pairing.dart';
 import '../sealdesk_qr_file.dart';
 import '../sealdesk_qr_image.dart';
 
-class SealDeskScreenCapture {
-  static Future<Uint8List?> Function(Rect rect)? debugCapture;
+Future<Uint8List> captureSealDeskRegion(
+    Rect rect, double devicePixelRatio) async {
+  var origin = Offset.zero;
+  try {
+    origin = await windowManager
+        .getPosition()
+        .timeout(const Duration(milliseconds: 500));
+  } catch (_) {}
+  final scale = devicePixelRatio <= 0 ? 1.0 : devicePixelRatio;
+  final reply = jsonDecode(await bind.mainCaptureSealdeskRegion(
+    x: ((origin.dx + rect.left) * scale).round(),
+    y: ((origin.dy + rect.top) * scale).round(),
+    width: (rect.width * scale).round(),
+    height: (rect.height * scale).round(),
+  )) as Map<String, dynamic>;
+  final error = reply['error'];
+  if (error is String) throw FormatException(error);
+  final png = reply['png'];
+  if (png is! String || png.isEmpty) {
+    throw const FormatException(
+        'Unable to read the QR image. Please choose another one');
+  }
+  return base64Decode(png);
 }
 
 class SealDeskConnectField extends StatefulWidget {
@@ -96,16 +120,8 @@ class _SealDeskConnectFieldState extends State<SealDeskConnectField> {
           builder: (context) => const SealDeskRegionPicker(),
         );
         if (rect == null || !mounted) return;
-        final capture = SealDeskScreenCapture.debugCapture;
-        if (capture == null) {
-          throw const FormatException(
-              'Unable to read the QR image. Please choose another one');
-        }
-        final bytes = await capture(rect);
-        if (bytes == null) {
-          throw const FormatException(
-              'Unable to read the QR image. Please choose another one');
-        }
+        final bytes = await captureSealDeskRegion(
+            rect, MediaQuery.devicePixelRatioOf(context));
         if (!mounted) return;
         await _usePairing(decodeSealDeskQrImage(bytes));
       });
@@ -287,36 +303,39 @@ class _SealDeskRegionPickerState extends State<SealDeskRegionPicker> {
     return Material(
       key: const ValueKey('sealdesk-region-picker'),
       type: MaterialType.transparency,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onPanStart: (details) => setState(() {
-          _start = details.localPosition;
-          _end = details.localPosition;
-        }),
-        onPanUpdate: (details) => setState(() => _end = details.localPosition),
-        onPanEnd: (_) {
-          final start = _start;
-          final end = _end;
-          if (start == null || end == null) return;
-          final rect = Rect.fromPoints(start, end);
-          if (rect.width < 8 || rect.height < 8) return;
-          final box = context.findRenderObject() as RenderBox?;
-          final global = box == null
-              ? rect
-              : Rect.fromPoints(
-                  box.localToGlobal(rect.topLeft),
-                  box.localToGlobal(rect.bottomRight),
-                );
-          Navigator.pop(context, global);
-        },
-        child: CustomPaint(
-          painter: _RegionPainter(start: _start, end: _end),
-          child: Align(
-            alignment: Alignment.topRight,
-            child: IconButton(
-              tooltip: translate('Cancel'),
-              onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.close, color: Colors.white),
+      child: SizedBox.expand(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onPanStart: (details) => setState(() {
+            _start = details.localPosition;
+            _end = details.localPosition;
+          }),
+          onPanUpdate: (details) =>
+              setState(() => _end = details.localPosition),
+          onPanEnd: (_) {
+            final start = _start;
+            final end = _end;
+            if (start == null || end == null) return;
+            final rect = Rect.fromPoints(start, end);
+            if (rect.width < 8 || rect.height < 8) return;
+            final box = context.findRenderObject() as RenderBox?;
+            final global = box == null
+                ? rect
+                : Rect.fromPoints(
+                    box.localToGlobal(rect.topLeft),
+                    box.localToGlobal(rect.bottomRight),
+                  );
+            Navigator.pop(context, global);
+          },
+          child: CustomPaint(
+            painter: _RegionPainter(start: _start, end: _end),
+            child: Align(
+              alignment: Alignment.topRight,
+              child: IconButton(
+                tooltip: translate('Cancel'),
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close, color: Colors.white),
+              ),
             ),
           ),
         ),

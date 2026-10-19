@@ -94,6 +94,23 @@ void main() {
         hasLength(1));
     expect(store.get(fixture['lan_id'] as String)!.address,
         fixture['lan_url_rotated_key']);
+
+    final rotated = fixture['lan_url_rotated_key'] as String;
+    final original = fixture['lan_url'] as String;
+    expect(
+        sealDeskPreferredRecentIds(
+          [original, rotated, fixture['tailcat'] as String],
+          currentAddress: (id) => id == fixture['lan_id'] ? rotated : null,
+        ),
+        [rotated, fixture['tailcat']]);
+    expect(
+        sealDeskPreferredRecentIds([rotated, original]), [rotated]);
+    expect(
+        sealDeskPreferredRecentIds([
+          fixture['legacy_port'] as String,
+          fixture['plain_ip'] as String,
+        ]),
+        [fixture['legacy_port'], fixture['plain_ip']]);
   });
 
   test('sorts newest first with id as a stable tie break', () {

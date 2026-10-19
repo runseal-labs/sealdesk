@@ -80,6 +80,12 @@ class SealDeskConnectionRecordStore {
   SealDeskConnectionRecordStore({List<SealDeskConnectionRecord>? records})
       : _records = List<SealDeskConnectionRecord>.of(records ?? const []);
 
+  void replaceWith(SealDeskConnectionRecordStore other) {
+    _records
+      ..clear()
+      ..addAll(other._records);
+  }
+
   factory SealDeskConnectionRecordStore.fromJson(Map<String, dynamic> json) {
     final raw = json['records'];
     if (raw is! List) {
@@ -197,6 +203,35 @@ class SealDeskConnectionRecordStore {
     });
     return items;
   }
+}
+
+List<String> sealDeskPreferredRecentIds(
+  Iterable<String> ids, {
+  String? Function(String canonicalId)? currentAddress,
+}) {
+  final groups = <String, List<String>>{};
+  final order = <String>[];
+  for (final id in ids) {
+    String key;
+    try {
+      key = sealDeskRecordId(id);
+    } on FormatException {
+      key = id;
+    }
+    if (!groups.containsKey(key)) order.add(key);
+    groups.putIfAbsent(key, () => []).add(id);
+  }
+  final preferred = <String>[];
+  for (final key in order) {
+    final group = groups[key]!;
+    final current = currentAddress?.call(key);
+    if (current != null && group.contains(current)) {
+      preferred.add(current);
+    } else {
+      preferred.add(group.first);
+    }
+  }
+  return preferred;
 }
 
 bool sealDeskOfferRememberPassword({required bool usedPermanentPassword}) =>

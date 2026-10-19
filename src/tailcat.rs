@@ -25,6 +25,11 @@ pub(crate) mod host;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod launch;
 pub mod pairing;
+#[cfg(all(
+    not(any(target_os = "android", target_os = "ios")),
+    any(feature = "flutter", test)
+))]
+pub(crate) mod screen_region;
 pub(crate) mod transport;
 
 #[cfg(all(

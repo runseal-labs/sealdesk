@@ -13,6 +13,45 @@ import 'sealdesk_pairing.dart';
 import 'sealdesk_qr_file.dart';
 import 'sealdesk_qr_image.dart';
 
+const kSealDeskRecordsOption = 'sealdesk-connection-records';
+String? _sealDeskRecordsRaw;
+
+void ensureSealDeskRecordsLoaded() {
+  String raw;
+  try {
+    raw = bind.mainGetLocalOption(key: kSealDeskRecordsOption);
+  } catch (_) {
+    return;
+  }
+  if (raw == _sealDeskRecordsRaw) return;
+  _sealDeskRecordsRaw = raw;
+  if (raw.isEmpty) return;
+  try {
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map) return;
+    sealDeskConnectionRecords.replaceWith(
+      SealDeskConnectionRecordStore.fromJson(
+          Map<String, dynamic>.from(decoded)),
+    );
+  } catch (_) {}
+}
+
+Future<void> persistSealDeskRecords() async {
+  final raw = jsonEncode(sealDeskConnectionRecords.toJson());
+  _sealDeskRecordsRaw = raw;
+  try {
+    await bind.mainSetLocalOption(key: kSealDeskRecordsOption, value: raw);
+  } catch (_) {}
+}
+
+List<String> sealDeskVisibleRecentIds(Iterable<String> ids) {
+  ensureSealDeskRecordsLoaded();
+  return sealDeskPreferredRecentIds(
+    ids,
+    currentAddress: (id) => sealDeskConnectionRecords.get(id)?.address,
+  );
+}
+
 class SealDeskLanDevice {
   final String name;
   final String ip;
@@ -102,6 +141,7 @@ class SealDeskLanDirectory extends ChangeNotifier {
 
 Future<void> prepareSealDeskRecord(SealDeskConnectTarget target) async {
   if (!target.ok) return;
+  ensureSealDeskRecordsLoaded();
   if (target.alias != null && target.alias!.isNotEmpty) {
     await bind.mainSetPeerAlias(id: target.id, alias: target.alias!);
   }
@@ -124,6 +164,7 @@ Future<void> prepareSealDeskRecord(SealDeskConnectTarget target) async {
   } on FormatException {
     return;
   }
+  await persistSealDeskRecords();
 }
 
 Future<void> connectSealDeskTarget(
@@ -233,7 +274,9 @@ bool sealDeskHistoryVisible(String id) {
 final sealDeskConnectionRecords = SealDeskConnectionRecordStore();
 
 Future<void> clearSealDeskHistory(Iterable<String> ids) async {
+  ensureSealDeskRecordsLoaded();
   sealDeskConnectionRecords.clearHistory();
+  await persistSealDeskRecords();
   for (final id in ids) {
     await bind.mainSetPeerOption(
         id: id, key: kSealDeskHideRecent, value: 'Y');

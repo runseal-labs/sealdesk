@@ -71,10 +71,13 @@ class _SealDeskLanPeersTabState extends State<SealDeskLanPeersTab> {
                     await maybeShowSealDeskCompatHint(context);
                   }
                   if (!context.mounted) return;
-                  await connect(
+                  await connectSealDeskTarget(
                     context,
-                    device.address,
-                    isSharedPassword: false,
+                    SealDeskConnectTarget(
+                      id: device.address,
+                      kind: 'lan',
+                      passwordKind: kSealDeskPasswordPermanent,
+                    ),
                   );
                 },
                 child: Text(translate('Connect')),

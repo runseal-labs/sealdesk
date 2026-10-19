@@ -11,16 +11,13 @@ use crate::{
     input::*,
     ui_interface::{self, *},
 };
+use base::{config::keys, fs};
 use flutter_rust_bridge::{StreamSink, SyncReturn};
 use hbb_common::{
     config::{self, LocalConfig, PeerConfig, PeerInfoSerde},
     lazy_static, log,
     rendezvous_proto::ConnType,
     ResultType,
-};
-use base::{
-    config::keys,
-    fs,
 };
 use std::{
     collections::HashMap,
@@ -1008,6 +1005,19 @@ pub fn main_get_sealdesk_clipboard_image() -> String {
     #[cfg(any(target_os = "android", target_os = "ios"))]
     let result: ResultType<Vec<u8>> = Err(hbb_common::anyhow::anyhow!(
         "当前平台请使用扫码或相册导入二维码"
+    ));
+    match result {
+        Ok(png) => serde_json::json!({ "png": crate::common::encode64(png) }).to_string(),
+        Err(error) => serde_json::json!({ "error": error.to_string() }).to_string(),
+    }
+}
+
+pub fn main_capture_sealdesk_region(x: i32, y: i32, width: i32, height: i32) -> String {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let result = crate::tailcat::screen_region::capture_png(x, y, width, height);
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    let result: ResultType<Vec<u8>> = Err(hbb_common::anyhow::anyhow!(
+        "Unable to read the QR image. Please choose another one"
     ));
     match result {
         Ok(png) => serde_json::json!({ "png": crate::common::encode64(png) }).to_string(),
@@ -2688,8 +2698,7 @@ pub fn main_set_common(_key: String, _value: String) {
 
 pub fn session_set_common(session_id: SessionID, key: String, value: String) {
     if let Some(s) = sessions::get_session_by_session_id(&session_id) {
-        if key == "continue-insecure-connection"
-        {
+        if key == "continue-insecure-connection" {
             s.continue_insecure_connection(value == "Y");
             return;
         }

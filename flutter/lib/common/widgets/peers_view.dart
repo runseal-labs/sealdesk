@@ -215,6 +215,11 @@ class _PeersViewState extends State<_PeersView> {
     if (widget.peerFilter != null) {
       peers = peers.where((peer) => widget.peerFilter!(peer)).toList();
     }
+    if (isSealDeskApp() && widget.peerTabIndex == PeerTabIndex.recent) {
+      final keep =
+          sealDeskVisibleRecentIds(peers.map((peer) => peer.id)).toSet();
+      peers = peers.where((peer) => keep.contains(peer.id)).toList();
+    }
 
     // fallback to id sorting
     if (!PeerSortType.values.contains(sortedBy)) {
