@@ -118,6 +118,8 @@ extern "C" {
     fn TcCloseForward(addr: *const c_char);
     fn TcPath(addr: *const c_char, timeout_ms: c_int) -> *mut c_char;
     fn TcQR(s: *const c_char) -> *mut c_char;
+    fn TcSetProbeUi(share: c_int, background: c_int, screen: c_int);
+    fn TcSetProbeIncoming(incoming: c_int);
 }
 
 pub const APP_NAME: &str = "SealDesk";
@@ -129,6 +131,82 @@ pub const OPTION_ALLOW: &str = "tailcat-allow";
 pub const OPTION_ADDR: &str = "tailcat-addr";
 /// Live controlled-side tunnel status JSON. Read through the service; not stored.
 pub const OPTION_RELAY_STATUS: &str = "tailcat-relay-status";
+/// UI lifecycle for the self-probe. Not stored. `share`, `background`, `screen` are 0 or 1.
+pub(crate) const OPTION_PROBE_DEMAND: &str = "tailcat-probe-demand";
+
+fn flag_int(on: bool) -> c_int {
+    if on {
+        1
+    } else {
+        0
+    }
+}
+
+fn parse_probe_ui(value: &str) -> Option<(bool, bool, bool)> {
+    let mut share = None;
+    let mut background = None;
+    let mut screen = None;
+    if value.is_empty() {
+        return None;
+    }
+    for part in value.split(',') {
+        let (key, flag) = part.trim().split_once('=')?;
+        let on = match flag.trim() {
+            "1" => true,
+            "0" => false,
+            _ => return None,
+        };
+        match key.trim() {
+            "share" => share = Some(on),
+            "background" => background = Some(on),
+            "screen" => screen = Some(on),
+            _ => return None,
+        }
+    }
+    Some((share?, background?, screen?))
+}
+
+fn apply_probe_ui(value: &str) -> bool {
+    let Some((share, background, screen)) = parse_probe_ui(value) else {
+        return false;
+    };
+    // SAFETY: the arguments are plain C ints. The Go side only stores flags.
+    unsafe {
+        TcSetProbeUi(flag_int(share), flag_int(background), flag_int(screen));
+    }
+    true
+}
+
+/// Records whether any controlled session is up. Called from the server process.
+pub(crate) fn set_probe_incoming_from_sessions() {
+    let incoming = !crate::server::AUTHED_CONNS.lock().unwrap().is_empty();
+    // SAFETY: the argument is 0 or 1. Go does not call back into Rust.
+    unsafe { TcSetProbeIncoming(flag_int(incoming)) }
+}
+
+pub(crate) fn set_probe_ui(value: &str) {
+    if !apply_probe_ui(value) {
+        log::debug!("ignored tailcat probe demand");
+    }
+}
+
+/// Forwards share-page and lifecycle flags to the process that runs the probe.
+pub(crate) fn publish_probe_ui(value: &str) {
+    if parse_probe_ui(value).is_none() {
+        log::debug!("ignored tailcat probe demand");
+        return;
+    }
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        set_probe_ui(value);
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        if let Err(error) = crate::ipc::set_config(OPTION_PROBE_DEMAND, value.to_owned()) {
+            log::debug!("tailcat probe demand was not delivered: {error}");
+        }
+    }
+}
 
 fn cstring(s: &str) -> ResultType<CString> {
     Ok(CString::new(s)?)
@@ -417,6 +495,25 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn probe_ui_demand_requires_all_three_flags() {
+        assert_eq!(
+            super::parse_probe_ui("share=1,background=0,screen=0"),
+            Some((true, false, false))
+        );
+        assert_eq!(
+            super::parse_probe_ui("share=0,background=1,screen=1"),
+            Some((false, true, true))
+        );
+        assert_eq!(super::parse_probe_ui("share=1,background=0"), None);
+        assert_eq!(super::parse_probe_ui("share=2,background=0,screen=0"), None);
+        assert_eq!(
+            super::parse_probe_ui("share=1,background=0,screen=0,extra=1"),
+            None
+        );
+        assert_eq!(super::parse_probe_ui(""), None);
+    }
+
     fn path_status_distinguishes_direct_relay_and_unknown() {
         assert_eq!(path_is_direct("direct 192.0.2.1:1234"), Some(true));
         assert_eq!(path_is_direct("direct [2001:db8::1]:1234"), Some(true));

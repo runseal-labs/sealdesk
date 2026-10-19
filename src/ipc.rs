@@ -986,6 +986,10 @@ async fn handle(data: Data, stream: &mut Connection) {
                     crate::audio_service::set_voice_call_input_device(Some(value), true);
                 } else if name == "unlock-pin" {
                     Config::set_unlock_pin(&value);
+                } else if name == crate::tailcat::OPTION_PROBE_DEMAND {
+                    crate::tailcat::set_probe_ui(&value);
+                    allow_err!(stream.send(&Data::Config((name, Some(String::new())))).await);
+                    return;
                 } else {
                     return;
                 }

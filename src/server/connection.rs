@@ -6571,6 +6571,7 @@ mod raii {
                 sender,
                 printer,
             });
+            crate::tailcat::set_probe_incoming_from_sessions();
             Self::check_wake_lock();
             use std::sync::Once;
             static _ONCE: Once = Once::new();
@@ -6711,6 +6712,7 @@ mod raii {
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             clear_relative_mouse_active(self.0);
             AUTHED_CONNS.lock().unwrap().retain(|c| c.conn_id != self.0);
+            crate::tailcat::set_probe_incoming_from_sessions();
             let remote_count = AUTHED_CONNS
                 .lock()
                 .unwrap()
