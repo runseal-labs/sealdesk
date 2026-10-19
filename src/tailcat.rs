@@ -203,7 +203,13 @@ pub(crate) fn publish_probe_ui(value: &str) {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         if let Err(error) = crate::ipc::set_config(OPTION_PROBE_DEMAND, value.to_owned()) {
-            log::debug!("tailcat probe demand was not delivered: {error}");
+            // The share page republishes once a second. A stopped service would
+            // otherwise append this line on every poll for as long as it stays open.
+            hbb_common::throttled_log!(
+                std::time::Duration::from_secs(60),
+                debug,
+                "tailcat probe demand was not delivered: {error}"
+            );
         }
     }
 }

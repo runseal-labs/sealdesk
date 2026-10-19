@@ -315,20 +315,37 @@ type probeUIState struct {
 var (
 	probeUIMu sync.Mutex
 	probeUI   probeUIState
+	// probeForce is set when demand transitions from not allowed to allowed.
+	// The loop may still be inside a probe or about to arm a backoff, so the
+	// flag, not a wake alone, is what schedules the immediate follow-up.
+	probeForce bool
 	// probeNotify wakes probeLoop when demand changes. A full buffer means a
 	// wake is already pending.
 	probeNotify = make(chan struct{}, 1)
 )
 
-func loadProbeDemand() probeDemand {
+// probeDelayNow is the live loop's wait. Tests replace it so a visibility
+// return can be checked against a long backoff without sleeping that long.
+var probeDelayNow = probeDelay
+
+func demandFromUI(ui probeUIState) probeDemand {
+	return probeDemand{
+		shareVisible: ui.share,
+		background:   ui.background,
+		screenOff:    ui.screenOff,
+		incoming:     ui.incoming,
+	}
+}
+
+// loadProbeDemand returns the current demand and whether visibility just
+// became allowed again. The force flag is one-shot: a return to the share
+// page, foreground, or screen-on must probe now, not after the old backoff.
+func loadProbeDemand() (probeDemand, bool) {
 	probeUIMu.Lock()
 	defer probeUIMu.Unlock()
-	return probeDemand{
-		shareVisible: probeUI.share,
-		background:   probeUI.background,
-		screenOff:    probeUI.screenOff,
-		incoming:     probeUI.incoming,
-	}
+	force := probeForce
+	probeForce = false
+	return demandFromUI(probeUI), force
 }
 
 func wakeProbe() {
@@ -340,10 +357,15 @@ func wakeProbe() {
 
 func setProbeUi(share, background, screen bool) {
 	probeUIMu.Lock()
+	prev := demandFromUI(probeUI).allowed()
 	changed := probeUI.share != share || probeUI.background != background || probeUI.screenOff != screen
 	probeUI.share = share
 	probeUI.background = background
 	probeUI.screenOff = screen
+	next := demandFromUI(probeUI).allowed()
+	if changed && !prev && next {
+		probeForce = true
+	}
 	probeUIMu.Unlock()
 	if changed {
 		wakeProbe()
@@ -404,7 +426,7 @@ func probeLoop(ctx context.Context, gen uint64, addr tailcat.Addr, priv key.Node
 		if ctx.Err() != nil {
 			return
 		}
-		demand := loadProbeDemand()
+		demand, force := loadProbeDemand()
 		if !demand.allowed() {
 			failures = 0
 			due = true
@@ -413,6 +435,14 @@ func probeLoop(ctx context.Context, gen uint64, addr tailcat.Addr, priv key.Node
 				return
 			}
 			continue
+		}
+		// Coming back to the share page, foreground, or screen-on probes
+		// immediately. The previous failure backoff must not keep a stale
+		// unreachable result on screen.
+		if force {
+			failures = 0
+			due = true
+			next = time.Time{}
 		}
 		if !due && !next.IsZero() {
 			if wait := time.Until(next); wait > 0 {
@@ -436,7 +466,7 @@ func probeLoop(ctx context.Context, gen uint64, addr tailcat.Addr, priv key.Node
 		} else {
 			failures = 0
 		}
-		next = time.Now().Add(probeDelay(failures))
+		next = time.Now().Add(probeDelayNow(failures))
 		due = false
 	}
 }

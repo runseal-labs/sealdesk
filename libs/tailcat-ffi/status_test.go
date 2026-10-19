@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -459,6 +461,19 @@ func TestProbeLoadPerMinute(t *testing.T) {
 		t.Fatalf("background then share page = %+v", switched)
 	}
 
+	// One failure arms a 60s backoff. Hiding for less than that, then showing
+	// the share page again, must probe immediately instead of waiting it out.
+	failEnd := probePingTimeout
+	hiddenEnd := failEnd + selfProbeInterval/2
+	returned := simulateThrottledTraffic([]probeSpan{
+		{End: failEnd, Demand: share, OK: false, ProbeDur: probePingTimeout},
+		{End: hiddenEnd, Demand: idle, OK: false, ProbeDur: probePingTimeout},
+		{End: hiddenEnd + time.Millisecond, Demand: share, OK: true},
+	})
+	if returned.Probes != 2 {
+		t.Fatalf("visibility return during backoff = %+v, want 2 probes", returned)
+	}
+
 	oneOK := simulateLegacyTraffic(time.Minute, 0, true)
 	oneNew := simulateThrottledTraffic([]probeSpan{{End: time.Minute, Demand: share, OK: true}})
 	oneFail := simulateLegacyTraffic(time.Minute, probePingTimeout, false)
@@ -532,5 +547,147 @@ func TestProbeLoopParksUntilDemandChanges(t *testing.T) {
 	time.Sleep(40 * time.Millisecond)
 	if calls != 1 {
 		t.Fatalf("kept probing after the session ended: %d", calls)
+	}
+}
+
+func stopLeftoverProbe(t *testing.T) {
+	t.Helper()
+	mu.Lock()
+	if server != nil {
+		mu.Unlock()
+		t.Fatal("server already running")
+	}
+	cancel := probeCancel
+	done := probeDone
+	mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("probe goroutine still running")
+		}
+	}
+	mu.Lock()
+	if probeDone == done {
+		probeCancel = nil
+		probeDone = nil
+	}
+	mu.Unlock()
+}
+
+func TestProbeVisibilityReturnIgnoresBackoff(t *testing.T) {
+	stopLeftoverProbe(t)
+
+	savedPing := probePing
+	savedDelay := probeDelayNow
+	probeDelayNow = func(int) time.Duration { return time.Hour }
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	letGo := func() { releaseOnce.Do(func() { close(release) }) }
+	var calls atomic.Int32
+	probePing = func(ctx context.Context, cl *tailcat.Client) (time.Duration, error) {
+		if calls.Add(1) == 1 {
+			<-release
+		}
+		return 0, errors.New("relay down")
+	}
+	setProbeUi(true, false, false)
+	setProbeIncoming(false)
+	select {
+	case <-probeNotify:
+	default:
+	}
+	probeUIMu.Lock()
+	probeForce = false
+	probeUIMu.Unlock()
+
+	t.Cleanup(func() {
+		probeDelayNow = savedDelay
+		mu.Lock()
+		cancel := probeCancel
+		done := probeDone
+		mu.Unlock()
+		if cancel != nil {
+			cancel()
+		}
+		letGo()
+		if done != nil {
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Errorf("probe goroutine still running")
+			}
+		}
+		probePing = savedPing
+		setProbeUi(false, false, false)
+		setProbeIncoming(false)
+		probeUIMu.Lock()
+		probeForce = false
+		probeUIMu.Unlock()
+		mu.Lock()
+		if probeDone == done {
+			probeCancel = nil
+			probeDone = nil
+		}
+		mu.Unlock()
+	})
+
+	mu.Lock()
+	startSelfProbeLocked("tc-probe-visible", key.NewNode(), "https://tailcat.example/derpmap.json")
+	mu.Unlock()
+	deadline := time.Now().Add(2 * time.Second)
+	for calls.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("first probe = %d", calls.Load())
+	}
+
+	// The loop is blocked inside the probe, so it cannot observe this gap.
+	// Returning to the share page must still force one probe when the attempt
+	// finishes, instead of arming the hour-long failure backoff.
+	setProbeUi(false, false, false)
+	setProbeUi(true, false, false)
+	letGo()
+
+	deadline = time.Now().Add(time.Second)
+	for calls.Load() < 2 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("visibility false->true probes = %d, want 2", calls.Load())
+	}
+}
+
+func TestProbeForceSetWhenVisibilityReturns(t *testing.T) {
+	setProbeIncoming(false)
+	cases := []struct {
+		name string
+		hide func()
+		show func()
+	}{
+		{"share page", func() { setProbeUi(false, false, false) }, func() { setProbeUi(true, false, false) }},
+		{"foreground", func() { setProbeUi(true, true, false) }, func() { setProbeUi(true, false, false) }},
+		{"screen on", func() { setProbeUi(true, false, true) }, func() { setProbeUi(true, false, false) }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setProbeUi(true, false, false)
+			probeUIMu.Lock()
+			probeForce = false
+			probeUIMu.Unlock()
+			tc.hide()
+			tc.show()
+			probeUIMu.Lock()
+			force := probeForce
+			probeForce = false
+			probeUIMu.Unlock()
+			if !force {
+				t.Fatal("visibility return did not request an immediate probe")
+			}
+		})
 	}
 }

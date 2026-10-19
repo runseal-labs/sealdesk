@@ -1621,6 +1621,16 @@ async fn get_config_async(name: &str, ms_timeout: u64) -> ResultType<Option<Stri
 pub async fn set_config_async(name: &str, value: String) -> ResultType<()> {
     let mut c = connect(1000, "").await?;
     c.send_config(name, value).await?;
+    // The service applies this on its own connection task. Returning before that
+    // ack lets a newer demand be sent and then overwritten by this delivery.
+    if name == crate::tailcat::OPTION_PROBE_DEMAND {
+        if let Some(Data::Config((response_name, Some(_)))) = c.next_timeout(1_000).await? {
+            if response_name == name {
+                return Ok(());
+            }
+        }
+        bail!("tailcat probe demand was not applied");
+    }
     if name == base::config::keys::OPTION_SEALDESK_RESET_ADDRESS || name == "sealdesk-lan-forget" {
         if let Some(Data::Config((response_name, Some(error)))) = c.next_timeout(1_000).await? {
             if response_name == name {

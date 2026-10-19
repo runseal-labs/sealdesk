@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import '../models/platform_model.dart';
@@ -31,6 +32,12 @@ class SealDeskProbeDemand {
   static bool background = false;
   static bool screenOff = false;
   static String? _last;
+  static int _seq = 0;
+  static Future<void> _pending = Future<void>.value();
+
+  /// Replaces the desktop/mobile option write in tests.
+  @visibleForTesting
+  static Future<void> Function(String value)? debugWriteForTesting;
 
   static void setShareVisible(bool value) {
     if (shareVisible == value) {
@@ -50,6 +57,11 @@ class SealDeskProbeDemand {
 
   /// [repeat] resends the same flags. The share page does this on its existing
   /// poll so a desktop server that restarted still learns the current demand.
+  ///
+  /// Writes are ordered. A demand that has not started is dropped once a newer
+  /// one exists, and only one [bind.mainSetOption] is in flight. Desktop
+  /// delivery returns after the service applies that value, so a slow older
+  /// write cannot be the one left in effect.
   static void publish({bool repeat = false}) {
     final value = sealDeskProbeDemandValue(
       shareVisible: shareVisible,
@@ -58,7 +70,30 @@ class SealDeskProbeDemand {
     );
     if (!repeat && value == _last) return;
     _last = value;
-    bind.mainSetOption(key: 'tailcat-probe-demand', value: value);
+    final seq = ++_seq;
+    _pending = _pending.catchError((Object _) {}).then((_) async {
+      if (seq != _seq) return;
+      final write = debugWriteForTesting;
+      if (write != null) {
+        await write(value);
+        return;
+      }
+      await bind.mainSetOption(key: 'tailcat-probe-demand', value: value);
+    });
+  }
+
+  @visibleForTesting
+  static Future<void> debugDrainForTesting() => _pending;
+
+  @visibleForTesting
+  static void debugResetForTesting() {
+    shareVisible = false;
+    background = false;
+    screenOff = false;
+    _last = null;
+    _seq = 0;
+    _pending = Future<void>.value();
+    debugWriteForTesting = null;
   }
 }
 
