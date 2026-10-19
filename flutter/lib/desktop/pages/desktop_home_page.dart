@@ -2,8 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 
-import '../../common/sealdesk_startup.dart';
-
 import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -42,7 +40,6 @@ const borderColor = Color(0xFF2F65BA);
 class _DesktopHomePageState extends State<DesktopHomePage>
     with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
   final _leftPaneScrollController = ScrollController();
-  final _sealdeskInitialInput = SealDeskStartup.takeTarget();
 
   @override
   bool get wantKeepAlive => true;
@@ -64,38 +61,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    if (bind.mainGetAppNameSync() == 'SealDesk') {
-      final isIncomingOnly = bind.isIncomingOnly();
-      final isOutgoingOnly = bind.isOutgoingOnly();
-      return _buildBlock(
-          child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (!isOutgoingOnly)
-            SizedBox(
-              width: 320,
-              child: SealDeskNativeHomePage(
-                hostOnly: true,
-                onStart: () => start_service(true),
-                onStop: () => start_service(false),
-                shareSettings: sealDeskShareSettingsAllowed()
-                    ? SealDeskShareSettings(
-                        openSetPassword: setPasswordDialog,
-                        openOtpLength: () =>
-                            setTemporaryPasswordLengthDialog(
-                                gFFI.dialogManager),
-                      )
-                    : null,
-              ),
-            ),
-          if (!isIncomingOnly && !isOutgoingOnly)
-            const VerticalDivider(width: 1),
-          if (!isIncomingOnly)
-            Expanded(
-                child: ConnectionPage(initialInput: _sealdeskInitialInput)),
-        ],
-      ));
-    }
     final isIncomingOnly = bind.isIncomingOnly();
     return _buildBlock(
         child: Row(
@@ -116,15 +81,19 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   Widget buildLeftPane(BuildContext context) {
     final isIncomingOnly = bind.isIncomingOnly();
     final isOutgoingOnly = bind.isOutgoingOnly();
+    final sealDesk = bind.mainGetAppNameSync() == 'SealDesk';
+    final narrow = MediaQuery.sizeOf(context).width < 800;
     final children = <Widget>[
       if (!isOutgoingOnly) buildPresetPasswordWarning(),
-      Align(
-        alignment: Alignment.center,
-        child: loadLogo(),
-      ),
-      buildTip(context),
-      if (!isOutgoingOnly) buildIDBoard(context),
-      if (!isOutgoingOnly) buildPasswordBoard(context),
+      if (!sealDesk)
+        Align(
+          alignment: Alignment.center,
+          child: loadLogo(),
+        ),
+      if (!sealDesk) buildTip(context),
+      if (!isOutgoingOnly && sealDesk) _sealDeskQrPane(),
+      if (!isOutgoingOnly && !sealDesk) buildIDBoard(context),
+      if (!isOutgoingOnly && !sealDesk) buildPasswordBoard(context),
       buildHelpCards(),
     ];
     if (isIncomingOnly) {
@@ -145,7 +114,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     return ChangeNotifierProvider.value(
       value: gFFI.serverModel,
       child: Container(
-        width: isIncomingOnly ? 280.0 : 200.0,
+        width: isIncomingOnly ? 280.0 : (sealDesk && !narrow ? 300.0 : 200.0),
         color: Theme.of(context).colorScheme.background,
         child: Stack(
           children: [
@@ -197,7 +166,23 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   buildRightPane(BuildContext context) {
     return Container(
       color: Theme.of(context).scaffoldBackgroundColor,
-      child: ConnectionPage(),
+      child: ConnectionPage(initialInput: _sealdeskInitialInput),
+    );
+  }
+
+  Widget _sealDeskQrPane() {
+    return SealDeskNativeHomePage(
+      hostOnly: true,
+      sidePane: true,
+      onStart: () => start_service(true),
+      onStop: () => start_service(false),
+      shareSettings: sealDeskShareSettingsAllowed()
+          ? SealDeskShareSettings(
+              openSetPassword: setPasswordDialog,
+              openOtpLength: () =>
+                  setTemporaryPasswordLengthDialog(gFFI.dialogManager),
+            )
+          : null,
     );
   }
 
@@ -527,14 +512,20 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       }
       if (bind.mainCurrentIsWayland()) {
         LinuxCards.add(buildInstallCard(
-            "Warning", "wayland_experiment_tip", "", () async {},
-            marginTop: LinuxCards.isEmpty ? 20.0 : 5.0,
-            ));
+          "Warning",
+          "wayland_experiment_tip",
+          "",
+          () async {},
+          marginTop: LinuxCards.isEmpty ? 20.0 : 5.0,
+        ));
       } else if (bind.mainIsLoginWayland()) {
-        LinuxCards.add(buildInstallCard("Warning",
-            "Login screen using Wayland is not supported", "", () async {},
-            marginTop: LinuxCards.isEmpty ? 20.0 : 5.0,
-            ));
+        LinuxCards.add(buildInstallCard(
+          "Warning",
+          "Login screen using Wayland is not supported",
+          "",
+          () async {},
+          marginTop: LinuxCards.isEmpty ? 20.0 : 5.0,
+        ));
       }
       if (LinuxCards.isNotEmpty) {
         return Column(
@@ -754,7 +745,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
     bool isChattyMethod(String methodName) {
       switch (methodName) {
-        case kWindowBumpMouse: return true;
+        case kWindowBumpMouse:
+          return true;
       }
 
       return false;
@@ -763,7 +755,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     rustDeskWinManager.setMethodHandler((call, fromWindowId) async {
       if (!isChattyMethod(call.method) && call.method != kWindowConnect) {
         debugPrint(
-          "[Main] call ${call.method} with args ${call.arguments} from window $fromWindowId");
+            "[Main] call ${call.method} with args ${call.arguments} from window $fromWindowId");
       }
       if (call.method == kWindowMainWindowOnTop) {
         windowOnTop(null);
@@ -788,9 +780,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           connToken: call.arguments['connToken'],
         );
       } else if (call.method == kWindowBumpMouse) {
-        return RdPlatformChannel.instance.bumpMouse(
-          dx: call.arguments['dx'],
-          dy: call.arguments['dy']);
+        return RdPlatformChannel.instance
+            .bumpMouse(dx: call.arguments['dx'], dy: call.arguments['dy']);
       } else if (call.method == kWindowEventMoveTabToNewWindow) {
         final args = call.arguments.split(',');
         int? windowId;

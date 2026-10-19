@@ -306,6 +306,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Reset address", "Reset address"),
         ("Show QR code", "Show QR code"),
         ("Hide QR code", "Hide QR code"),
+        ("Tap to show", "Tap to show"),
+        ("Close", "Close"),
         ("QR codes are valid for 10 minutes. Refresh the password to invalidate old codes. Share carefully.", "QR codes are valid for 10 minutes. Refresh the password to invalidate old codes. Share carefully."),
         ("Pairing code", "Pairing code"),
         ("Paste a pairing code starting with SEALDESK:", "Paste a pairing code starting with SEALDESK:"),

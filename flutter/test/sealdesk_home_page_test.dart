@@ -37,6 +37,7 @@ class _I18nBinding extends Fake implements SealdeskImpl {
       'Confirm reset': '确认重置',
       'Hide QR code': '遮挡二维码',
       'Show QR code': '显示二维码',
+      'Tap to show': '点按显示',
       'Sharing stopped': '共享已停止',
       'Sharing': '共享中',
       'Waiting for connection': '等待连接',
@@ -49,6 +50,7 @@ class _I18nBinding extends Fake implements SealdeskImpl {
       'This disconnects the current session and invalidates all old QR codes. Share the new code with the other person.':
           '这会断开当前被控会话，并使所有旧二维码失效。请将新二维码重新分享给对方。',
       'QR code hidden': '二维码已遮挡',
+      'Close': '关闭',
       'Unable to get pairing code, please try again': '无法获取二维码，请重试',
       'Connecting...': '正在连接…',
       'Connect': '连接',
@@ -100,28 +102,45 @@ void main() {
     Future<SealDeskPairing> Function(String)? loadImageFile,
     Future<void> Function()? resetAddress,
     Future<SealDeskPairing> Function()? pasteImage,
+    bool sidePane = false,
+    Size surface = const Size(800, 900),
   }) async {
-    await tester.binding.setSurfaceSize(const Size(800, 900));
+    await tester.binding.setSurfaceSize(surface);
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
         body: RepaintBoundary(
           key: const ValueKey('page-screenshot'),
-          child: SealDeskHomePage(
-            initialMode: mode,
-            initialInput: initialInput,
-            loadHost: loadHost ??
-                () async => const SealDeskHostState(
-                    address: address, password: 'secret', name: '电脑'),
-            refreshPassword: refresh ?? () async {},
-            connect: connect ?? (_) async {},
-            saveMode: saveMode ?? (_) async {},
-            now: now ?? () => 100,
-            pickImage: pickImage,
-            loadImageFile: loadImageFile,
-            resetAddress: resetAddress,
-            pasteImage: pasteImage,
-          ),
+          child: Builder(builder: (context) {
+            final page = SealDeskHomePage(
+              sidePane: sidePane,
+              hostOnly: sidePane,
+              initialMode: mode,
+              initialInput: initialInput,
+              loadHost: loadHost ??
+                  () async => const SealDeskHostState(
+                      address: address, password: 'secret', name: '电脑'),
+              refreshPassword: refresh ?? () async {},
+              connect: connect ?? (_) async {},
+              saveMode: saveMode ?? (_) async {},
+              now: now ?? () => 100,
+              pickImage: pickImage,
+              loadImageFile: loadImageFile,
+              resetAddress: resetAddress,
+              pasteImage: pasteImage,
+            );
+            if (!sidePane) return page;
+            return MediaQuery(
+              data: MediaQueryData(size: surface),
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: SizedBox(
+                  width: surface.width < 800 ? 200 : 300,
+                  child: page,
+                ),
+              ),
+            );
+          }),
         ),
       ),
     ));
@@ -422,12 +441,16 @@ void main() {
             name: '电脑',
             connectedCount: count));
     expect(find.text('共享中'), findsOneWidget);
+    expect(find.byType(QrImageView), findsOneWidget);
     for (final active in [1, 2, 0]) {
       count = active;
       await tester.pump(const Duration(seconds: 1));
       await tester.pump();
       expect(find.text('共享中'), findsOneWidget);
-      expect(find.byType(QrImageView), findsOneWidget);
+      // 0 -> N masks; staying connected or dropping back to 0 does not
+      // reveal or mask again.
+      expect(find.byType(QrImageView), findsNothing);
+      expect(find.text('点按显示'), findsOneWidget);
     }
   });
 
@@ -616,8 +639,7 @@ void main() {
     await open();
     expect(find.text(current), findsOneWidget);
     expect(
-        find.text(
-            'Saving restarts sharing and disconnects current sessions.'),
+        find.text('Saving restarts sharing and disconnects current sessions.'),
         findsOneWidget);
     await tester.enterText(input, 'https://other.example/derp.json');
     await tester.tap(find.text('Save'));
@@ -803,7 +825,12 @@ void main() {
     await tester.tap(find.text('遮挡二维码'));
     await tester.pump();
     expect(find.byType(QrImageView), findsNothing);
-    expect(find.text('二维码已遮挡'), findsOneWidget);
+    expect(find.text('点按显示'), findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byKey(const ValueKey('sealdesk-qr-mask')),
+            matching: find.byType(IconButton)),
+        findsNothing);
     await tester.tap(find.text('显示二维码'));
     await tester.pump();
     expect(find.byType(QrImageView), findsOneWidget);
@@ -1052,6 +1079,49 @@ void main() {
     await tester.pump();
     expect(find.text('正在检查中继…'), findsOneWidget);
     expect(find.text('中继不可达，扫码连接很可能会超时'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  Future<void> _shot(WidgetTester tester, String name) async {
+    final dir = Platform.environment['SEALDESK_QR_SHOT'];
+    if (dir == null || dir.isEmpty) return;
+    await tester.pumpAndSettle();
+    final boundary = tester.renderObject<RenderRepaintBoundary>(
+        find.byKey(const ValueKey('page-screenshot')));
+    await tester.runAsync(() async {
+      final image = await boundary.toImage(pixelRatio: 2);
+      final data = await image.toByteData(format: ui.ImageByteFormat.png);
+      image.dispose();
+      final file = File('$dir/$name.png');
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes(data!.buffer.asUint8List());
+    });
+  }
+
+  testWidgets('desktop QR card screenshots', (tester) async {
+    await showPage(tester, sidePane: true, surface: const Size(1100, 720));
+    expect(find.byType(QrImageView), findsOneWidget);
+    await _shot(tester, 'qr-desktop');
+    await tester.tap(find.byKey(const ValueKey('sealdesk-hide')));
+    await tester.pump();
+    await _shot(tester, 'qr-masked');
+    await tester.tap(find.byKey(const ValueKey('sealdesk-qr-mask')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('sealdesk-qr-tap')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byKey(const ValueKey('sealdesk-qr-full')), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+
+    await showPage(tester, sidePane: true, surface: const Size(760, 640));
+    expect(
+        find.byKey(const ValueKey('sealdesk-side-collapsed')), findsOneWidget);
+    await _shot(tester, 'qr-collapsed');
+    await tester.pumpWidget(const SizedBox());
+
+    await showPage(tester, surface: const Size(412, 915));
+    expect(find.byType(QrImageView), findsOneWidget);
+    await _shot(tester, 'qr-mobile');
     await tester.pumpWidget(const SizedBox());
   });
 }
