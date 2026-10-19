@@ -10,7 +10,7 @@ cp "$repository/tests/sealdesk_flutter/pubspec.yaml" "$test_directory/pubspec.ya
 mkdir -p "$test_directory/lib/common" "$test_directory/lib/desktop/pages" "$test_directory/test"
 mkdir -p "$test_directory/lib/mobile/pages"
 ln -s "$repository/flutter/lib/mobile/pages/sealdesk_scan_page.dart" "$test_directory/lib/mobile/pages/sealdesk_scan_page.dart"
-for source in sealdesk_pairing.dart sealdesk_qr_image.dart sealdesk_qr_file.dart sealdesk_startup.dart sealdesk_connection.dart; do
+for source in sealdesk_pairing.dart sealdesk_qr_image.dart sealdesk_qr_file.dart sealdesk_startup.dart sealdesk_connection.dart sealdesk_connection_record.dart sealdesk_qr_mask.dart; do
   if [[ -f "$repository/flutter/lib/common/$source" ]]; then
     ln -s "$repository/flutter/lib/common/$source" "$test_directory/lib/common/$source"
   fi
@@ -20,6 +20,9 @@ ln -s "$repository/flutter/test/fixtures" "$test_directory/test/fixtures"
 for test_file in "$repository"/flutter/test/sealdesk_*_test.dart; do
   ln -s "$test_file" "$test_directory/test/$(basename -- "$test_file")"
 done
+if [[ -f "$repository/flutter/test/sealdesk_pr2_support.dart" ]]; then
+  ln -s "$repository/flutter/test/sealdesk_pr2_support.dart" "$test_directory/test/sealdesk_pr2_support.dart"
+fi
 cd "$test_directory"
 "$flutter_executable" --suppress-analytics pub get
 "$flutter_executable" --suppress-analytics analyze --no-pub

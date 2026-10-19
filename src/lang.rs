@@ -181,6 +181,37 @@ pub fn translate(name: String) -> String {
     translate_locale(name, &locale)
 }
 
+fn preserves_literal_rustdesk(name: &str) -> bool {
+    name.starts_with("upgrade_rustdesk_server_pro")
+        || matches!(
+            name,
+            "powered_by_me"
+                | "Allow RustDesk compatible connections"
+                | "Compatible with RustDesk · Unencrypted"
+                | "compat-lan-hint"
+        )
+}
+
+fn apply_branding(name: &str, text: &str) -> String {
+    if crate::is_rustdesk() || !text.contains("RustDesk") || preserves_literal_rustdesk(name) {
+        return text.to_owned();
+    }
+    let app_name = crate::get_app_name();
+    if !app_name.contains("RustDesk") {
+        return text.replace("RustDesk", &app_name);
+    }
+    // https://github.com/rustdesk/rustdesk-server-pro/issues/845
+    // If app_name contains "RustDesk" (e.g., "RustDesk-Admin"), avoid replacing
+    // "RustDesk" inside the already-substituted app name.
+    const PLACEHOLDER: &str = "#A-P-P-N-A-M-E#";
+    if text.contains(PLACEHOLDER) {
+        return text.to_owned();
+    }
+    text.replace(&app_name, PLACEHOLDER)
+        .replace("RustDesk", &app_name)
+        .replace(PLACEHOLDER, &app_name)
+}
+
 pub fn translate_locale(name: String, locale: &str) -> String {
     let lang = resolve_lang(
         &hbb_common::config::LocalConfig::get_option("lang"),
@@ -250,35 +281,7 @@ pub fn translate_locale(name: String, locale: &str) -> String {
         if let Some(value) = placeholder_value.as_ref() {
             s = s.replace("{}", &value);
         }
-        if !crate::is_rustdesk() {
-            if s.contains("RustDesk")
-                && !name.starts_with("upgrade_rustdesk_server_pro")
-                && name != "powered_by_me"
-                && name != "Allow RustDesk compatible connections"
-            {
-                let app_name = crate::get_app_name();
-                if !app_name.contains("RustDesk") {
-                    s = s.replace("RustDesk", &app_name);
-                } else {
-                    // https://github.com/rustdesk/rustdesk-server-pro/issues/845
-                    // If app_name contains "RustDesk" (e.g., "RustDesk-Admin"), we need to avoid
-                    // replacing "RustDesk" within the already-substituted app_name, which would
-                    // cause duplication like "RustDesk-Admin" -> "RustDesk-Admin-Admin".
-                    //
-                    // app_name only contains alphanumeric and hyphen.
-                    const PLACEHOLDER: &str = "#A-P-P-N-A-M-E#";
-                    if !s.contains(PLACEHOLDER) {
-                        s = s.replace(&app_name, PLACEHOLDER);
-                        s = s.replace("RustDesk", &app_name);
-                        s = s.replace(PLACEHOLDER, &app_name);
-                    } else {
-                        // It's very unlikely to reach here.
-                        // Skip replacement to avoid incorrect result.
-                    }
-                }
-            }
-        }
-        s
+        apply_branding(&name, &s)
     };
     if let Some(v) = m.get(&name as &str) {
         if !v.is_empty() {
@@ -353,6 +356,55 @@ mod test {
         assert_eq!(f("zh-cn", "en-US", false), "zh-cn");
         assert_eq!(f("", "zh_TW", false), "zh-tw");
         assert_eq!(f("", "ja-JP", false), "ja");
+    }
+
+    #[test]
+    fn pr2_compat_copy_keeps_the_rustdesk_protocol_name() {
+        let compat = "Compatible with RustDesk \u{b7} Unencrypted";
+        let hint = "This device uses RustDesk compatibility mode and is unencrypted on the LAN.";
+        assert_eq!(super::apply_branding(compat, compat), compat);
+        assert_eq!(super::apply_branding("compat-lan-hint", hint), hint);
+        assert!(
+            !super::apply_branding("compat-lan-hint", hint).contains("SealDesk")
+        );
+        let branded = super::apply_branding("install_tip", "Grant RustDesk access");
+        assert_eq!(branded, "Grant SealDesk access");
+    }
+
+    #[test]
+    fn pr2_i18n_keys_exist_for_every_language() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lang");
+        for key in crate::sealdesk_records::PR2_I18N_KEYS {
+            let needle = format!("(\"{key}\",");
+            for entry in std::fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+                    continue;
+                }
+                let text = std::fs::read_to_string(&path).unwrap();
+                assert!(text.contains(&needle), "{} missing {key}", path.display());
+            }
+        }
+        assert_eq!(
+            super::cn::T.get("No records").copied(),
+            Some("\u{6682}\u{65e0}\u{8bb0}\u{5f55}")
+        );
+        assert_eq!(
+            super::en::T.get("Searching\u{2026}").copied(),
+            Some("Searching\u{2026}")
+        );
+        assert_eq!(
+            super::cn::T.get("compat-lan-hint").copied(),
+            Some("\u{8be5}\u{8bbe}\u{5907}\u{4f7f}\u{7528} RustDesk \u{517c}\u{5bb9}\u{6a21}\u{5f0f}\u{ff0c}\u{5c40}\u{57df}\u{7f51}\u{5185}\u{672a}\u{52a0}\u{5bc6}")
+        );
+        assert_eq!(
+            super::cn::T.get("Tap to show").copied(),
+            Some("\u{70b9}\u{6309}\u{663e}\u{793a}")
+        );
+        assert_eq!(
+            super::cn::T.get("LAN").copied(),
+            Some("\u{5c40}\u{57df}\u{7f51}")
+        );
     }
 
     #[test]

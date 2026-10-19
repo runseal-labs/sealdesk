@@ -1,0 +1,12 @@
+{
+  "tailcat": "tc8f3abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc21",
+  "tailcat_short": "tc8f3a…c21",
+  "lan_url": "lan:192.168.31.5:21118/ab",
+  "lan_url_rotated_key": "lan:192.168.31.5:21118/cd",
+  "lan_id": "lan:192.168.31.5",
+  "lan_ip": "192.168.31.5",
+  "plain_ip": "192.168.31.180",
+  "legacy_port": "192.168.31.20:21118",
+  "legacy_user": "alice@office-pc",
+  "legacy_user_display": "office-pc"
+}
