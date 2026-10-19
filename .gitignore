@@ -72,6 +72,11 @@ flutter/web/
 !/flutter/android/app/src/main/res/mipmap-xhdpi/ic_launcher_monochrome.png
 !/flutter/android/app/src/main/res/mipmap-xxhdpi/ic_launcher_monochrome.png
 !/flutter/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_monochrome.png
+!/flutter/android/app/src/main/res/mipmap-mdpi/ic_launcher_background.png
+!/flutter/android/app/src/main/res/mipmap-hdpi/ic_launcher_background.png
+!/flutter/android/app/src/main/res/mipmap-xhdpi/ic_launcher_background.png
+!/flutter/android/app/src/main/res/mipmap-xxhdpi/ic_launcher_background.png
+!/flutter/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_background.png
 
 # Private local configuration, credentials, and generated packages
 .env.*

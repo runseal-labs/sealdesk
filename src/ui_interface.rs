@@ -473,6 +473,10 @@ pub fn set_options(m: HashMap<String, String>) {
 
 #[inline]
 pub fn set_option(key: String, value: String) {
+    if key == crate::tailcat::OPTION_PROBE_DEMAND {
+        crate::tailcat::publish_probe_ui(&value);
+        return;
+    }
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     if key == "sealdesk-lan-forget" {
         if let Err(error) = ipc::set_config(&key,value) { log::error!("LAN authorization removal failed: {error}"); }
@@ -528,6 +532,16 @@ pub fn set_option(key: String, value: String) {
         if compat_was {
             crate::lan::note_rustdesk_compat(true);
         }
+    }
+    // "Start service" only clears stop-service. Cold start no longer brings the
+    // process up while that flag is set, so the button has to.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if key == keys::OPTION_STOP_SERVICE && value != "Y" && !config::is_outgoing_only() {
+        std::thread::spawn(|| {
+            if let Err(error) = crate::tailcat::host::request_mode("host") {
+                log::warn!("SealDesk service start failed: {error}");
+            }
+        });
     }
 }
 

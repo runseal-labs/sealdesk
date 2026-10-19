@@ -23,7 +23,16 @@ class _I18nBinding extends Fake implements SealdeskImpl {
   @override
   String translate(
       {required String name, required String locale, dynamic hint}) {
-    if (language == 'en') return name;
+    final match = RegExp(r'\{(.*?)\}').firstMatch(name);
+    var key = name;
+    String? value;
+    if (match != null) {
+      value = match.group(1);
+      key = name.replaceFirst(match.group(0)!, '{}');
+    }
+    if (language == 'en') {
+      return value == null ? key : key.replaceFirst('{}', value);
+    }
     const values = {
       'Load QR image': '载入二维码图片',
       'Drop one QR image at a time': '请一次拖入一张二维码图片',
@@ -62,8 +71,10 @@ class _I18nBinding extends Fake implements SealdeskImpl {
       'Cannot reach the relay server. Check the network or relay settings':
           '连不上中继服务器，请检查网络或中继设置',
       'Error details': '错误详情',
+      'QR refreshes in {} min': '二维码 {} 分钟后刷新',
     };
-    return values[name] ?? name;
+    final text = values[key] ?? key;
+    return value == null ? text : text.replaceFirst('{}', value);
   }
 }
 
@@ -103,6 +114,8 @@ void main() {
     Future<void> Function()? resetAddress,
     Future<SealDeskPairing> Function()? pasteImage,
     bool sidePane = false,
+    bool hostOnly = false,
+    Future<void> Function()? onStart,
     Size surface = const Size(800, 900),
   }) async {
     await tester.binding.setSurfaceSize(surface);
@@ -114,7 +127,7 @@ void main() {
           child: Builder(builder: (context) {
             final page = SealDeskHomePage(
               sidePane: sidePane,
-              hostOnly: sidePane,
+              hostOnly: hostOnly || sidePane,
               initialMode: mode,
               initialInput: initialInput,
               loadHost: loadHost ??
@@ -123,6 +136,7 @@ void main() {
               refreshPassword: refresh ?? () async {},
               connect: connect ?? (_) async {},
               saveMode: saveMode ?? (_) async {},
+              onStart: onStart,
               now: now ?? () => 100,
               pickImage: pickImage,
               loadImageFile: loadImageFile,
@@ -480,6 +494,67 @@ void main() {
     }
   });
 
+  test('saved page is only which screen to restore', () {
+    expect(sealDeskInitialPage('control'), 'control');
+    expect(sealDeskInitialPage('host'), 'host');
+    expect(sealDeskInitialPage(''), 'host');
+    expect(sealDeskInitialPage('nope'), 'host');
+  });
+
+  testWidgets(
+      'opening the share page does not rewrite mode or report switch failure',
+      (tester) async {
+    for (final forced in [
+      (sidePane: true, hostOnly: false),
+      (sidePane: false, hostOnly: true),
+    ]) {
+      final saved = <String>[];
+      await showPage(
+        tester,
+        mode: 'control',
+        sidePane: forced.sidePane,
+        hostOnly: forced.hostOnly,
+        saveMode: (mode) async {
+          saved.add(mode);
+          throw const FormatException('切换失败，请重试');
+        },
+      );
+      expect(saved, isEmpty);
+      expect(find.text('切换失败，请重试'), findsNothing);
+      await tester.pump(const Duration(seconds: 1));
+      expect(saved, isEmpty);
+      expect(find.text('切换失败，请重试'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    }
+  });
+
+  testWidgets('stopped share card stays stopped until start is pressed',
+      (tester) async {
+    var starts = 0;
+    final saved = <String>[];
+    await showPage(
+      tester,
+      mode: 'control',
+      hostOnly: true,
+      saveMode: (mode) async => saved.add(mode),
+      onStart: () async {
+        starts += 1;
+      },
+      loadHost: () async => const SealDeskHostState(
+        address: '',
+        password: null,
+        name: '电脑',
+        stopped: true,
+      ),
+    );
+    expect(find.text('共享已停止'), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('sealdesk-start-service')), findsOneWidget);
+    expect(saved, isEmpty);
+    expect(starts, 0);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('startup restores the connect page and saves the next choice',
       (tester) async {
     final saved = <String>[];
@@ -818,6 +893,30 @@ void main() {
     final renewed = await copyPairing(tester, now: now);
     expect(renewed.expiresAt, 1300);
     expect(renewed.password, 'secret');
+  });
+
+  testWidgets('countdown chip counts QR refresh minutes, not a session limit',
+      (tester) async {
+    var now = 100;
+    await showPage(tester, now: () => now);
+    Text chipText() => tester.widget<Text>(find.descendant(
+        of: find.byKey(const ValueKey('sealdesk-qr-ttl')),
+        matching: find.byType(Text)));
+    expect(chipText().data, '二维码 10 分钟后刷新');
+    expect(find.textContaining('10 分钟内有效'), findsNothing);
+    final expiresAt = (await copyPairing(tester)).expiresAt;
+    now = 160;
+    await tester.pump(const Duration(seconds: 1));
+    expect(chipText().data, '二维码 9 分钟后刷新');
+    now = 641;
+    await tester.pump(const Duration(seconds: 1));
+    expect(chipText().data, '二维码 1 分钟后刷新');
+    expect((await copyPairing(tester)).expiresAt, expiresAt);
+    binding.language = 'en';
+    now = 100;
+    await tester.pump(const Duration(seconds: 1));
+    expect(chipText().data, 'QR refreshes in 10 min');
+    await tester.pumpWidget(const SizedBox());
   });
 
   testWidgets('mask hides QR and restores it on demand', (tester) async {

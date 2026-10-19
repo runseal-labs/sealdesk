@@ -260,44 +260,306 @@ def linux_icon(n, margin=1):
     return with_margin(resized, margin)
 
 
-def full_bleed(image):
-    alpha = np.array(image.getchannel('A'))
-    ys, xs = np.where(alpha > 0)
-    if len(xs) == 0:
-        return False
-    h, w = alpha.shape
-    return xs.min() == 0 and ys.min() == 0 and xs.max() == w - 1 and ys.max() == h - 1
+# Adaptive layers are 108dp. Launcher masks may cover only the inner 72dp,
+# and the subject has to stay inside the centered 66dp-diameter circle.
+_ADAPTIVE_CANVAS_DP = 108.0
+_ADAPTIVE_SAFE_DIAMETER_DP = 66.0
 
 
-def adaptive_foreground(canvas):
-    """b1: scale the whole cleaned icon so its rounded tile covers the canvas.
+def _dilate(mask):
+    h, w = mask.shape
+    pad = np.pad(mask, 1)
+    out = np.zeros_like(mask)
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            out |= pad[1 + dy:1 + dy + h, 1 + dx:1 + dx + w]
+    return out
 
-    Uniform Lanczos only, then a center crop. The tile is wider than it is
-    tall, so a few percent of the plate's left and right is what the crop
-    drops; the seal stays inside. Launcher masks do the only further crop.
+
+def _outside(free):
+    """Pixels of `free` reachable from the canvas border (4-connected)."""
+    h, w = free.shape
+    seen = np.zeros((h, w), bool)
+    stack = []
+    for x in range(w):
+        for y in (0, h - 1):
+            if free[y, x] and not seen[y, x]:
+                seen[y, x] = True
+                stack.append((y, x))
+    for y in range(h):
+        for x in (0, w - 1):
+            if free[y, x] and not seen[y, x]:
+                seen[y, x] = True
+                stack.append((y, x))
+    while stack:
+        y, x = stack.pop()
+        for ny, nx in ((y + 1, x), (y - 1, x), (y, x + 1), (y, x - 1)):
+            if 0 <= ny < h and 0 <= nx < w and free[ny, nx] and not seen[ny, nx]:
+                seen[ny, nx] = True
+                stack.append((ny, nx))
+    return seen
+
+
+def plate_mask(arr):
+    """Pixels of the rounded-square plate, not the seal or the cat.
+
+    The plate is the teal region that touches the outside of the artwork.
+    Subject pixels (white fur, features, mint cat, lock) are a different
+    color and stop the flood. A pale one-to-three pixel rim where the plate
+    meets the fur is included so the cut does not leave a light outline.
     """
-    image = master()
-    bbox = image.getchannel('A').getbbox()
-    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    for extra in (2, 4, 6, 8, 12):
-        scale = max((canvas + extra) / tw, (canvas + extra) / th)
-        sw = max(canvas, round(image.width * scale))
-        sh = max(canvas, round(image.height * scale))
-        if sw > image.width or sh > image.height:
-            raise SystemExit(f'foreground {canvas} would upscale the master')
-        scaled = image.resize((sw, sh), Image.Resampling.LANCZOS)
-        left = bbox[0] * sw / image.width
-        top = bbox[1] * sh / image.height
-        tile_w = tw * sw / image.width
-        tile_h = th * sh / image.height
-        crop_x = int(round(left + (tile_w - canvas) / 2))
-        crop_y = int(round(top + (tile_h - canvas) / 2))
-        crop_x = max(0, min(crop_x, sw - canvas))
-        crop_y = max(0, min(crop_y, sh - canvas))
-        out = scaled.crop((crop_x, crop_y, crop_x + canvas, crop_y + canvas))
-        if full_bleed(out):
-            return out
-    raise SystemExit(f'b1 foreground {canvas} still has a transparent margin')
+    alpha = arr[:, :, 3]
+    rgb = arr[:, :, :3].astype(np.int16)
+    red, green, blue = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
+    h, w = alpha.shape
+    plate_color = (
+        (alpha > 0) & (red < 90) & (green > 25) & (blue > 25)
+        & ((green + blue) > red + 40) & ((red + green + blue) < 500)
+    )
+    outside = _outside(alpha <= 16)
+    seeds = _dilate(outside) & plate_color & ~outside
+    if int(seeds.sum()) < 100:
+        raise SystemExit('adaptive plate is not connected to the canvas edge')
+    plate = np.zeros((h, w), bool)
+    stack = [(int(y), int(x)) for y, x in zip(*np.where(seeds))]
+    plate[seeds] = True
+    while stack:
+        y, x = stack.pop()
+        for ny, nx in ((y + 1, x), (y - 1, x), (y, x + 1), (y, x - 1)):
+            if 0 <= ny < h and 0 <= nx < w and not plate[ny, nx] and plate_color[ny, nx]:
+                plate[ny, nx] = True
+                stack.append((ny, nx))
+    if int(plate.sum()) < 100000:
+        raise SystemExit('adaptive plate body is missing')
+    # Antialiased plate edge, plus the pale rim painted onto the fur.
+    pale = (alpha > 0) & (rgb.min(axis=2) >= 205) & (red >= 180)
+    rim = np.zeros_like(plate)
+    cur = plate.copy()
+    for _ in range(3):
+        nxt = _dilate(cur) & pale & ~cur
+        if not nxt.any():
+            break
+        rim |= nxt
+        cur |= nxt
+    aa = _dilate(plate) & ~plate & (alpha > 0) & (alpha < 250) & (red < 120)
+    return plate | rim | aa
+
+
+def subject_master():
+    """Master with the rounded-square plate made transparent.
+
+    Seal and cat RGB stay bit-identical. Only plate pixels, including the
+    pale rim where the plate meets the fur, lose alpha.
+    """
+    arr = np.array(master())
+    drop = plate_mask(arr)
+    out = arr.copy()
+    out[:, :, 3] = np.where(drop, 0, arr[:, :, 3])
+    kept = ~drop & (arr[:, :, 3] > 0)
+    if not np.array_equal(out[:, :, :3][kept], arr[:, :, :3][kept]):
+        raise SystemExit('plate knockout changed subject RGB')
+    return Image.fromarray(out, 'RGBA'), arr, drop
+
+
+def plate_gradient_coef(arr, drop):
+    """Plane fit of the plate RGB. Rows are dx, dy, offset per channel."""
+    rgb = arr[:, :, :3].astype(np.float64)
+    sample = drop & (arr[:, :, 3] >= 250) & (rgb[:, :, 0] < 90)
+    ys, xs = np.where(sample)
+    if len(xs) < 1000:
+        raise SystemExit('not enough plate pixels to fit the background gradient')
+    design = np.stack([xs.astype(np.float64), ys.astype(np.float64), np.ones(len(xs))], 1)
+    return np.linalg.lstsq(design, rgb[ys, xs], rcond=None)[0]
+
+
+def content_radius(image, thresh=128):
+    """Max distance from the canvas center to a pixel at or above `thresh`."""
+    alpha = np.array(image.getchannel('A'))
+    ys, xs = np.where(alpha >= thresh)
+    if len(xs) == 0:
+        return 0.0
+    cx = (image.width - 1) / 2.0
+    cy = (image.height - 1) / 2.0
+    return float(np.hypot(xs - cx, ys - cy).max())
+
+
+# Nominal scale of the plate-free subject on the 108dp canvas. Opaque pixels
+# measure a few dp under this, which lands the visible subject near 72dp.
+# The lower body runs off the bottom edge and may be cut by the launcher mask.
+_ADAPTIVE_SUBJECT_WIDTH_DP = 75.0
+
+
+def _subject_layout(subject):
+    """Opaque bounds and the body-bottom edge on the plate-free master."""
+    alpha = np.array(subject.getchannel('A'))
+    ys, xs = np.where(alpha >= 128)
+    if len(xs) == 0:
+        raise SystemExit('adaptive foreground subject is empty')
+    # The belly narrows to a point at the artwork edge. Seat the last row
+    # that is still a wide body, so the canvas bottom cuts the body the way
+    # the original plate did. The point below that row is cropped, not redrawn.
+    widths = np.zeros(alpha.shape[0], np.int32)
+    for y in np.unique(ys):
+        widths[y] = int((alpha[y] >= 128).sum())
+    wide = np.where(widths >= int(widths.max() * 0.40))[0]
+    seat = int(wide.max()) if len(wide) else int(ys.max())
+    return {
+        'x0': int(xs.min()),
+        'x1': int(xs.max()),
+        'y_edge': float(seat) + 1.0,
+        'cx': (float(xs.min()) + float(xs.max())) / 2.0,
+    }
+
+
+def adaptive_foreground(canvas, subject):
+    """Scale the plate-free subject to about 72dp and seat the wide belly on the bottom.
+
+    Uniform Lanczos of the original pixels only. The tapered point below the
+    wide belly is cropped by the canvas edge, so no pixels are invented.
+    """
+    lay = _subject_layout(subject)
+    width = lay['x1'] - lay['x0'] + 1
+    scale = (_ADAPTIVE_SUBJECT_WIDTH_DP / _ADAPTIVE_CANVAS_DP) * canvas / width
+    sw = max(1, int(round(subject.width * scale)))
+    sh = max(1, int(round(subject.height * scale)))
+    scaled = subject.resize((sw, sh), Image.Resampling.LANCZOS)
+    left = int(round(canvas / 2.0 - lay['cx'] * (sw / subject.width)))
+    top = int(round(canvas - lay['y_edge'] * (sh / subject.height)))
+    out = Image.new('RGBA', (canvas, canvas), (0, 0, 0, 0))
+    if top >= 0 and left >= 0 and top + sh <= canvas and left + sw <= canvas:
+        out.alpha_composite(scaled, (left, top))
+    else:
+        # The scaled subject is taller than the canvas. Crop before compositing;
+        # alpha_composite drops a negative destination instead of clipping it.
+        src_top = max(0, -top)
+        src_left = max(0, -left)
+        cropped = scaled.crop((
+            src_left, src_top,
+            min(sw, src_left + canvas - max(left, 0)),
+            min(sh, src_top + canvas - max(top, 0))))
+        out.alpha_composite(cropped, (max(left, 0), max(top, 0)))
+    alpha = np.array(out.getchannel('A'))
+    if not np.any(alpha >= 128):
+        raise SystemExit(f'foreground {canvas} is empty')
+    return out, 0
+
+
+def _component_sizes(mask):
+    """4-connected component id and size for True pixels. 0 is background."""
+    h, w = mask.shape
+    ids = np.zeros((h, w), np.int32)
+    sizes = [0]
+    cid = 0
+    ys, xs = np.where(mask)
+    for y, x in zip(ys, xs):
+        if ids[y, x]:
+            continue
+        cid += 1
+        stack = [(int(y), int(x))]
+        ids[y, x] = cid
+        n = 0
+        while stack:
+            cy, cx = stack.pop()
+            n += 1
+            for ny, nx in ((cy + 1, cx), (cy - 1, cx), (cy, cx + 1), (cy, cx - 1)):
+                if 0 <= ny < h and 0 <= nx < w and mask[ny, nx] and ids[ny, nx] == 0:
+                    ids[ny, nx] = cid
+                    stack.append((ny, nx))
+        sizes.append(n)
+    return ids, sizes
+
+
+def clear_stray_alpha(image):
+    """Drop isolated knockout leftovers. Subject RGB is not rewritten.
+
+    Lanczos of a hard plate cut leaves one-pixel alpha islands beside the
+    arms, around one third of the way down. Anything that is not the main
+    body, and any faint pixel with no opaque neighbor, is cleared.
+    """
+    arr = np.array(image)
+    alpha = arr[:, :, 3]
+    opaque = alpha >= 128
+    ids, sizes = _component_sizes(opaque)
+    if len(sizes) <= 1:
+        return image
+    keep = int(np.argmax(sizes))
+    drop = opaque & (ids != keep)
+    # Faint islands and fringe specks that do not touch an opaque pixel.
+    faint = (alpha > 0) & ~opaque
+    faint_ids, faint_sizes = _component_sizes(faint)
+    touches = neighbors8(opaque) & faint
+    touch_ids = set(int(i) for i in np.unique(faint_ids[touches]) if i)
+    # The real antialiased rim is the large faint component on the fur.
+    # Smaller faint blobs beside the arms are knockout leftovers.
+    rim = 0
+    best = 0
+    for cid in touch_ids:
+        if faint_sizes[cid] > best:
+            best = faint_sizes[cid]
+            rim = cid
+    for cid, n in enumerate(faint_sizes):
+        if cid and cid != rim:
+            drop |= faint_ids == cid
+    if not drop.any():
+        return image
+    arr[:, :, 3] = np.where(drop, 0, alpha)
+    return Image.fromarray(arr, 'RGBA')
+
+
+def monochrome_from_foreground(fg):
+    """White silhouette with eyes, nose, cat and arm gaps punched from dark pixels.
+
+    Only clearly dark subject pixels become holes, and only blobs large enough
+    to survive a 24dp preview are kept. Whisker-scale noise and bottom chips
+    are dropped so the seal holding the cat stays readable.
+    """
+    arr = np.array(fg)
+    rgb = arr[:, :, :3].astype(np.int16)
+    alpha = arr[:, :, 3]
+    luma = (rgb[:, :, 0] * 30 + rgb[:, :, 1] * 59 + rgb[:, :, 2] * 11) // 100
+    body = alpha >= 128
+    dark = body & (luma < 110)
+    ids, sizes = _component_sizes(dark)
+    area = max(1, int(body.sum()))
+    # Eyes are the reference: drop specks, keep features that still show at 24dp.
+    min_feat = max(8, area // 900)
+    keep_dark = np.zeros_like(dark)
+    for cid, n in enumerate(sizes):
+        if cid and n >= min_feat:
+            keep_dark |= ids == cid
+    # One-pixel close so an eye stays one hole, without bridging to the fur.
+    keep_dark = _dilate(keep_dark) & body & (luma < 160)
+    sil = body & ~keep_dark
+    sil_ids, sil_sizes = _component_sizes(sil)
+    main = int(np.argmax(sil_sizes)) if len(sil_sizes) > 1 else 0
+    min_frag = max(12, area // 400)
+    sil_keep = sil_ids == main
+    for cid, n in enumerate(sil_sizes):
+        if cid and cid != main and n >= min_frag:
+            sil_keep |= sil_ids == cid
+    out = np.zeros_like(arr)
+    out[:, :, :3] = 255
+    out[:, :, 3] = np.where(sil_keep, 255, 0).astype(np.uint8)
+    return Image.fromarray(out, 'RGBA')
+
+
+def adaptive_background(canvas, coef):
+    """Full-bleed linear gradient fitted on the original plate pixels.
+
+    The plane is evaluated in master-pixel space and stretched so the plate's
+    own bounding box covers this 108dp layer.
+    """
+    # Plate bounds on the 722 master (alpha silhouette of the artwork).
+    x0, y0, x1, y1 = 16.0, 30.0, 706.0, 692.0
+    yy, xx = np.mgrid[0:canvas, 0:canvas]
+    mx = x0 + (xx + 0.5) / canvas * (x1 - x0)
+    my = y0 + (yy + 0.5) / canvas * (y1 - y0)
+    rgb = mx[..., None] * coef[0] + my[..., None] * coef[1] + coef[2]
+    rgb = np.clip(np.rint(rgb), 0, 255).astype(np.uint8)
+    out = np.zeros((canvas, canvas, 4), np.uint8)
+    out[:, :, :3] = rgb
+    out[:, :, 3] = 255
+    return Image.fromarray(out, 'RGBA')
 
 
 def svg_wrap(image):
@@ -397,29 +659,35 @@ def main():
                                ('xhdpi', 96, 216, 48), ('xxhdpi', 144, 324, 72),
                                ('xxxhdpi', 192, 432, 96)]:
         root = android + 'mipmap-' + density + '/'
-        png(root + 'ic_launcher.png', render(n, 'full'))
-        im = render(n, 'full')
+        if density == 'mdpi':
+            subject, plate_src, plate_drop = subject_master()
+            plate_coef = plate_gradient_coef(plate_src, plate_drop)
+        fg, added = adaptive_foreground(f, subject)
+        fg = clear_stray_alpha(fg)
+        bg = adaptive_background(f, plate_coef)
+        # Legacy launcher icons show the same subject and gradient as the
+        # adaptive layers, scaled from 108dp down to the 48dp slot.
+        legacy = bg.resize((n, n), Image.Resampling.LANCZOS)
+        legacy.alpha_composite(fg.resize((n, n), Image.Resampling.LANCZOS))
+        png(root + 'ic_launcher.png', legacy.convert('RGB'))
+        im = legacy.copy()
         mask = Image.new('L', (n * 4, n * 4))
         ImageDraw.Draw(mask).ellipse((0, 0, n * 4 - 1, n * 4 - 1), fill=255)
         im.putalpha(mask.resize((n, n), Image.Resampling.LANCZOS))
         png(root + 'ic_launcher_round.png', im)
-        fg = adaptive_foreground(f)
-        if not full_bleed(fg):
-            raise SystemExit(f'{density} foreground is not full-bleed')
+        alpha = np.array(fg.getchannel('A'))
+        if int(np.where(alpha >= 128)[0].max()) < f - 2:
+            raise SystemExit(f'{density} foreground body does not reach the canvas bottom')
         png(root + 'ic_launcher_foreground.png', fg)
+        png(root + 'ic_launcher_background.png', adaptive_background(f, plate_coef))
         png(root + 'ic_stat_logo.png', mono(stat))
-        # Same inset as before. Only the glyph's position inside the master changed.
-        k = round(f * 0.58)
-        mf = Image.new('RGBA', (f, f))
-        mi = mono(k)
-        mf.alpha_composite(mi, ((f - k) // 2, (f - k) // 2))
-        png(root + 'ic_launcher_monochrome.png', mf)
+        png(root + 'ic_launcher_monochrome.png', monochrome_from_foreground(fg))
     put(android + 'values/ic_launcher_background.xml', b'<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">#07516B</color>\n</resources>\n')
     for name in ['ic_launcher.xml', 'ic_launcher_round.xml']:
         put(android + 'mipmap-anydpi-v26/' + name, (
             '<?xml version="1.0" encoding="utf-8"?>\n'
             '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n'
-            '    <background android:drawable="@color/ic_launcher_background"/>\n'
+            '    <background android:drawable="@mipmap/ic_launcher_background"/>\n'
             '    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>\n'
             '    <monochrome android:drawable="@mipmap/ic_launcher_monochrome"/>\n'
             '</adaptive-icon>\n').encode())
@@ -450,5 +718,53 @@ def main():
     print('SealDesk icons generated from cleaned raster master')
 
 
+def write_adaptive_layers():
+    """Foreground subject plus the plate gradient background. Other exports stay."""
+    prepare()
+    subject, plate_src, plate_drop = subject_master()
+    plate_coef = plate_gradient_coef(plate_src, plate_drop)
+    android = 'flutter/android/app/src/main/res/'
+    diameters = {}
+    for density, f in [('mdpi', 108), ('hdpi', 162), ('xhdpi', 216), ('xxhdpi', 324), ('xxxhdpi', 432)]:
+        root = android + 'mipmap-' + density + '/'
+        fg, added = adaptive_foreground(f, subject)
+        fg = clear_stray_alpha(fg)
+        alpha = np.array(fg.getchannel('A'))
+        ys, xs = np.where(alpha >= 128)
+        if int(ys.max()) < f - 2:
+            raise SystemExit(f'{density} foreground body does not reach the canvas bottom')
+        png(root + 'ic_launcher_foreground.png', fg)
+        bg = adaptive_background(f, plate_coef)
+        png(root + 'ic_launcher_background.png', bg)
+        png(root + 'ic_launcher_monochrome.png', monochrome_from_foreground(fg))
+        # 48dp legacy slot is the adaptive composite at this density's scale.
+        n = f * 48 // 108
+        legacy = bg.resize((n, n), Image.Resampling.LANCZOS)
+        legacy.alpha_composite(fg.resize((n, n), Image.Resampling.LANCZOS))
+        png(root + 'ic_launcher.png', legacy.convert('RGB'))
+        im = legacy.copy()
+        mask = Image.new('L', (n * 4, n * 4))
+        ImageDraw.Draw(mask).ellipse((0, 0, n * 4 - 1, n * 4 - 1), fill=255)
+        im.putalpha(mask.resize((n, n), Image.Resampling.LANCZOS))
+        png(root + 'ic_launcher_round.png', im)
+        diameters[density] = {
+            'width_dp': round((int(xs.max()) - int(xs.min()) + 1) / f * _ADAPTIVE_CANVAS_DP, 2),
+            'height_dp': round((int(ys.max()) - int(ys.min()) + 1) / f * _ADAPTIVE_CANVAS_DP, 2),
+            'body_pixels_added': int(added),
+        }
+    for name in ['ic_launcher.xml', 'ic_launcher_round.xml']:
+        put(android + 'mipmap-anydpi-v26/' + name, (
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n'
+            '    <background android:drawable="@mipmap/ic_launcher_background"/>\n'
+            '    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>\n'
+            '    <monochrome android:drawable="@mipmap/ic_launcher_monochrome"/>\n'
+            '</adaptive-icon>\n').encode())
+    print(json.dumps({'subject_diameter_dp': diameters}, indent=2))
+
+
 if __name__ == '__main__':
-    sys.exit(main() or 0)
+    if len(sys.argv) > 1 and sys.argv[1] == '--adaptive-only':
+        write_adaptive_layers()
+    else:
+        sys.exit(main() or 0)

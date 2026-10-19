@@ -919,5 +919,6 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("LAN", "區域網路"),
         ("Tap to show", "點按顯示"),
         ("Invalid connection address", "連線位址無效"),
+        ("QR refreshes in {} min", "二維碼 {} 分鐘後刷新"),
     ].iter().cloned().collect();
 }

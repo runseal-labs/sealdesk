@@ -10,6 +10,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge.dart';
 
 import '../../common.dart';
 import '../../common/sealdesk_pairing.dart';
+import '../../common/sealdesk_probe_demand.dart';
 import '../../common/sealdesk_qr_file.dart';
 import '../../common/sealdesk_qr_image.dart';
 import '../../consts.dart';
@@ -72,6 +73,7 @@ class SealDeskNativeHomePage extends StatelessWidget {
   });
 
   Future<SealDeskHostState> _loadHost() async {
+    SealDeskProbeDemand.publish(repeat: true);
     final address = await bind.mainGetOption(key: 'tailcat-addr');
     final startError = await bind.mainGetOption(key: 'tailcat-start-error');
     final relayStatus = RelayStatus.fromJson(
@@ -131,55 +133,58 @@ class SealDeskNativeHomePage extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) => SealDeskHomePage(
-        hostOnly: hostOnly,
-        footer: footer,
-        sidePane: sidePane,
-        lanPanelBuilder: sidePane
-            ? null
-            : (host) => SealDeskLanPanel(
-                host: host,
-                connectPeer: (address) async {
-                  await connect(context, address, isSharedPassword: false);
-                }),
-        initialMode: hostOnly || sidePane
-            ? 'host'
-            : bind.mainGetLocalOption(key: 'sealdesk-mode'),
-        loadHost: _loadHost,
-        onStart: onStart,
-        onStop: onStop,
-        permissionBanner: permissionBanner,
-        shareSettings: shareSettings,
-        initialInput: initialInput,
-        pickImage: _pickImage,
-        loadImageFile: loadSealDeskQrFile,
-        pasteImage: _pasteImage,
-        resetAddress: isAndroid || bind.isDisableSettings()
-            ? null
-            : () async {
-                final error = await bind.mainResetSealdeskAddress();
-                if (error.isNotEmpty) throw FormatException(error);
-              },
-        refreshPassword: () async {
-          await bind.mainUpdateTemporaryPassword();
-        },
-        saveMode: (mode) async {
-          await bind.mainSetLocalOption(key: 'sealdesk-mode', value: mode);
-          final applied = await bind.mainGetOption(key: 'sealdesk-host-mode');
-          if (applied != mode ||
-              bind.mainGetLocalOption(key: 'sealdesk-mode') != mode) {
-            throw FormatException(translate('Switch failed, please try again'));
-          }
-        },
-        connect: (pairing) async {
-          if (pairing.name != null && pairing.name!.isNotEmpty) {
-            await bind.mainSetPeerAlias(
-                id: pairing.address, alias: pairing.name!);
-          }
-          if (!context.mounted) return;
-          pairing.encode();
-          await connect(context, pairing.address,
-              password: pairing.password, isSharedPassword: false);
-        },
+  Widget build(BuildContext context) => SealDeskProbeScope(
+        child: SealDeskHomePage(
+          hostOnly: hostOnly,
+          footer: footer,
+          sidePane: sidePane,
+          lanPanelBuilder: sidePane
+              ? null
+              : (host) => SealDeskLanPanel(
+                  host: host,
+                  connectPeer: (address) async {
+                    await connect(context, address, isSharedPassword: false);
+                  }),
+          initialMode: hostOnly || sidePane
+              ? 'host'
+              : bind.mainGetLocalOption(key: 'sealdesk-mode'),
+          loadHost: _loadHost,
+          onStart: onStart,
+          onStop: onStop,
+          permissionBanner: permissionBanner,
+          shareSettings: shareSettings,
+          initialInput: initialInput,
+          pickImage: _pickImage,
+          loadImageFile: loadSealDeskQrFile,
+          pasteImage: _pasteImage,
+          resetAddress: isAndroid || bind.isDisableSettings()
+              ? null
+              : () async {
+                  final error = await bind.mainResetSealdeskAddress();
+                  if (error.isNotEmpty) throw FormatException(error);
+                },
+          refreshPassword: () async {
+            await bind.mainUpdateTemporaryPassword();
+          },
+          saveMode: (mode) async {
+            await bind.mainSetLocalOption(key: 'sealdesk-mode', value: mode);
+            final applied = await bind.mainGetOption(key: 'sealdesk-host-mode');
+            if (applied != mode ||
+                bind.mainGetLocalOption(key: 'sealdesk-mode') != mode) {
+              throw FormatException(
+                  translate('Switch failed, please try again'));
+            }
+          },
+          connect: (pairing) async {
+            if (pairing.name != null && pairing.name!.isNotEmpty) {
+              await bind.mainSetPeerAlias(
+                  id: pairing.address, alias: pairing.name!);
+            }
+            if (!context.mounted) return;
+            pairing.encode();
+            await connect(context, pairing.address,
+                password: pairing.password, isSharedPassword: false);
+          },
+        ),
       );
 }

@@ -14,6 +14,8 @@ import '../../models/relay_status.dart';
 
 const _defaultDerpMapUrl = 'https://tailcat.dev/derpmap.json';
 
+/// Last page only. Whether the controlled service runs is decided at
+/// process start, not by rewriting this value when the share card opens.
 String sealDeskInitialPage(String saved) =>
     saved == 'control' ? 'control' : 'host';
 
@@ -438,8 +440,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
             child: LayoutBuilder(builder: (context, constraints) {
               const button = 48.0;
               final wide = constraints.maxWidth >= constraints.maxHeight;
-              final short =
-                  wide ? constraints.maxHeight : constraints.maxWidth;
+              final short = wide ? constraints.maxHeight : constraints.maxWidth;
               final along = wide
                   ? constraints.maxWidth - button
                   : constraints.maxHeight - button;
@@ -834,9 +835,9 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
     final expires = _pairing?.expiresAt;
     if (expires == null) return null;
     final left = (expires - _now()).clamp(0, 24 * 60 * 60);
-    final minutes = left ~/ 60;
-    final seconds = (left % 60).toString().padLeft(2, '0');
-    return '$minutes:$seconds';
+    // Round up so the chip stays accurate until that minute has elapsed.
+    final minutes = (left + 59) ~/ 60;
+    return translate('QR refreshes in {$minutes} min');
   }
 
   List<Widget> _buildRunning() {

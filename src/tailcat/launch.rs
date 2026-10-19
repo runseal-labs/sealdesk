@@ -63,6 +63,7 @@ impl Launch {
     }
 }
 
+/// Last UI page. Not whether the controlled service starts.
 pub(crate) fn startup_mode(launch: Option<&Launch>, remembered: &str) -> Mode {
     if let Some(launch) = launch {
         return launch.mode;
@@ -76,6 +77,58 @@ pub(crate) fn startup_mode(launch: Option<&Launch>, remembered: &str) -> Mode {
 
 pub(crate) fn controller_only(mode: &str, no_server: bool) -> bool {
     no_server || mode != Mode::Host.as_str()
+}
+
+/// Explicit blocks only. A remembered `control` page is not one of them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct HostServiceGate {
+    pub explicit_control: bool,
+    pub no_server: bool,
+    pub outgoing_only: bool,
+    pub stop_service: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct StartupServicePlan {
+    pub start_server: bool,
+    /// `Some("host" | "control")` to apply through `request_mode`.
+    /// `None` leaves host mode and stop-service untouched.
+    pub request_mode: Option<&'static str>,
+    pub rewrite_remembered_mode: bool,
+}
+
+/// Desktop share card is always on screen, so a leftover `sealdesk-mode=control`
+/// must not suppress the service and must not be rewritten.
+pub(crate) fn plan_startup_service(
+    remembered_mode: &str,
+    gate: HostServiceGate,
+) -> StartupServicePlan {
+    let _ui_page = remembered_mode;
+    if gate.explicit_control || gate.no_server || gate.outgoing_only {
+        StartupServicePlan {
+            start_server: false,
+            request_mode: Some(Mode::Control.as_str()),
+            rewrite_remembered_mode: false,
+        }
+    } else if gate.stop_service {
+        StartupServicePlan {
+            start_server: false,
+            request_mode: None,
+            rewrite_remembered_mode: false,
+        }
+    } else {
+        StartupServicePlan {
+            start_server: true,
+            request_mode: Some(Mode::Host.as_str()),
+            rewrite_remembered_mode: false,
+        }
+    }
+}
+
+pub(crate) fn apply_startup_service(plan: &StartupServicePlan, start_server: impl FnOnce()) {
+    if plan.start_server {
+        start_server();
+    }
 }
 
 #[cfg(test)]
@@ -189,5 +242,82 @@ mod tests {
         drop(file);
         std::fs::remove_dir_all(directory).unwrap();
         assert_eq!(result.is_ok(), cfg!(feature = "flutter"));
+    }
+
+    fn start_server(calls: &mut usize) {
+        *calls += 1;
+    }
+
+    fn times_start_server_called(plan: &StartupServicePlan) -> usize {
+        let mut calls = 0;
+        apply_startup_service(plan, || start_server(&mut calls));
+        calls
+    }
+
+    #[test]
+    fn remembered_control_calls_start_server_and_explicit_blocks_do_not() {
+        use super::super::host::{host_request_action, HostRequest};
+
+        let open = HostServiceGate {
+            explicit_control: false,
+            no_server: false,
+            outgoing_only: false,
+            stop_service: false,
+        };
+        for remembered in ["control", "host", ""] {
+            let plan = plan_startup_service(remembered, open);
+            assert!(!plan.rewrite_remembered_mode, "{remembered}");
+            assert_eq!(plan.request_mode, Some("host"), "{remembered}");
+            assert_eq!(times_start_server_called(&plan), 1, "{remembered}");
+            assert!(matches!(
+                host_request_action(plan.request_mode.unwrap(), false, true).unwrap(),
+                HostRequest::StartServer
+            ));
+        }
+
+        for (label, gate) in [
+            (
+                "--control",
+                HostServiceGate {
+                    explicit_control: true,
+                    ..open
+                },
+            ),
+            (
+                "--no-server",
+                HostServiceGate {
+                    no_server: true,
+                    ..open
+                },
+            ),
+            (
+                "outgoing-only",
+                HostServiceGate {
+                    outgoing_only: true,
+                    ..open
+                },
+            ),
+            (
+                "stop-service",
+                HostServiceGate {
+                    stop_service: true,
+                    ..open
+                },
+            ),
+        ] {
+            let plan = plan_startup_service("control", gate);
+            assert!(!plan.rewrite_remembered_mode, "{label}");
+            assert_eq!(times_start_server_called(&plan), 0, "{label}");
+            if gate.stop_service {
+                assert_eq!(plan.request_mode, None, "{label}");
+            } else {
+                assert_eq!(plan.request_mode, Some("control"), "{label}");
+                assert!(matches!(
+                    host_request_action(plan.request_mode.unwrap(), gate.outgoing_only, true)
+                        .unwrap(),
+                    HostRequest::ControlWithoutServer
+                ));
+            }
+        }
     }
 }

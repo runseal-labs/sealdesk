@@ -986,6 +986,10 @@ async fn handle(data: Data, stream: &mut Connection) {
                     crate::audio_service::set_voice_call_input_device(Some(value), true);
                 } else if name == "unlock-pin" {
                     Config::set_unlock_pin(&value);
+                } else if name == crate::tailcat::OPTION_PROBE_DEMAND {
+                    crate::tailcat::set_probe_ui(&value);
+                    allow_err!(stream.send(&Data::Config((name, Some(String::new())))).await);
+                    return;
                 } else {
                     return;
                 }
@@ -1617,6 +1621,16 @@ async fn get_config_async(name: &str, ms_timeout: u64) -> ResultType<Option<Stri
 pub async fn set_config_async(name: &str, value: String) -> ResultType<()> {
     let mut c = connect(1000, "").await?;
     c.send_config(name, value).await?;
+    // The service applies this on its own connection task. Returning before that
+    // ack lets a newer demand be sent and then overwritten by this delivery.
+    if name == crate::tailcat::OPTION_PROBE_DEMAND {
+        if let Some(Data::Config((response_name, Some(_)))) = c.next_timeout(1_000).await? {
+            if response_name == name {
+                return Ok(());
+            }
+        }
+        bail!("tailcat probe demand was not applied");
+    }
     if name == base::config::keys::OPTION_SEALDESK_RESET_ADDRESS || name == "sealdesk-lan-forget" {
         if let Some(Data::Config((response_name, Some(error)))) = c.next_timeout(1_000).await? {
             if response_name == name {
