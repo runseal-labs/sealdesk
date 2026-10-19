@@ -129,8 +129,8 @@ class _SealDeskLanPanelState extends State<SealDeskLanPanel> {
               subtitle: Text(widget.host
                   ? (item['key'] as String).substring(0, 12)
                   : item['protocol'] == 'rustdesk'
-                      ? "SealDesk (RustDesk protocol) · ${item['ip']} · ${translate('Direct and unencrypted connection')}"
-                      : "SealDesk · ${item['ip']} · ${translate('Direct and encrypted connection')}"),
+                      ? translate('Compatible with RustDesk · Unencrypted')
+                      : translate('Direct and encrypted connection')),
               trailing: TextButton(
                   onPressed: () async {
                     if (widget.host) {

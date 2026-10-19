@@ -98,7 +98,7 @@ void main() {
                   connected = address;
                 }))));
     await tester.pumpAndSettle();
-    expect(find.textContaining('Direct and unencrypted connection'),
+    expect(find.textContaining('Compatible with RustDesk · Unencrypted'),
         findsOneWidget);
     await tester.tap(find.text('Connect'));
     expect(connected, '192.168.1.9:21118');

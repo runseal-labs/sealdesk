@@ -65,19 +65,36 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   Widget build(BuildContext context) {
     super.build(context);
     if (bind.mainGetAppNameSync() == 'SealDesk') {
+      final isIncomingOnly = bind.isIncomingOnly();
+      final isOutgoingOnly = bind.isOutgoingOnly();
       return _buildBlock(
-          child: SealDeskNativeHomePage(
-            initialInput: _sealdeskInitialInput,
-            onStart: () => start_service(true),
-            onStop: () => start_service(false),
-            shareSettings: sealDeskShareSettingsAllowed()
-                ? SealDeskShareSettings(
-                    openSetPassword: setPasswordDialog,
-                    openOtpLength: () =>
-                        setTemporaryPasswordLengthDialog(gFFI.dialogManager),
-                  )
-                : null,
-          ));
+          child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (!isOutgoingOnly)
+            SizedBox(
+              width: 320,
+              child: SealDeskNativeHomePage(
+                hostOnly: true,
+                onStart: () => start_service(true),
+                onStop: () => start_service(false),
+                shareSettings: sealDeskShareSettingsAllowed()
+                    ? SealDeskShareSettings(
+                        openSetPassword: setPasswordDialog,
+                        openOtpLength: () =>
+                            setTemporaryPasswordLengthDialog(
+                                gFFI.dialogManager),
+                      )
+                    : null,
+              ),
+            ),
+          if (!isIncomingOnly && !isOutgoingOnly)
+            const VerticalDivider(width: 1),
+          if (!isIncomingOnly)
+            Expanded(
+                child: ConnectionPage(initialInput: _sealdeskInitialInput)),
+        ],
+      ));
     }
     final isIncomingOnly = bind.isIncomingOnly();
     return _buildBlock(

@@ -19,7 +19,9 @@ import 'package:provider/provider.dart';
 import 'package:pull_down_button/pull_down_button.dart';
 
 import '../../common.dart';
-import '../sealdesk_lan_panel.dart';
+import '../sealdesk_connect.dart';
+import '../sealdesk_connect_target.dart';
+import 'sealdesk_lan_peers_tab.dart';
 import '../../models/platform_model.dart';
 
 class PeerTabPage extends StatefulWidget {
@@ -47,17 +49,7 @@ class _PeerTabPageState extends State<PeerTabPage>
     _TabEntry(FavoritePeersView(
       menuPadding: _menuPadding(),
     )),
-    if (isAndroid && bind.mainGetAppNameSync() == 'SealDesk')
-      _TabEntry(Builder(
-        builder: (context) => SingleChildScrollView(
-          child: SealDeskLanPanel(
-            host: false,
-            connectPeer: (address) async {
-              await connect(context, address, isSharedPassword: false);
-            },
-          ),
-        ),
-      )),
+    if (isSealDeskApp()) _TabEntry(const SealDeskLanPeersTab()),
   ];
   RelativeRect? mobileTabContextMenuPos;
 
@@ -65,6 +57,18 @@ class _PeerTabPageState extends State<PeerTabPage>
 
   _PeerTabPageState() {
     _loadLocalOptions();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    if (isSealDeskApp()) SealDeskLanDirectory.instance.retain();
+  }
+
+  @override
+  void dispose() {
+    if (isSealDeskApp()) SealDeskLanDirectory.instance.release();
+    super.dispose();
   }
 
   void _loadLocalOptions() {
@@ -440,10 +444,56 @@ class _PeerTabPageState extends State<PeerTabPage>
         .marginOnly(left: 6);
   }
 
+  Widget _clearHistoryButton() {
+    return IconButton(
+      key: const ValueKey('sealdesk-history-menu'),
+      tooltip: translate('More'),
+      visualDensity: VisualDensity.compact,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+      onPressed: () async {
+        final selected = await showMenu<String>(
+          context: context,
+          position: const RelativeRect.fromLTRB(1, 80, 0, 0),
+          items: [
+            PopupMenuItem(
+              value: 'clear',
+              child: Text(translate(kSealDeskClearHistory)),
+            ),
+          ],
+        );
+        if (selected != 'clear' || !mounted) return;
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            key: const ValueKey('sealdesk-clear-history'),
+            title: Text(translate(kSealDeskClearHistory)),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text(translate('Cancel')),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: Text(translate('OK')),
+              ),
+            ],
+          ),
+        );
+        if (confirmed != true || !mounted) return;
+        final ids = gFFI.recentPeersModel.peers.map((peer) => peer.id);
+        await clearSealDeskHistory(ids);
+      },
+      icon: const Icon(Icons.more_vert, size: 20),
+    );
+  }
+
   List<Widget> _landscapeRightActions(BuildContext context) {
     final model = Provider.of<PeerTabModel>(context);
     if (model.currentTab == PeerTabIndex.lan.index) return [];
     return [
+      if (isSealDeskApp() && model.currentTab == PeerTabIndex.recent.index)
+        _clearHistoryButton(),
       const PeerSearchBar().marginOnly(right: 13),
       Offstage(
         offstage: model.currentTabCachedPeers.isEmpty,
@@ -460,6 +510,10 @@ class _PeerTabPageState extends State<PeerTabPage>
   List<Widget> _portraitRightActions(BuildContext context) {
     final model = Provider.of<PeerTabModel>(context);
     if (model.currentTab == PeerTabIndex.lan.index) return [];
+    final clearHistory = isSealDeskApp() &&
+            model.currentTab == PeerTabIndex.recent.index
+        ? _clearHistoryButton()
+        : null;
     final screenWidth = MediaQuery.of(context).size.width;
     final leftIconSize = Theme.of(context).iconTheme.size ?? 24;
     final leftActionsSize =
@@ -504,6 +558,7 @@ class _PeerTabPageState extends State<PeerTabPage>
 
     // Always show search, refresh
     List<Widget> actions = [
+      if (clearHistory != null) clearHistory,
       const PeerSearchBar(),
     ];
     final List<Widget> dynamicActions = [

@@ -216,6 +216,10 @@ class Peers extends ChangeNotifier {
     return peers.length;
   }
 
+  void bump() {
+    notifyListeners();
+  }
+
   void _updateOnlineState(Map<String, dynamic> evt) {
     int changedCount = 0;
     evt['onlines'].split(',').forEach((online) {

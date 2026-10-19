@@ -399,10 +399,6 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
                 ],
                 if (_mode == 'control') ...[
                   ..._buildControl(),
-                  if (widget.lanPanelBuilder != null) ...[
-                    const SizedBox(height: 20),
-                    widget.lanPanelBuilder!(false),
-                  ],
                 ],
                 if (_error != null)
                   Padding(

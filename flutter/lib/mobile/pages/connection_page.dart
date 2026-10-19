@@ -10,8 +10,9 @@ import 'package:provider/provider.dart';
 import 'package:sealdesk/models/peer_model.dart';
 
 import '../../common.dart';
-import '../../common/sealdesk_lan_panel.dart';
+import '../../common/sealdesk_connect_target.dart';
 import '../../common/widgets/peer_tab_page.dart';
+import '../../common/widgets/sealdesk_connect_field.dart';
 import '../../common/widgets/autocomplete.dart';
 import '../../consts.dart';
 import '../../models/model.dart';
@@ -48,7 +49,6 @@ class _ConnectionPageState extends State<ConnectionPage> {
   final AllPeersLoader _allPeersLoader = AllPeersLoader();
 
   StreamSubscription? _uniLinksSubscription;
-  bool _sealdeskScanning = false;
 
   // https://github.com/flutter/flutter/issues/157244
   Iterable<Peer> _autocompleteOpts = [];
@@ -66,7 +66,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
     super.initState();
     _allPeersLoader.init(setState);
     _idFocusNode.addListener(onFocusChanged);
-    if (_idController.text.isEmpty) {
+    if (!isSealDeskApp() && _idController.text.isEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         final lastRemoteId = await bind.mainGetLastRemoteId();
         if (lastRemoteId != _idController.id) {
@@ -76,38 +76,31 @@ class _ConnectionPageState extends State<ConnectionPage> {
         }
       });
     }
+    _idEditingController.addListener(() {
+      _idController.id = _idEditingController.text;
+    });
     Get.put<TextEditingController>(_idEditingController);
   }
 
   @override
   Widget build(BuildContext context) {
     Provider.of<FfiModel>(context);
+    if (isSealDeskApp()) {
+      return Column(
+        children: [
+          SealDeskConnectField(
+            controller: _idEditingController,
+            onScan: () => scanAndConnectSealDesk(context),
+          ),
+          const Expanded(child: PeerTabPage()),
+        ],
+      ).marginOnly(top: 2, left: 10, right: 10);
+    }
     return CustomScrollView(
       slivers: [
         SliverList(
             delegate: SliverChildListDelegate([
           _buildRemoteIDTextField(),
-          if (!isWeb && bind.mainGetAppNameSync() == 'SealDesk') ...[
-            OutlinedButton.icon(
-              icon: const Icon(Icons.qr_code_scanner),
-              label: Text(translate('Scan to connect to SealDesk')),
-              onPressed: _sealdeskScanning
-                  ? null
-                  : () async {
-                      setState(() => _sealdeskScanning = true);
-                      try {
-                        await scanAndConnectSealDesk(context);
-                      } finally {
-                        if (mounted) setState(() => _sealdeskScanning = false);
-                      }
-                    },
-            ),
-            SealDeskLanPanel(
-              host: false,
-              connectPeer: (address) =>
-                  connect(context, address, isSharedPassword: false),
-            ),
-          ],
         ])),
         SliverFillRemaining(
           hasScrollBody: true,

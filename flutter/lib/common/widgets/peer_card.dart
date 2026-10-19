@@ -9,6 +9,9 @@ import 'package:provider/provider.dart';
 
 import '../../common.dart';
 import '../../common/formatter/id_formatter.dart';
+import '../sealdesk_connect.dart';
+import '../sealdesk_connect_target.dart';
+import 'sealdesk_connect_field.dart';
 import '../../models/peer_model.dart';
 import '../../models/platform_model.dart';
 import '../../desktop/widgets/material_mod_popup_menu.dart' as mod_menu;
@@ -24,12 +27,39 @@ final peerCardUiType = PeerUiType.grid.obs;
 bool? hideUsernameOnCard;
 
 String peerShownId(Peer peer) {
+  if (isSealDeskApp()) {
+    return sealDeskRecordLabel(
+      id: peer.id,
+      alias: peer.alias,
+      hostname: peer.hostname,
+    ).line;
+  }
   if (peer.alias.isNotEmpty) return peer.alias;
   if (isAndroid && isLegacyNumericId(peer.id)) {
     if (peer.hostname.isNotEmpty) return peer.hostname;
     if (peer.username.isNotEmpty) return peer.username;
   }
   return formatID(peer.id);
+}
+
+Widget sealDeskPeerTitle(Peer peer, TextStyle? style) {
+  final label = sealDeskRecordLabel(
+    id: peer.id,
+    alias: peer.alias,
+    hostname: peer.hostname,
+  );
+  return Row(
+    children: [
+      Flexible(
+        child: Text(
+          label.line,
+          overflow: TextOverflow.ellipsis,
+          style: style,
+        ),
+      ),
+      if (label.lanMark) const SealDeskLanMark(),
+    ],
+  );
 }
 
 class _PeerCard extends StatefulWidget {
@@ -178,13 +208,18 @@ class _PeerCardState extends State<_PeerCard>
                   child: Column(
                     children: [
                       Row(children: [
-                        getOnline(isPortrait ? 4 : 8, peer.online),
+                        getOnline(isPortrait ? 4 : 8, peer.online,
+                            peerId: peer.id),
                         Expanded(
-                            child: Text(
-                          peerShownId(peer),
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleSmall,
-                        )),
+                            child: isSealDeskApp()
+                                ? sealDeskPeerTitle(peer,
+                                    Theme.of(context).textTheme.titleSmall)
+                                : Text(
+                                    peerShownId(peer),
+                                    overflow: TextOverflow.ellipsis,
+                                    style:
+                                        Theme.of(context).textTheme.titleSmall,
+                                  )),
                       ]).marginOnly(top: isPortrait ? 0 : 2),
                       Row(
                         children: [
@@ -302,13 +337,17 @@ class _PeerCardState extends State<_PeerCard>
                     children: [
                       Expanded(
                           child: Row(children: [
-                        getOnline(8, peer.online),
+                        getOnline(8, peer.online, peerId: peer.id),
                         Expanded(
-                            child: Text(
-                          peerShownId(peer),
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleSmall,
-                        )),
+                            child: isSealDeskApp()
+                                ? sealDeskPeerTitle(peer,
+                                    Theme.of(context).textTheme.titleSmall)
+                                : Text(
+                                    peerShownId(peer),
+                                    overflow: TextOverflow.ellipsis,
+                                    style:
+                                        Theme.of(context).textTheme.titleSmall,
+                                  )),
                       ]).paddingSymmetric(vertical: 8)),
                       checkBoxOrActionMoreLandscape(peer, isTile: false),
                     ],
@@ -995,14 +1034,52 @@ void _rdpDialog(String id) async {
   });
 }
 
-Widget getOnline(double rightPadding, bool online) {
+Widget getOnline(double rightPadding, bool online, {String? peerId}) {
+  if (isSealDeskApp()) {
+    return _SealDeskPresenceDot(
+        peerId: peerId ?? '', rightPadding: rightPadding);
+  }
   return Tooltip(
       message: translate(online ? 'Online' : 'Offline'),
       waitDuration: const Duration(seconds: 1),
       child: Padding(
           padding: EdgeInsets.fromLTRB(0, 4, rightPadding, 4),
           child: CircleAvatar(
-              radius: 3, backgroundColor: online ? Colors.green : kColorWarn)));
+              radius: 3,
+              backgroundColor: online ? Colors.green : kColorWarn)));
+}
+
+class _SealDeskPresenceDot extends StatelessWidget {
+  final String peerId;
+  final double rightPadding;
+  const _SealDeskPresenceDot(
+      {required this.peerId, required this.rightPadding});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: SealDeskLanDirectory.instance,
+      builder: (context, _) {
+        final device = SealDeskLanDirectory.instance.match(peerId);
+        if (device == null) return const SizedBox.shrink();
+        final color =
+            device.encrypted ? const Color(0xFF1B8A3A) : const Color(0xFF6B7280);
+        return Tooltip(
+          message: translate(device.encrypted
+              ? kSealDeskEncryptedChip
+              : kSealDeskCompatChip),
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(0, 4, rightPadding, 4),
+            child: CircleAvatar(
+              key: const ValueKey('sealdesk-presence'),
+              radius: 3,
+              backgroundColor: color,
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
 
 Widget build_more(BuildContext context, {bool invert = false}) {
