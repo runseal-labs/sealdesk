@@ -14,6 +14,8 @@ import '../../models/relay_status.dart';
 
 const _defaultDerpMapUrl = 'https://tailcat.dev/derpmap.json';
 
+/// Last page only. Whether the controlled service runs is decided at
+/// process start, not by rewriting this value when the share card opens.
 String sealDeskInitialPage(String saved) =>
     saved == 'control' ? 'control' : 'host';
 
@@ -438,8 +440,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
             child: LayoutBuilder(builder: (context, constraints) {
               const button = 48.0;
               final wide = constraints.maxWidth >= constraints.maxHeight;
-              final short =
-                  wide ? constraints.maxHeight : constraints.maxWidth;
+              final short = wide ? constraints.maxHeight : constraints.maxWidth;
               final along = wide
                   ? constraints.maxWidth - button
                   : constraints.maxHeight - button;

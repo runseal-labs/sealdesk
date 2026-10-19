@@ -529,6 +529,16 @@ pub fn set_option(key: String, value: String) {
             crate::lan::note_rustdesk_compat(true);
         }
     }
+    // "Start service" only clears stop-service. Cold start no longer brings the
+    // process up while that flag is set, so the button has to.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if key == keys::OPTION_STOP_SERVICE && value != "Y" && !config::is_outgoing_only() {
+        std::thread::spawn(|| {
+            if let Err(error) = crate::tailcat::host::request_mode("host") {
+                log::warn!("SealDesk service start failed: {error}");
+            }
+        });
+    }
 }
 
 #[inline]
