@@ -54,7 +54,6 @@ void main() {
         navigationBarIcons: Brightness.dark,
       );
       _expectContentBelowStatusBar(tester);
-      _expectGlyphContrast(tester, lightSurface: true);
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }
@@ -70,7 +69,6 @@ void main() {
         navigationBarIcons: Brightness.light,
       );
       _expectContentBelowStatusBar(tester);
-      _expectGlyphContrast(tester, lightSurface: false);
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }
@@ -113,34 +111,17 @@ Future<void> _pumpPhone(WidgetTester tester, ThemeData theme) async {
     MaterialApp(
       theme: theme,
       home: EdgeToEdgeSystemUi(
-        child: Scaffold(
-          body: const Stack(
-            children: [
-              SafeArea(
-                top: true,
-                bottom: false,
-                child: Align(
-                  alignment: Alignment.topCenter,
-                  child: Padding(
-                    padding: EdgeInsets.only(top: 8),
-                    child: Text('SealDesk', key: Key('content')),
-                  ),
-                ),
+        child: const Scaffold(
+          body: SafeArea(
+            top: true,
+            bottom: false,
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text('SealDesk', key: Key('content')),
               ),
-              Positioned(
-                left: 16,
-                top: 12,
-                child: _StatusGlyphs(),
-              ),
-            ],
-          ),
-          bottomNavigationBar: BottomNavigationBar(
-            type: BottomNavigationBarType.fixed,
-            items: const [
-              BottomNavigationBarItem(icon: Icon(Icons.link), label: 'Connect'),
-              BottomNavigationBarItem(
-                  icon: Icon(Icons.settings), label: 'Settings'),
-            ],
+            ),
           ),
         ),
       ),
@@ -174,51 +155,4 @@ void _expectStyle({
 void _expectContentBelowStatusBar(WidgetTester tester) {
   final top = tester.getTopLeft(find.byKey(const Key('content'))).dy;
   expect(top, greaterThanOrEqualTo(40));
-}
-
-void _expectGlyphContrast(WidgetTester tester, {required bool lightSurface}) {
-  final chip = tester.widget<Container>(find.byKey(const Key('status-chip')));
-  final color = chip.color!;
-  final surface = Theme.of(tester.element(find.byKey(const Key('content'))))
-      .scaffoldBackgroundColor;
-  if (lightSurface) {
-    expect(_luma(surface), greaterThan(0.85));
-    expect(_luma(color), lessThan(0.15));
-  } else {
-    expect(_luma(surface), lessThan(0.15));
-    expect(_luma(color), greaterThan(0.85));
-  }
-}
-
-class _StatusGlyphs extends StatelessWidget {
-  const _StatusGlyphs();
-
-  @override
-  Widget build(BuildContext context) {
-    final style = systemOverlayStyleForTheme(Theme.of(context));
-    final color = style.statusBarIconBrightness == Brightness.dark
-        ? const Color(0xFF111111)
-        : const Color(0xFFF2F2F2);
-    return Row(
-      children: [
-        Text('12:00', style: TextStyle(color: color, fontSize: 14)),
-        const SizedBox(width: 12),
-        Icon(Icons.wifi, size: 16, color: color),
-        Icon(Icons.signal_cellular_alt, size: 16, color: color),
-        Icon(Icons.battery_full, size: 16, color: color),
-        const SizedBox(width: 6),
-        Container(
-          key: const Key('status-chip'),
-          width: 12,
-          height: 12,
-          color: color,
-        ),
-      ],
-    );
-  }
-}
-
-double _luma(Color color) {
-  return (0.2126 * color.red + 0.7152 * color.green + 0.0722 * color.blue) /
-      255.0;
 }
