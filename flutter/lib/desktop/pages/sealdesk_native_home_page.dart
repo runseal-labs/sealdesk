@@ -57,6 +57,9 @@ class SealDeskNativeHomePage extends StatelessWidget {
   final Future<void> Function()? onStop;
   final bool hostOnly;
 
+  /// Scrollable single column used by the Android share screen.
+  final bool shareColumn;
+
   /// Desktop left column: host QR only, no connect-page controls.
   final bool sidePane;
 
@@ -69,6 +72,7 @@ class SealDeskNativeHomePage extends StatelessWidget {
     this.onStart,
     this.onStop,
     this.hostOnly = false,
+    this.shareColumn = false,
     this.sidePane = false,
   });
 
@@ -136,6 +140,7 @@ class SealDeskNativeHomePage extends StatelessWidget {
   Widget build(BuildContext context) => SealDeskProbeScope(
         child: SealDeskHomePage(
           hostOnly: hostOnly,
+          shareColumn: shareColumn,
           footer: footer,
           sidePane: sidePane,
           lanPanelBuilder: sidePane

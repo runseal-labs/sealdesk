@@ -59,6 +59,7 @@ class _ServerPageState extends State<ServerPage> {
         child: Consumer<ServerModel>(
           builder: (context, serverModel, child) => SealDeskNativeHomePage(
             hostOnly: true,
+            shareColumn: true,
             onStart: () async {
               if (bind.mainGetLocalOption(key: 'show-scam-warning') != 'N') {
                 showScamWarning(context, serverModel);
@@ -75,6 +76,7 @@ class _ServerPageState extends State<ServerPage> {
                     openSetPassword: setPasswordDialog,
                     openOtpLength: () =>
                         setTemporaryPasswordLengthDialog(gFFI.dialogManager),
+                    includePasswordRefresh: true,
                   )
                 : null,
             footer: Column(
@@ -753,8 +755,7 @@ class ClientInfo extends StatelessWidget {
                     Text(client.name, style: const TextStyle(fontSize: 18)),
                     if (!isLegacyNumericId(client.peerId)) ...[
                       const SizedBox(width: 8),
-                      Text(client.peerId,
-                          style: const TextStyle(fontSize: 10)),
+                      Text(client.peerId, style: const TextStyle(fontSize: 10)),
                     ],
                   ]))
             ],

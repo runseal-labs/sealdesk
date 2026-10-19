@@ -15,10 +15,14 @@ class SealDeskShareSettings extends StatefulWidget {
   final SealDeskSetPassword openSetPassword;
   final VoidCallback openOtpLength;
 
+  /// Android share screen owns the only password refresh control.
+  final bool includePasswordRefresh;
+
   const SealDeskShareSettings({
     super.key,
     required this.openSetPassword,
     required this.openOtpLength,
+    this.includePasswordRefresh = false,
   });
 
   @override
@@ -85,6 +89,13 @@ class _SealDeskShareSettingsState extends State<SealDeskShareSettings> {
         model.switchAllowNumericOneTimePassword();
         model.updatePasswordModel();
       },
+      passwordValue: model.serverPasswd.text,
+      onRefreshPassword: widget.includePasswordRefresh
+          ? () {
+              bind.mainUpdateTemporaryPassword();
+              model.updatePasswordModel();
+            }
+          : null,
     );
   }
 }
@@ -102,6 +113,8 @@ class SealDeskShareSettingsView extends StatelessWidget {
   final VoidCallback onSetPermanent;
   final VoidCallback onSetOtpLength;
   final VoidCallback onToggleNumeric;
+  final String passwordValue;
+  final VoidCallback? onRefreshPassword;
 
   const SealDeskShareSettingsView({
     super.key,
@@ -117,6 +130,8 @@ class SealDeskShareSettingsView extends StatelessWidget {
     required this.onSetPermanent,
     required this.onSetOtpLength,
     required this.onToggleNumeric,
+    this.passwordValue = '',
+    this.onRefreshPassword,
   });
 
   bool get _showPassword => approveMode != 'click';
@@ -137,10 +152,22 @@ class SealDeskShareSettingsView extends StatelessWidget {
             verificationMethod == kUseBothPasswords
         ? verificationMethod
         : kUseBothPasswords;
+    final passwordText =
+        passwordValue.trim().isEmpty ? '-' : passwordValue.trim();
     return Column(
       key: const ValueKey('sealdesk-share-settings'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        Text(
+          translate('Security'),
+          key: const ValueKey('sealdesk-security-title'),
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          translate('Access method'),
+          key: const ValueKey('sealdesk-approve-label'),
+        ),
         _menu(
           const ValueKey('sealdesk-approve'),
           _approveKey,
@@ -164,7 +191,11 @@ class SealDeskShareSettingsView extends StatelessWidget {
                 },
         ),
         if (_showPassword) ...[
-          const SizedBox(height: 4),
+          const SizedBox(height: 8),
+          Text(
+            translate('Password type'),
+            key: const ValueKey('sealdesk-verify-label'),
+          ),
           _menu(
             const ValueKey('sealdesk-verify'),
             method,
@@ -180,6 +211,27 @@ class SealDeskShareSettingsView extends StatelessWidget {
               if (value != null) onVerification(value);
             },
           ),
+          if (showOneTime || showPermanent) ...[
+            const SizedBox(height: 8),
+            Text(
+              translate('Password value'),
+              key: const ValueKey('sealdesk-password-value-label'),
+            ),
+          ],
+          if (showOneTime)
+            Row(
+              key: const ValueKey('sealdesk-password-value'),
+              children: [
+                Expanded(child: Text(passwordText)),
+                if (onRefreshPassword != null)
+                  IconButton(
+                    key: const ValueKey('sealdesk-password-refresh'),
+                    tooltip: translate('Refresh password'),
+                    onPressed: onRefreshPassword,
+                    icon: const Icon(Icons.refresh),
+                  ),
+              ],
+            ),
         ],
         if (showPermanent || showOneTime) ...[
           if (showPermanent)
@@ -242,7 +294,6 @@ class SealDeskShareSettingsView extends StatelessWidget {
     return DropdownButtonHideUnderline(
       child: DropdownButton<String>(
         key: key,
-        isDense: true,
         isExpanded: true,
         value: value,
         items: items,
