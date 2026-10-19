@@ -6,6 +6,7 @@ import 'package:sealdesk/desktop/widgets/tabbar_widget.dart';
 import 'package:sealdesk/models/model.dart';
 import 'package:sealdesk/models/terminal_model.dart';
 import 'package:sealdesk/models/terminal_mouse_handler.dart';
+import 'package:sealdesk/models/terminal_physical_key.dart';
 import 'terminal_connection_manager.dart';
 
 class TerminalPage extends StatefulWidget {
@@ -209,6 +210,13 @@ class _TerminalPageState extends State<TerminalPage>
             focusNode: _terminalFocusNode,
             // Note: autofocus is not used here because focus is managed manually
             // via _onTabStateChanged() to handle tab switching properly.
+            // Text input stays attached so IME composition still commits.
+            // Modifier chords are encoded here and marked handled, which keeps
+            // them off xterm's uppercase-Alt path and off the IME filter.
+            onKeyEvent: terminalPhysicalKeyHandler(
+              _terminalModel.terminal,
+              _terminalModel.terminalController,
+            ),
             backgroundOpacity: 0.7,
             padding: _calculatePadding(heightPx),
             onSecondaryTapDown: (details, offset) async {

@@ -75,7 +75,7 @@ void main() {
             img.encodePng(qrImage(pairing.encode(now: 100))),
             now: 200),
         throwsA(isA<FormatException>()
-            .having((error) => error.message, 'reason', contains('已过期'))));
+            .having((error) => error.message, 'reason', contains('expired'))));
   });
 
   test('missing QR and malformed images produce actionable errors', () {
@@ -97,15 +97,16 @@ void main() {
     final wide = img.Image(width: 8193, height: 1);
     expect(
         () => decodeSealDeskQrImage(img.encodePng(wide)),
-        throwsA(isA<FormatException>()
-            .having((error) => error.message, 'reason', contains('尺寸过大'))));
+        throwsA(isA<FormatException>().having(
+            (error) => error.message, 'reason', contains('too large'))));
   });
 
-  test('invalid UTF-8 is rejected with an actionable Chinese error', () {
+  test('invalid UTF-8 is rejected with an actionable error', () {
     final image = qrImage('SEALDESK:V:1;A:$address;P:é;;',
         characterSet: CharacterSetECI.ISO8859_1);
-    expect(() => decodeSealDeskQrImage(img.encodePng(image), now: 100),
-        throwsA(isA<FormatException>().having((error) => error.message,
-            'reason', contains('有效的 UTF-8'))));
+    expect(
+        () => decodeSealDeskQrImage(img.encodePng(image), now: 100),
+        throwsA(isA<FormatException>()
+            .having((error) => error.message, 'reason', contains('UTF-8'))));
   });
 }

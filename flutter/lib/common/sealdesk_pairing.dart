@@ -25,7 +25,7 @@ class SealDeskPairing {
   factory SealDeskPairing.parse(String input, {int? now}) {
     final text = input.trim();
     if (!isPairingCode(text)) {
-      throw const FormatException('不是有效的 SealDesk 配对码');
+      throw const FormatException('Not a valid SealDesk pairing code');
     }
     final fields = <String, String>{};
     var field = StringBuffer();
@@ -35,19 +35,22 @@ class SealDeskPairing {
       final character = text[index];
       if (escaped) {
         if (!_special(character)) {
-          throw const FormatException('配对码包含无效转义');
+          throw const FormatException(
+              'Pairing code contains an invalid escape');
         }
         field.write(character);
         escaped = false;
       } else if (character == '\\') {
         if (!field.toString().contains(':')) {
-          throw const FormatException('配对码包含无效转义');
+          throw const FormatException(
+              'Pairing code contains an invalid escape');
         }
         escaped = true;
       } else if (character == ';') {
         if (field.isEmpty) {
           if (index != text.length - 1) {
-            throw const FormatException('配对码结束标记后包含多余内容');
+            throw const FormatException(
+                'Pairing code has extra content after the end marker');
           }
           finished = true;
           break;
@@ -55,12 +58,12 @@ class SealDeskPairing {
         final value = field.toString();
         final separator = value.indexOf(':');
         if (separator <= 0) {
-          throw const FormatException('配对码字段格式无效');
+          throw const FormatException('Pairing code field format is invalid');
         }
         final key = value.substring(0, separator);
         if (const ['V', 'A', 'P', 'N', 'E'].contains(key)) {
           if (fields.containsKey(key)) {
-            throw FormatException('配对码字段重复：$key');
+            throw FormatException('Duplicate pairing field: {$key}');
           }
           fields[key] = value.substring(separator + 1);
         }
@@ -70,13 +73,16 @@ class SealDeskPairing {
       }
     }
     if (escaped || !finished) {
-      throw const FormatException('配对码不完整，请重新复制或扫描');
+      throw const FormatException(
+          'Pairing code is incomplete. Copy or scan it again');
     }
     if (!fields.containsKey('V') || !fields.containsKey('A')) {
-      throw const FormatException('配对码缺少版本或地址');
+      throw const FormatException(
+          'Pairing code is missing a version or address');
     }
     if (fields['V'] != '1') {
-      throw const FormatException('配对码版本不受支持，请升级 SealDesk');
+      throw const FormatException(
+          'Pairing code version is not supported. Please upgrade SealDesk');
     }
     int? expiry;
     if (fields.containsKey('E')) {
@@ -85,7 +91,7 @@ class SealDeskPairing {
       if (!RegExp(r'^[0-9]+$').hasMatch(value) ||
           expiry == null ||
           expiry < 0) {
-        throw const FormatException('配对码的过期时间无效');
+        throw const FormatException('Pairing code expiry is invalid');
       }
     }
     final pairing = SealDeskPairing(
@@ -100,10 +106,11 @@ class SealDeskPairing {
 
   void _validate(int now) {
     if (!isAddress(address)) {
-      throw const FormatException('配对码中的地址无效');
+      throw const FormatException('Pairing code address is invalid');
     }
     if (expiresAt != null && expiresAt! <= now) {
-      throw const FormatException('配对码已过期，请让对方刷新二维码');
+      throw const FormatException(
+          'Pairing code has expired. Ask the other person to refresh the QR code');
     }
   }
 

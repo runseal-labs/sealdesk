@@ -4096,7 +4096,7 @@ String get appName {
 
 String getConnectionText(bool secure, bool direct, String streamType) {
   final sealDeskText = sealDeskConnectionDescription(streamType);
-  if (sealDeskText != null) return sealDeskText;
+  if (sealDeskText != null) return translate(sealDeskText);
   String connectionText;
   if (secure && direct) {
     connectionText = translate("Direct and encrypted connection");

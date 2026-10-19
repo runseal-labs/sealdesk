@@ -8,7 +8,8 @@ import 'sealdesk_qr_image.dart';
 Future<SealDeskPairing> loadSealDeskQrFile(String path) async {
   final file = File(path);
   if (await file.length() > maxSealDeskQrImageBytes) {
-    throw const FormatException('图片超过 20 MB，请选择较小的二维码截图');
+    throw const FormatException(
+        'Image is larger than 20 MB. Choose a smaller QR screenshot');
   }
   final reader = await file.open();
   try {

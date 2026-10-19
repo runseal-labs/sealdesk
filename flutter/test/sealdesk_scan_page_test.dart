@@ -33,6 +33,12 @@ class _I18nBinding extends Fake implements SealdeskImpl {
           '请将对方的 SealDesk 配对二维码放入框内',
       'Scanning is paused. Return to the app and scan again':
           '扫描已暂停，请返回前台后重新扫描',
+      'Not a valid SealDesk pairing code': '不是有效的 SealDesk 配对码',
+      'Pairing code has expired. Ask the other person to refresh the QR code':
+          '配对码已过期，请让对方刷新二维码',
+      'Pairing code version is not supported. Please upgrade SealDesk':
+          '配对码版本不受支持，请升级 SealDesk',
+      'Scan failed. Go back and reopen the camera': '扫码失败，请返回后重新打开摄像头',
     };
     return values[name] ?? name;
   }

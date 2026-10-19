@@ -3,18 +3,19 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('connection label waits for a probe before naming the path', () {
-    expect(sealDeskConnectionLabel('Tailcat'), '正在检测链路');
-    expect(sealDeskConnectionDescription('Tailcat'), '正在检测链路 · WireGuard 加密连接');
+    expect(sealDeskConnectionLabel('Tailcat'), 'Checking the link');
+    expect(sealDeskConnectionDescription('Tailcat'),
+        'Checking the link · WireGuard encrypted connection');
     expect(sealDeskConnectionLabel('TCP'), isNull);
     expect(sealDeskConnectionDescription('WebRTC'), isNull);
   });
 
   test('direct and relay status include encryption and relay guidance', () {
-    expect(sealDeskConnectionLabel('Tailcat/P2P'), 'P2P 直连');
+    expect(sealDeskConnectionLabel('Tailcat/P2P'), 'P2P direct');
     expect(sealDeskConnectionDescription('Tailcat/P2P'),
-        'P2P 直连 · WireGuard 加密连接');
-    expect(sealDeskConnectionLabel('Tailcat/DERP'), 'DERP 中继');
+        'P2P direct · WireGuard encrypted connection');
+    expect(sealDeskConnectionLabel('Tailcat/DERP'), 'DERP relay');
     expect(sealDeskConnectionDescription('Tailcat/DERP'),
-        'DERP 中继 · WireGuard 加密连接；打洞未成功，速度可能受限');
+        'DERP relay · WireGuard encrypted connection; hole punching failed, speed may be limited');
   });
 }
