@@ -15,6 +15,24 @@ import '../sealdesk_pairing.dart';
 import '../sealdesk_qr_file.dart';
 import '../sealdesk_qr_image.dart';
 
+({int x, int y, int width, int height}) sealDeskRegionRequest(
+  Offset origin,
+  Rect rect,
+  double devicePixelRatio, {
+  bool logicalPoints = false,
+}) {
+  // macOS display origins are points. One window DPR would place a
+  // secondary display on the wrong framebuffer, so the native side scales
+  // each display itself.
+  final scale = logicalPoints || devicePixelRatio <= 0 ? 1.0 : devicePixelRatio;
+  return (
+    x: ((origin.dx + rect.left) * scale).round(),
+    y: ((origin.dy + rect.top) * scale).round(),
+    width: (rect.width * scale).round(),
+    height: (rect.height * scale).round(),
+  );
+}
+
 Future<Uint8List> captureSealDeskRegion(
     Rect rect, double devicePixelRatio) async {
   var origin = Offset.zero;
@@ -23,12 +41,13 @@ Future<Uint8List> captureSealDeskRegion(
         .getPosition()
         .timeout(const Duration(milliseconds: 500));
   } catch (_) {}
-  final scale = devicePixelRatio <= 0 ? 1.0 : devicePixelRatio;
+  final request = sealDeskRegionRequest(origin, rect, devicePixelRatio,
+      logicalPoints: isMacOS);
   final reply = jsonDecode(await bind.mainCaptureSealdeskRegion(
-    x: ((origin.dx + rect.left) * scale).round(),
-    y: ((origin.dy + rect.top) * scale).round(),
-    width: (rect.width * scale).round(),
-    height: (rect.height * scale).round(),
+    x: request.x,
+    y: request.y,
+    width: request.width,
+    height: request.height,
   )) as Map<String, dynamic>;
   final error = reply['error'];
   if (error is String) throw FormatException(error);
@@ -87,8 +106,7 @@ class _SealDeskConnectFieldState extends State<SealDeskConnectField> {
       connectSealDeskPairing(context, pairing);
 
   Future<void> _gallery() => _run(() async {
-        final file =
-            await ImagePicker().pickImage(source: ImageSource.gallery);
+        final file = await ImagePicker().pickImage(source: ImageSource.gallery);
         if (file == null || !mounted) return;
         await _usePairing(await loadSealDeskQrFile(file.path));
       });
@@ -113,6 +131,20 @@ class _SealDeskConnectFieldState extends State<SealDeskConnectField> {
           return;
         } on FormatException {
           if (!mounted) return;
+        }
+        if (isLinux && bind.mainCurrentIsWayland()) {
+          final result = await FilePicker.platform.pickFiles(
+            type: FileType.custom,
+            allowedExtensions: ['png', 'jpg', 'jpeg'],
+          );
+          if (result == null || !mounted) return;
+          final path = result.files.single.path;
+          if (path == null) {
+            throw const FormatException(
+                'Unable to read the selected image. Please choose again');
+          }
+          await _usePairing(await loadSealDeskQrFile(path));
+          return;
         }
         final rect = await showDialog<Rect>(
           context: context,
@@ -186,8 +218,8 @@ class _SealDeskConnectFieldState extends State<SealDeskConnectField> {
                     hintText: translate(kSealDeskHint),
                     hintMaxLines: 1,
                     isDense: true,
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 14),
                     border: InputBorder.none,
                   ),
                   onSubmitted: (_) => _submit(),
@@ -377,7 +409,8 @@ class SealDeskSecurityChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = encrypted ? const Color(0xFF1B8A3A) : const Color(0xFF6B7280);
     return Container(
-      key: ValueKey(encrypted ? 'sealdesk-chip-encrypted' : 'sealdesk-chip-compat'),
+      key: ValueKey(
+          encrypted ? 'sealdesk-chip-encrypted' : 'sealdesk-chip-compat'),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
         color: color.withOpacity(0.12),
