@@ -26,6 +26,7 @@ import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'common.dart';
+import 'common/sealdesk_probe_demand.dart';
 import 'consts.dart';
 import 'mobile/pages/home_page.dart';
 import 'mobile/pages/server_page.dart';
@@ -443,6 +444,12 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     };
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) => _updateOrientation());
+    SealDeskProbeDemand.publish();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    SealDeskProbeDemand.setLifecycle(state);
   }
 
   @override

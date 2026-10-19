@@ -473,6 +473,10 @@ pub fn set_options(m: HashMap<String, String>) {
 
 #[inline]
 pub fn set_option(key: String, value: String) {
+    if key == crate::tailcat::OPTION_PROBE_DEMAND {
+        crate::tailcat::publish_probe_ui(&value);
+        return;
+    }
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     if key == "sealdesk-lan-forget" {
         if let Err(error) = ipc::set_config(&key,value) { log::error!("LAN authorization removal failed: {error}"); }

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -46,7 +48,7 @@ func TestDeriveServeState(t *testing.T) {
 			},
 		},
 		{
-			name: "success at 45s is still reachable",
+			name: "success at the fresh limit is still reachable",
 			in: serveStateInput{
 				Running: true, Since: time.Minute,
 				ProbeDone: true, ProbeOK: true, ProbeAge: selfProbeFresh,
@@ -58,7 +60,7 @@ func TestDeriveServeState(t *testing.T) {
 			},
 		},
 		{
-			name: "success older than 45s is unreachable",
+			name: "success older than the fresh limit is unreachable",
 			in: serveStateInput{
 				Running: true, Since: time.Minute,
 				SelfRelay: "nyc",
@@ -234,6 +236,8 @@ func TestProbeLoopRecordsAndTcStopServeStopsIt(t *testing.T) {
 		return 0, ctx.Err()
 	}
 	t.Cleanup(func() {
+		setProbeUi(false, false, false)
+		setProbeIncoming(false)
 		mu.Lock()
 		cancel := probeCancel
 		done := probeDone
@@ -259,6 +263,7 @@ func TestProbeLoopRecordsAndTcStopServeStopsIt(t *testing.T) {
 		mu.Unlock()
 	})
 
+	setProbeUi(true, false, false)
 	mu.Lock()
 	startSelfProbeLocked("tc-probe-test-address", key.NewNode(), "https://tailcat.example/derpmap.json")
 	done := probeDone
@@ -358,5 +363,331 @@ func TestLastInitErrRecordAndClear(t *testing.T) {
 	want := `{"running":false,"state":"stopped","home_region":0,"region_code":"","derp_connected":false,"init_stage":"","init_error":"","since_ms":0,"probe_rtt_ms":0,"last_probe_ms":0,"last_error":""}`
 	if cleared != want {
 		t.Fatalf("cleared json = %s", cleared)
+	}
+}
+
+func TestProbeAllowedOnlyForSharePageOrSession(t *testing.T) {
+	cases := []struct {
+		name string
+		in   probeDemand
+		want bool
+	}{
+		{"idle foreground", probeDemand{}, false},
+		{"share page", probeDemand{shareVisible: true}, true},
+		{"background no session", probeDemand{background: true}, false},
+		{"screen off no session", probeDemand{screenOff: true}, false},
+		{"share page but background", probeDemand{shareVisible: true, background: true}, false},
+		{"share page but screen off", probeDemand{shareVisible: true, screenOff: true}, false},
+		{"incoming while screen off", probeDemand{screenOff: true, incoming: true}, true},
+		{"incoming in background", probeDemand{background: true, incoming: true}, true},
+		{"incoming on share page", probeDemand{shareVisible: true, incoming: true}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.in.allowed(); got != tc.want {
+				t.Fatalf("allowed() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestProbeDelayBackoffCapsAndResets(t *testing.T) {
+	if probeDelay(0) != selfProbeInterval || probeDelay(-1) != selfProbeInterval {
+		t.Fatalf("steady = %s", probeDelay(0))
+	}
+	want := []time.Duration{
+		selfProbeInterval,
+		2 * selfProbeInterval,
+		4 * selfProbeInterval,
+		8 * selfProbeInterval,
+	}
+	for i, d := range want {
+		if got := probeDelay(i + 1); got != d {
+			t.Fatalf("failures %d = %s, want %s", i+1, got, d)
+		}
+	}
+	if got := probeDelay(5); got != selfProbeBackoffMax {
+		t.Fatalf("cap = %s", got)
+	}
+	if got := probeDelay(100); got != selfProbeBackoffMax {
+		t.Fatalf("large cap = %s", got)
+	}
+}
+
+func TestProbeLoadPerMinute(t *testing.T) {
+	const ten = 10 * time.Minute
+	share := probeDemand{shareVisible: true}
+	idle := probeDemand{background: true, screenOff: true}
+	held := probeDemand{screenOff: true, incoming: true}
+
+	legacyOK := simulateLegacyTraffic(ten, 0, true)
+	legacyFail := simulateLegacyTraffic(ten, probePingTimeout, false)
+	throttledOK := simulateThrottledTraffic([]probeSpan{{
+		End: ten, Demand: share, OK: true,
+	}})
+	throttledFail := simulateThrottledTraffic([]probeSpan{{
+		End: ten, Demand: share, OK: false, ProbeDur: probePingTimeout,
+	}})
+	throttledIdle := simulateThrottledTraffic([]probeSpan{{
+		End: ten, Demand: idle, OK: false, ProbeDur: probePingTimeout,
+	}})
+	throttledHeld := simulateThrottledTraffic([]probeSpan{{
+		End: ten, Demand: held, OK: true,
+	}})
+	switched := simulateThrottledTraffic([]probeSpan{
+		{End: 5 * time.Minute, Demand: idle, OK: false, ProbeDur: probePingTimeout},
+		{End: ten, Demand: share, OK: true},
+	})
+
+	if legacyOK.Probes != 40 || legacyOK.Packets != 80 {
+		t.Fatalf("legacy success over 10m = %+v", legacyOK)
+	}
+	if legacyFail.Probes != 40 || legacyFail.Packets != 440 {
+		t.Fatalf("legacy failure over 10m = %+v", legacyFail)
+	}
+	if throttledOK.Probes != 10 || throttledOK.Packets != 20 {
+		t.Fatalf("throttled success over 10m = %+v", throttledOK)
+	}
+	if throttledFail.Probes != 4 || throttledFail.Packets != 44 {
+		t.Fatalf("throttled failure over 10m = %+v", throttledFail)
+	}
+	if throttledIdle.Probes != 0 || throttledIdle.Packets != 0 {
+		t.Fatalf("idle = %+v", throttledIdle)
+	}
+	if throttledHeld != throttledOK {
+		t.Fatalf("incoming while screen off = %+v, want %+v", throttledHeld, throttledOK)
+	}
+	if switched.Probes != 5 || switched.Packets != 10 {
+		t.Fatalf("background then share page = %+v", switched)
+	}
+
+	// One failure arms a 60s backoff. Hiding for less than that, then showing
+	// the share page again, must probe immediately instead of waiting it out.
+	failEnd := probePingTimeout
+	hiddenEnd := failEnd + selfProbeInterval/2
+	returned := simulateThrottledTraffic([]probeSpan{
+		{End: failEnd, Demand: share, OK: false, ProbeDur: probePingTimeout},
+		{End: hiddenEnd, Demand: idle, OK: false, ProbeDur: probePingTimeout},
+		{End: hiddenEnd + time.Millisecond, Demand: share, OK: true},
+	})
+	if returned.Probes != 2 {
+		t.Fatalf("visibility return during backoff = %+v, want 2 probes", returned)
+	}
+
+	oneOK := simulateLegacyTraffic(time.Minute, 0, true)
+	oneNew := simulateThrottledTraffic([]probeSpan{{End: time.Minute, Demand: share, OK: true}})
+	oneFail := simulateLegacyTraffic(time.Minute, probePingTimeout, false)
+	oneNewFail := simulateThrottledTraffic([]probeSpan{{
+		End: time.Minute, Demand: share, OK: false, ProbeDur: probePingTimeout,
+	}})
+	if oneOK.Probes != 4 || oneNew.Probes != 1 || oneFail.Probes != 4 || oneNewFail.Probes != 1 {
+		t.Fatalf("one minute legacy/new success %d/%d failure %d/%d", oneOK.Probes, oneNew.Probes, oneFail.Probes, oneNewFail.Probes)
+	}
+	if oneNewFail.Packets != probePackets(false) || oneFail.Packets != 4*probePackets(false) {
+		t.Fatalf("one minute packets legacy %d new %d", oneFail.Packets, oneNewFail.Packets)
+	}
+}
+
+func TestProbeLoopParksUntilDemandChanges(t *testing.T) {
+	mu.Lock()
+	if server != nil || probeCancel != nil {
+		mu.Unlock()
+		t.Fatal("server or probe already running")
+	}
+	mu.Unlock()
+	savedPing := probePing
+	setProbeUi(false, false, false)
+	setProbeIncoming(false)
+	var calls int
+	probePing = func(ctx context.Context, cl *tailcat.Client) (time.Duration, error) {
+		calls++
+		return 5 * time.Millisecond, nil
+	}
+	t.Cleanup(func() {
+		mu.Lock()
+		cancel := probeCancel
+		done := probeDone
+		mu.Unlock()
+		if cancel != nil {
+			cancel()
+		}
+		if done != nil {
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Errorf("probe goroutine still running")
+			}
+		}
+		probePing = savedPing
+		setProbeUi(false, false, false)
+		setProbeIncoming(false)
+	})
+
+	mu.Lock()
+	startSelfProbeLocked("tc-probe-park", key.NewNode(), "https://tailcat.example/derpmap.json")
+	mu.Unlock()
+	time.Sleep(40 * time.Millisecond)
+	if calls != 0 {
+		t.Fatalf("probed while idle: %d", calls)
+	}
+	setProbeUi(true, true, false)
+	time.Sleep(40 * time.Millisecond)
+	if calls != 0 {
+		t.Fatalf("probed in background with no session: %d", calls)
+	}
+	setProbeIncoming(true)
+	deadline := time.Now().Add(2 * time.Second)
+	for calls == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if calls != 1 {
+		t.Fatalf("incoming session probes = %d", calls)
+	}
+	setProbeIncoming(false)
+	time.Sleep(40 * time.Millisecond)
+	if calls != 1 {
+		t.Fatalf("kept probing after the session ended: %d", calls)
+	}
+}
+
+func stopLeftoverProbe(t *testing.T) {
+	t.Helper()
+	mu.Lock()
+	if server != nil {
+		mu.Unlock()
+		t.Fatal("server already running")
+	}
+	cancel := probeCancel
+	done := probeDone
+	mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("probe goroutine still running")
+		}
+	}
+	mu.Lock()
+	if probeDone == done {
+		probeCancel = nil
+		probeDone = nil
+	}
+	mu.Unlock()
+}
+
+func TestProbeVisibilityReturnIgnoresBackoff(t *testing.T) {
+	stopLeftoverProbe(t)
+
+	savedPing := probePing
+	savedDelay := probeDelayNow
+	probeDelayNow = func(int) time.Duration { return time.Hour }
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	letGo := func() { releaseOnce.Do(func() { close(release) }) }
+	var calls atomic.Int32
+	probePing = func(ctx context.Context, cl *tailcat.Client) (time.Duration, error) {
+		if calls.Add(1) == 1 {
+			<-release
+		}
+		return 0, errors.New("relay down")
+	}
+	setProbeUi(true, false, false)
+	setProbeIncoming(false)
+	select {
+	case <-probeNotify:
+	default:
+	}
+	probeUIMu.Lock()
+	probeForce = false
+	probeUIMu.Unlock()
+
+	t.Cleanup(func() {
+		probeDelayNow = savedDelay
+		mu.Lock()
+		cancel := probeCancel
+		done := probeDone
+		mu.Unlock()
+		if cancel != nil {
+			cancel()
+		}
+		letGo()
+		if done != nil {
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Errorf("probe goroutine still running")
+			}
+		}
+		probePing = savedPing
+		setProbeUi(false, false, false)
+		setProbeIncoming(false)
+		probeUIMu.Lock()
+		probeForce = false
+		probeUIMu.Unlock()
+		mu.Lock()
+		if probeDone == done {
+			probeCancel = nil
+			probeDone = nil
+		}
+		mu.Unlock()
+	})
+
+	mu.Lock()
+	startSelfProbeLocked("tc-probe-visible", key.NewNode(), "https://tailcat.example/derpmap.json")
+	mu.Unlock()
+	deadline := time.Now().Add(2 * time.Second)
+	for calls.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("first probe = %d", calls.Load())
+	}
+
+	// The loop is blocked inside the probe, so it cannot observe this gap.
+	// Returning to the share page must still force one probe when the attempt
+	// finishes, instead of arming the hour-long failure backoff.
+	setProbeUi(false, false, false)
+	setProbeUi(true, false, false)
+	letGo()
+
+	deadline = time.Now().Add(time.Second)
+	for calls.Load() < 2 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("visibility false->true probes = %d, want 2", calls.Load())
+	}
+}
+
+func TestProbeForceSetWhenVisibilityReturns(t *testing.T) {
+	setProbeIncoming(false)
+	cases := []struct {
+		name string
+		hide func()
+		show func()
+	}{
+		{"share page", func() { setProbeUi(false, false, false) }, func() { setProbeUi(true, false, false) }},
+		{"foreground", func() { setProbeUi(true, true, false) }, func() { setProbeUi(true, false, false) }},
+		{"screen on", func() { setProbeUi(true, false, true) }, func() { setProbeUi(true, false, false) }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setProbeUi(true, false, false)
+			probeUIMu.Lock()
+			probeForce = false
+			probeUIMu.Unlock()
+			tc.hide()
+			tc.show()
+			probeUIMu.Lock()
+			force := probeForce
+			probeForce = false
+			probeUIMu.Unlock()
+			if !force {
+				t.Fatal("visibility return did not request an immediate probe")
+			}
+		})
 	}
 }

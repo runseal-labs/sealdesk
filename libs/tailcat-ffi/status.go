@@ -1,10 +1,13 @@
 package main
 
+import "C"
+
 import (
 	"context"
 	"encoding/json"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tailscale/tailcat"
@@ -13,14 +16,28 @@ import (
 )
 
 const (
-	// selfProbeInterval is how often the serve self-probe sends a meow.
-	// The first probe runs as soon as the goroutine starts.
-	selfProbeInterval = 15 * time.Second
+	// selfProbeInterval is the steady gap between successful self-probes while
+	// probing is allowed. It used to be 15s, which built a new DERP client on
+	// every tick. Foreground checks now wait a full minute.
+	selfProbeInterval = 60 * time.Second
+	// legacySelfProbeInterval is the pre-throttle cadence, kept so measurements
+	// compare against the old loop rather than a guessed rate.
+	legacySelfProbeInterval = 15 * time.Second
 	// selfProbeFresh is how long a successful probe keeps the server reachable.
-	selfProbeFresh = 45 * time.Second
+	// Three steady intervals, so a 60s success does not flap to unreachable.
+	selfProbeFresh = 3 * selfProbeInterval
 	// selfProbeGrace is how long a running server may wait for the first
 	// completed probe before the status flips from connecting to unreachable.
 	selfProbeGrace = 30 * time.Second
+	// selfProbeBackoffMax caps the failure backoff. The controlled service's
+	// own DERP session is not this timer and is left running.
+	selfProbeBackoffMax = 10 * time.Minute
+	// probeSetupPackets counts one new DERP client per attempt (TLS dial plus
+	// the engine that sends it). Meow frames are counted separately.
+	probeSetupPackets = 1
+	// Client.Ping resends meow once a second until ack or this timeout.
+	probePingTimeout = 10 * time.Second
+	probeMeowEvery   = time.Second
 )
 
 const (
@@ -145,13 +162,295 @@ func stopSelfProbeLocked() {
 	probePubText = ""
 }
 
+// probeDemand is who currently wants a self-probe. The serve DERP session
+// stays up either way; this only gates the extra meow poll.
+type probeDemand struct {
+	shareVisible bool
+	background   bool
+	screenOff    bool
+	incoming     bool
+}
+
+// allowed is true only while the share page is on screen or a session is
+// already up, and never while idle in the background or with the screen off.
+func (d probeDemand) allowed() bool {
+	if !d.incoming && (d.background || d.screenOff) {
+		return false
+	}
+	return d.shareVisible || d.incoming
+}
+
+// probeDelay is the wait after an attempt. Zero failures keeps the steady
+// interval. Each consecutive failure doubles it, capped at selfProbeBackoffMax.
+func probeDelay(failures int) time.Duration {
+	if failures <= 0 {
+		return selfProbeInterval
+	}
+	delay := selfProbeInterval
+	for i := 1; i < failures; i++ {
+		if delay >= selfProbeBackoffMax/2 {
+			return selfProbeBackoffMax
+		}
+		delay *= 2
+	}
+	if delay > selfProbeBackoffMax {
+		return selfProbeBackoffMax
+	}
+	return delay
+}
+
+// probePackets is the modeled packet count of one attempt: one DERP client
+// setup plus the meow frames Ping actually sends. Success is one meow.
+// Failure runs until probePingTimeout, one meow per probeMeowEvery.
+func probePackets(ok bool) int {
+	meows := 1
+	if !ok {
+		meows = int(probePingTimeout / probeMeowEvery)
+	}
+	return probeSetupPackets + meows
+}
+
+type probeTraffic struct {
+	Probes  int
+	Packets int
+}
+
+// simulateLegacyTraffic replays the old loop: a probe at once, then the 15s
+// ticker, including the case where a long attempt has already consumed a tick.
+func simulateLegacyTraffic(window, probeDur time.Duration, ok bool) probeTraffic {
+	var out probeTraffic
+	if window <= 0 {
+		return out
+	}
+	t := time.Duration(0)
+	nextTick := legacySelfProbeInterval
+	for t < window {
+		out.Probes++
+		out.Packets += probePackets(ok)
+		finished := t + probeDur
+		for nextTick <= finished {
+			nextTick += legacySelfProbeInterval
+		}
+		t = nextTick
+		nextTick += legacySelfProbeInterval
+	}
+	return out
+}
+
+// probeSpan is one stretch of demand over a simulated window.
+type probeSpan struct {
+	End      time.Duration
+	Demand   probeDemand
+	OK       bool
+	ProbeDur time.Duration
+}
+
+// simulateThrottledTraffic replays probeLoop's wait/backoff/park decisions
+// without opening a socket. Spans must be sorted, non-empty, and cover time
+// from 0 through the last End, which is the window.
+func simulateThrottledTraffic(spans []probeSpan) probeTraffic {
+	var out probeTraffic
+	if len(spans) == 0 {
+		return out
+	}
+	window := spans[len(spans)-1].End
+	var failures int
+	due := true
+	var next time.Duration
+	t := time.Duration(0)
+	spanAt := func(at time.Duration) probeSpan {
+		for _, sp := range spans {
+			if at < sp.End {
+				return sp
+			}
+		}
+		return spans[len(spans)-1]
+	}
+	for t < window {
+		sp := spanAt(t)
+		if !sp.Demand.allowed() {
+			failures = 0
+			due = true
+			if sp.End <= t {
+				break
+			}
+			t = sp.End
+			continue
+		}
+		if !due && next > t {
+			wake := next
+			if sp.End < wake {
+				wake = sp.End
+			}
+			if window < wake {
+				wake = window
+			}
+			if wake <= t {
+				break
+			}
+			t = wake
+			continue
+		}
+		out.Probes++
+		out.Packets += probePackets(sp.OK)
+		t += sp.ProbeDur
+		if sp.OK {
+			failures = 0
+		} else {
+			failures++
+		}
+		next = t + probeDelay(failures)
+		due = false
+	}
+	return out
+}
+
+type probeUIState struct {
+	share      bool
+	background bool
+	screenOff  bool
+	incoming   bool
+}
+
+var (
+	probeUIMu sync.Mutex
+	probeUI   probeUIState
+	// probeForce is set when demand transitions from not allowed to allowed.
+	// The loop may still be inside a probe or about to arm a backoff, so the
+	// flag, not a wake alone, is what schedules the immediate follow-up.
+	probeForce bool
+	// probeNotify wakes probeLoop when demand changes. A full buffer means a
+	// wake is already pending.
+	probeNotify = make(chan struct{}, 1)
+)
+
+// probeDelayNow is the live loop's wait. Tests replace it so a visibility
+// return can be checked against a long backoff without sleeping that long.
+var probeDelayNow = probeDelay
+
+func demandFromUI(ui probeUIState) probeDemand {
+	return probeDemand{
+		shareVisible: ui.share,
+		background:   ui.background,
+		screenOff:    ui.screenOff,
+		incoming:     ui.incoming,
+	}
+}
+
+// loadProbeDemand returns the current demand and whether visibility just
+// became allowed again. The force flag is one-shot: a return to the share
+// page, foreground, or screen-on must probe now, not after the old backoff.
+func loadProbeDemand() (probeDemand, bool) {
+	probeUIMu.Lock()
+	defer probeUIMu.Unlock()
+	force := probeForce
+	probeForce = false
+	return demandFromUI(probeUI), force
+}
+
+func wakeProbe() {
+	select {
+	case probeNotify <- struct{}{}:
+	default:
+	}
+}
+
+func setProbeUi(share, background, screen bool) {
+	probeUIMu.Lock()
+	prev := demandFromUI(probeUI).allowed()
+	changed := probeUI.share != share || probeUI.background != background || probeUI.screenOff != screen
+	probeUI.share = share
+	probeUI.background = background
+	probeUI.screenOff = screen
+	next := demandFromUI(probeUI).allowed()
+	if changed && !prev && next {
+		probeForce = true
+	}
+	probeUIMu.Unlock()
+	if changed {
+		wakeProbe()
+	}
+}
+
+func setProbeIncoming(incoming bool) {
+	probeUIMu.Lock()
+	changed := probeUI.incoming != incoming
+	probeUI.incoming = incoming
+	probeUIMu.Unlock()
+	if changed {
+		wakeProbe()
+	}
+}
+
+//export TcSetProbeUi
+func TcSetProbeUi(share, background, screen C.int) {
+	setProbeUi(share != 0, background != 0, screen != 0)
+}
+
+//export TcSetProbeIncoming
+func TcSetProbeIncoming(incoming C.int) {
+	setProbeIncoming(incoming != 0)
+}
+
+func waitProbeSignal(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-probeNotify:
+		return true
+	}
+}
+
+func waitProbeDelay(ctx context.Context, d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-probeNotify:
+		return true
+	case <-timer.C:
+		return true
+	}
+}
+
 func probeLoop(ctx context.Context, gen uint64, addr tailcat.Addr, priv key.NodePrivate, source string, done chan struct{}) {
 	defer close(done)
-	ticker := time.NewTicker(selfProbeInterval)
-	defer ticker.Stop()
+	// Pausing this loop does not close the server DERP session. That session
+	// is what keeps the controlled side reachable; the meow here is only a
+	// status poll.
+	var failures int
+	var next time.Time
+	due := true
 	for {
 		if ctx.Err() != nil {
 			return
+		}
+		demand, force := loadProbeDemand()
+		if !demand.allowed() {
+			failures = 0
+			due = true
+			next = time.Time{}
+			if !waitProbeSignal(ctx) {
+				return
+			}
+			continue
+		}
+		// Coming back to the share page, foreground, or screen-on probes
+		// immediately. The previous failure backoff must not keep a stale
+		// unreachable result on screen.
+		if force {
+			failures = 0
+			due = true
+			next = time.Time{}
+		}
+		if !due && !next.IsZero() {
+			if wait := time.Until(next); wait > 0 {
+				if !waitProbeDelay(ctx, wait) {
+					return
+				}
+				continue
+			}
 		}
 		// A new client each round so Ping waits for this meow. Reusing one
 		// client reports success with a sub-ms latency after the first ack.
@@ -162,11 +461,13 @@ func probeLoop(ctx context.Context, gen uint64, addr tailcat.Addr, priv key.Node
 		if !noteProbe(gen, rtt, err) {
 			return
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
+		if err != nil {
+			failures++
+		} else {
+			failures = 0
 		}
+		next = time.Now().Add(probeDelayNow(failures))
+		due = false
 	}
 }
 
