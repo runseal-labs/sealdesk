@@ -21,10 +21,6 @@ on:
         # Comma-separated subset of windows,macos,android,linux; "all" builds every platform.
         type: string
         default: "all"
-      macos-jobs:
-        # JSON matrix of macOS jobs. Default is unchanged: intel x86_64 plus arm64.
-        type: string
-        default: '[{"target":"x86_64-apple-darwin","os":"macos-15-intel","extra-build-args":"","extra-cargo-features":"","arch":"x86_64","vcpkg-triplet":"x64-osx"},{"target":"aarch64-apple-darwin","os":"macos-14","extra-build-args":"--screencapturekit","extra-cargo-features":",screencapturekit","arch":"aarch64","vcpkg-triplet":"arm64-osx"}]'
 
 # NOTE: F-Droid builder script 'flutter/build_fdroid.sh' reads environment
 # variables from this workflow!
@@ -743,9 +739,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macos-latest / macos-14 are arm64. x86_64 stays on macos-15-intel.
-        # https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners/about-github-hosted-runners
-        job: ${{ fromJSON(inputs.macos-jobs) }}
+        job:
+          - {
+              target: x86_64-apple-darwin,
+              os: macos-15-intel, #macos-latest or macos-14 use M1 now, https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners/about-github-hosted-runners#:~:text=14%20GB-,macos%2Dlatest%20or%20macos%2D14,-The%20macos%2Dlatestlabel
+              extra-build-args: "",
+              extra-cargo-features: "",
+              arch: x86_64,
+              vcpkg-triplet: x64-osx,
+            }
+          - {
+              target: aarch64-apple-darwin,
+              os: macos-14,
+              # extra-build-args: "--disable-flutter-texture-render", # disable this for mac, because we see a lot of users reporting flickering both on arm and x64, and we can not confirm if texture rendering has better performance if htere is no vram, https://github.com/rustdesk/rustdesk/issues/6296
+              extra-build-args: "--screencapturekit",
+              extra-cargo-features: ",screencapturekit",
+              arch: aarch64,
+              vcpkg-triplet: arm64-osx,
+            }
     steps:
       - name: Export GitHub Actions cache environment variables
         uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6

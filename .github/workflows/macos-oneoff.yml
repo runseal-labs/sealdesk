@@ -11,4 +11,3 @@ jobs:
       upload-artifact: true
       publish-release: false
       platforms: macos
-      macos-jobs: '[{"target":"aarch64-apple-darwin","os":"macos-14","extra-build-args":"--screencapturekit","extra-cargo-features":",screencapturekit","arch":"aarch64","vcpkg-triplet":"arm64-osx"}]'
