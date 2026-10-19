@@ -739,20 +739,32 @@ impl InvokeUiSession for FlutterHandler {
         );
     }
 
-    fn set_connection_type(&self, is_secured: bool, direct: bool, stream_type: &str) {
+    fn set_connection_type(&self, is_secured: bool, direct: Option<bool>, stream_type: &str) {
+        let direct_value = crate::tailcat::direct_flag(direct).to_owned();
+        let stream_type = stream_type.to_owned();
         self.push_event(
             "connection_ready",
             &[
                 ("secure", &is_secured.to_string()),
-                ("direct", &direct.to_string()),
-                ("stream_type", &stream_type.to_string()),
+                ("direct", &direct_value),
+                ("stream_type", &stream_type),
             ],
             &[],
         );
     }
 
     fn update_tailcat_path(&self, direct: bool) {
-        self.push_event("tailcat_path", &[("direct", &direct.to_string())], &[]);
+        let direct = Some(direct);
+        let direct_value = crate::tailcat::direct_flag(direct).to_owned();
+        let stream_type = crate::tailcat::tailcat_stream_type(direct).to_owned();
+        self.push_event(
+            "tailcat_path",
+            &[
+                ("direct", &direct_value),
+                ("stream_type", &stream_type),
+            ],
+            &[],
+        );
     }
 
     fn job_error(&self, id: i32, err: String, file_num: i32) {

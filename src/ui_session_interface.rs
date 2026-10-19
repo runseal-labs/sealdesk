@@ -1733,13 +1733,10 @@ pub trait InvokeUiSession: Send + Sync + Clone + 'static + Sized + Default {
     fn set_permission(&self, name: &str, value: bool);
     fn close_success(&self);
     fn update_quality_status(&self, qs: QualityStatus);
-    fn set_connection_type(&self, is_secured: bool, direct: bool, stream_type: &str);
+    fn set_connection_type(&self, is_secured: bool, direct: Option<bool>, stream_type: &str);
     fn update_tailcat_path(&self, direct: bool) {
-        self.set_connection_type(
-            true,
-            direct,
-            if direct { "Tailcat/P2P" } else { "Tailcat/DERP" },
-        );
+        let direct = Some(direct);
+        self.set_connection_type(true, direct, crate::tailcat::tailcat_stream_type(direct));
     }
     fn job_error(&self, id: i32, err: String, file_num: i32);
     fn job_done(&self, id: i32, file_num: i32);

@@ -61,7 +61,8 @@ class CachedPeerData {
   Map<String, bool> permissions = {};
 
   bool secure = false;
-  bool direct = false;
+  // Null until disco reports DERP or a direct endpoint.
+  bool? direct;
   String streamType = '';
 
   CachedPeerData();
@@ -90,7 +91,7 @@ class CachedPeerData {
         data.permissions[key] = value;
       });
       data.secure = map['secure'];
-      data.direct = map['direct'];
+      data.direct = connectionDirectFromCache(map['direct']);
       data.streamType = map['streamType'];
       return data;
     } catch (e) {
@@ -261,7 +262,7 @@ class FfiModel with ChangeNotifier {
   }
 
   setConnectionType(
-      String peerId, bool secure, bool direct, String streamType) {
+      String peerId, bool secure, bool? direct, String streamType) {
     cachedPeerData.secure = secure;
     cachedPeerData.direct = direct;
     cachedPeerData.streamType = streamType;
@@ -278,15 +279,28 @@ class FfiModel with ChangeNotifier {
   }
 
   Widget? getConnectionImageText() {
-    if (secure == null || direct == null) {
+    if (secure == null) {
+      return null;
+    }
+    final streamType = cachedPeerData.streamType;
+    if (direct == null && sealDeskConnectionLabel(streamType) == null) {
       return null;
     } else {
-      final icon =
-          '${secure == true ? 'secure' : 'insecure'}${direct == true ? '' : '_relay'}';
-      final iconWidget =
-          SvgPicture.asset('assets/$icon.svg', width: 48, height: 48);
-      String connectionText =
-          getConnectionText(secure!, direct!, cachedPeerData.streamType);
+      final secureToken = secure == true ? 'secure' : 'insecure';
+      final directToken = direct == null
+          ? ConnectionType.strUnknown
+          : (direct == true
+              ? ConnectionType.strDirect
+              : ConnectionType.strIndirect);
+      final iconWidget = SvgPicture.asset(
+        sealDeskConnectionAsset(secureToken, streamType, directToken),
+        width: 48,
+        height: 48,
+      );
+      final sealLabel = sealDeskConnectionLabel(streamType);
+      String connectionText = sealLabel != null
+          ? translate(sealLabel)
+          : getConnectionText(secure!, direct == true, streamType);
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -339,14 +353,15 @@ class FfiModel with ChangeNotifier {
         handleSyncPeerInfo(evt, sessionId, peerId);
       } else if (name == 'sync_platform_additions') {
         handlePlatformAdditions(evt, sessionId, peerId);
-      } else if (name == 'connection_ready') {
-        setConnectionType(peerId, evt['secure'] == 'true',
-            evt['direct'] == 'true', evt['stream_type'] ?? '');
-        resetRestartReconnectState();
-      } else if (name == 'tailcat_path') {
-        final direct = evt['direct'] == 'true';
-        setConnectionType(
-            peerId, true, direct, direct ? 'Tailcat/P2P' : 'Tailcat/DERP');
+      } else if (name == 'connection_ready' || name == 'tailcat_path') {
+        final published = publishedConnectionFromEvent(name, evt);
+        if (published != null) {
+          setConnectionType(peerId, published.secure, published.direct,
+              published.streamType);
+        }
+        if (name == 'connection_ready') {
+          resetRestartReconnectState();
+        }
       } else if (name == 'switch_display') {
         // switch display is kept for backward compatibility
         handleSwitchDisplay(evt, sessionId, peerId);

@@ -181,7 +181,7 @@ impl Client {
         token: &str,
         conn_type: ConnType,
         interface: impl Interface,
-    ) -> ResultType<((Stream, bool, Option<Vec<u8>>, &'static str), (i32, String))> {
+    ) -> ResultType<((Stream, Option<bool>, Option<Vec<u8>>, &'static str), (i32, String))> {
         debug_assert!(peer == interface.get_id());
         interface.update_received(false);
         match Self::_start(peer, key, token, conn_type, interface.clone()).await {
@@ -204,13 +204,13 @@ impl Client {
         _token: &str,
         conn_type: ConnType,
         interface: impl Interface,
-    ) -> ResultType<((Stream, bool, Option<Vec<u8>>, &'static str), (i32, String))> {
+    ) -> ResultType<((Stream, Option<bool>, Option<Vec<u8>>, &'static str), (i32, String))> {
         if config::is_incoming_only() && !is_switch_sides_back(conn_type, &interface).await {
             bail!("Incoming only mode");
         }
         if crate::lan::is_addr(peer) {
             let stream = hbb_common::tokio::time::timeout(std::time::Duration::from_millis(CONNECT_TIMEOUT), crate::lan::connect(peer)).await??;
-            return Ok(((stream, true, None, "LAN"), (0, String::new())));
+            return Ok(((stream, Some(true), None, "LAN"), (0, String::new())));
         }
         if hbb_common::is_ip_str(peer) {
             let stream = connect_tcp_local(
@@ -218,14 +218,15 @@ impl Client {
                 None,
                 CONNECT_TIMEOUT,
             ).await?;
-            return Ok(((stream, true, None, "TCP"), (0, String::new())));
+            return Ok(((stream, Some(true), None, "TCP"), (0, String::new())));
         }
         // A peer is reached only through its tailcat address; the tunnel does the rest.
         if !crate::tailcat::is_addr(peer) {
             bail!("Unsupported peer {peer:?}: connect with the peer's tailcat address (tc...)");
         }
         let stream = crate::tailcat::connect(peer, CONNECT_TIMEOUT).await?;
-        Ok(((stream, true, None, "Tailcat"), (0, "".to_owned())))
+        let direct = crate::tailcat::initial_tailcat_direct();
+        Ok(((stream, direct, None, crate::tailcat::tailcat_stream_type(direct)), (0, "".to_owned())))
     }
 
     #[inline]
