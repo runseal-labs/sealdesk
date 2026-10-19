@@ -60,6 +60,7 @@ class _ServerPageState extends State<ServerPage> {
           builder: (context, serverModel, child) => SealDeskNativeHomePage(
             hostOnly: true,
             shareColumn: true,
+            serviceStarted: serverModel.isStart,
             onStart: () async {
               if (bind.mainGetLocalOption(key: 'show-scam-warning') != 'N') {
                 showScamWarning(context, serverModel);
@@ -755,7 +756,8 @@ class ClientInfo extends StatelessWidget {
                     Text(client.name, style: const TextStyle(fontSize: 18)),
                     if (!isLegacyNumericId(client.peerId)) ...[
                       const SizedBox(width: 8),
-                      Text(client.peerId, style: const TextStyle(fontSize: 10)),
+                      Text(client.peerId,
+                          style: const TextStyle(fontSize: 10)),
                     ],
                   ]))
             ],

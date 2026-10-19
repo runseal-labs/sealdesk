@@ -97,6 +97,11 @@ class SealDeskHomePage extends StatefulWidget {
   /// Order is QR/device card, service switch, permissions, security.
   final bool shareColumn;
 
+  /// Android MainService state. The share-column switch must follow this,
+  /// not [_SealDeskHomePageState._phase]: a start error can happen while the
+  /// service is still running, and inferring "off" makes the next tap stop it.
+  final bool serviceStarted;
+
   /// Left column of the desktop home row. Host QR only; connect UI stays
   /// on the right pane.
   final bool sidePane;
@@ -122,6 +127,7 @@ class SealDeskHomePage extends StatefulWidget {
     this.footer,
     this.hostOnly = false,
     this.shareColumn = false,
+    this.serviceStarted = false,
     this.sidePane = false,
   });
 
@@ -970,11 +976,6 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
     );
   }
 
-  bool get _serviceOn =>
-      _phase == SealDeskSharePhase.running ||
-      _phase == SealDeskSharePhase.permissionMissing ||
-      _phase == SealDeskSharePhase.starting;
-
   Widget _shareQrCard() {
     return Card(
       key: const ValueKey('sealdesk-share-qr-card'),
@@ -985,7 +986,9 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (_code != null)
+            if (_phase == SealDeskSharePhase.error)
+              ..._buildError()
+            else if (_code != null)
               _qrSlotResponsive()
             else
               Text(translate(_status), key: const ValueKey('sealdesk-status')),
@@ -1051,9 +1054,10 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
         key: const ValueKey('sealdesk-service-switch'),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16),
         title: Text(translate('Service')),
-        subtitle: Text(translate(
-            _serviceOn ? 'Service is running' : 'Service is not running')),
-        value: _serviceOn,
+        subtitle: Text(translate(widget.serviceStarted
+            ? 'Service is running'
+            : 'Service is not running')),
+        value: widget.serviceStarted,
         onChanged: _busy
             ? null
             : (next) {

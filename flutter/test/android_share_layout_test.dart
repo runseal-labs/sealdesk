@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sealdesk/common/sealdesk_share_settings.dart';
@@ -24,6 +26,14 @@ void main() {
     WidgetTester tester, {
     required Size size,
     double textScale = 1,
+    SealDeskHostState host = const SealDeskHostState(
+      address: address,
+      password: 'secret',
+      name: 'pixel',
+    ),
+    bool serviceStarted = true,
+    Future<void> Function()? onStart,
+    Future<void> Function()? onStop,
   }) async {
     await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -40,17 +50,14 @@ void main() {
           hostOnly: true,
           shareColumn: true,
           initialMode: 'host',
-          loadHost: () async => const SealDeskHostState(
-            address: address,
-            password: 'secret',
-            name: 'pixel',
-          ),
+          loadHost: () async => host,
           refreshPassword: () async {},
           connect: (_) async {},
           saveMode: (_) async {},
           now: () => 100,
-          onStart: () async {},
-          onStop: () async {},
+          serviceStarted: serviceStarted,
+          onStart: onStart ?? () async {},
+          onStop: onStop ?? () async {},
           permissionBanner: const Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -174,5 +181,127 @@ void main() {
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
     }
+  });
+
+  testWidgets('service switch follows serviceStarted during a start error',
+      (tester) async {
+    var started = 0;
+    var stopped = 0;
+    const failed = SealDeskHostState(
+      address: address,
+      password: 'secret',
+      name: 'pixel',
+      startError: 'map failed',
+    );
+
+    await show(
+      tester,
+      size: const Size(320, 568),
+      host: failed,
+      serviceStarted: true,
+      onStart: () async {
+        started++;
+      },
+      onStop: () async {
+        stopped++;
+      },
+    );
+    SwitchListTile tile() => tester.widget<SwitchListTile>(
+        find.byKey(const ValueKey('sealdesk-service-switch')));
+    expect(tile().value, isTrue);
+    expect(find.text('Service is running'), findsOneWidget);
+    await tester.tap(find.descendant(
+      of: find.byKey(const ValueKey('sealdesk-service-switch')),
+      matching: find.byType(Switch),
+    ));
+    await tester.pump();
+    expect(stopped, 1);
+    expect(started, 0);
+
+    await show(
+      tester,
+      size: const Size(320, 568),
+      host: failed,
+      serviceStarted: false,
+      onStart: () async {
+        started++;
+      },
+      onStop: () async {
+        stopped++;
+      },
+    );
+    expect(tile().value, isFalse);
+    expect(find.text('Service is not running'), findsOneWidget);
+    await tester.tap(find.descendant(
+      of: find.byKey(const ValueKey('sealdesk-service-switch')),
+      matching: find.byType(Switch),
+    ));
+    await tester.pump();
+    expect(started, 1);
+    expect(stopped, 1);
+  });
+
+  testWidgets('share column shows the host error and Retry', (tester) async {
+    await show(
+      tester,
+      size: const Size(320, 568),
+      host: const SealDeskHostState(
+        address: '',
+        password: '',
+        name: 'pixel',
+        startError: 'map failed',
+      ),
+      serviceStarted: true,
+    );
+    expect(find.text('map failed'), findsOneWidget);
+    expect(find.byKey(const ValueKey('sealdesk-retry-host')), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
+    expect(find.text('Generating pairing code...'), findsNothing);
+  });
+
+  test('password refresh reloads the model only after generation', () async {
+    final order = <String>[];
+    final gate = Completer<void>();
+    final pending = refreshSealDeskDisplayedPassword(
+      updateTemporary: () async {
+        order.add('temp');
+        await gate.future;
+        order.add('temp-done');
+      },
+      updateModel: () async {
+        order.add('model');
+      },
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(order, ['temp']);
+    gate.complete();
+    await pending;
+    expect(order, ['temp', 'temp-done', 'model']);
+  });
+
+  testWidgets('permanent-only settings omit the empty password value title',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SealDeskShareSettingsView(
+          approveMode: 'password',
+          verificationMethod: kUsePermanentPassword,
+          otpLength: '8',
+          numeric: false,
+          approveFixed: false,
+          numericFixed: false,
+          permanentPasswordDisabled: false,
+          onApprove: (_) async {},
+          onVerification: (_) async {},
+          onSetPermanent: () {},
+          onSetOtpLength: () {},
+          onToggleNumeric: () {},
+        ),
+      ),
+    ));
+    expect(find.text('Password value'), findsNothing);
+    expect(find.byKey(const ValueKey('sealdesk-password-value')), findsNothing);
+    expect(
+        find.byKey(const ValueKey('sealdesk-set-permanent')), findsOneWidget);
   });
 }

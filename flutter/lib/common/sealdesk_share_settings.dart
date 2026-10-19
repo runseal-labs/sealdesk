@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../common.dart';
@@ -6,6 +8,16 @@ import '../models/platform_model.dart';
 import '../models/server_model.dart';
 
 typedef SealDeskSetPassword = void Function({VoidCallback? notEmptyCallback});
+
+/// Generates a new temporary password, then reloads the value shown in the UI.
+/// The reload must not start until generation finishes, or it can read the old password.
+Future<void> refreshSealDeskDisplayedPassword({
+  required Future<void> Function() updateTemporary,
+  required FutureOr<void> Function() updateModel,
+}) async {
+  await updateTemporary();
+  await updateModel();
+}
 
 bool sealDeskShareSettingsAllowed() =>
     !bind.isDisableSettings() &&
@@ -92,8 +104,12 @@ class _SealDeskShareSettingsState extends State<SealDeskShareSettings> {
       passwordValue: model.serverPasswd.text,
       onRefreshPassword: widget.includePasswordRefresh
           ? () {
-              bind.mainUpdateTemporaryPassword();
-              model.updatePasswordModel();
+              unawaited(refreshSealDeskDisplayedPassword(
+                updateTemporary: () => bind.mainUpdateTemporaryPassword(),
+                updateModel: () async {
+                  await model.updatePasswordModel();
+                },
+              ));
             }
           : null,
     );
@@ -211,14 +227,12 @@ class SealDeskShareSettingsView extends StatelessWidget {
               if (value != null) onVerification(value);
             },
           ),
-          if (showOneTime || showPermanent) ...[
+          if (showOneTime) ...[
             const SizedBox(height: 8),
             Text(
               translate('Password value'),
               key: const ValueKey('sealdesk-password-value-label'),
             ),
-          ],
-          if (showOneTime)
             Row(
               key: const ValueKey('sealdesk-password-value'),
               children: [
@@ -232,6 +246,7 @@ class SealDeskShareSettingsView extends StatelessWidget {
                   ),
               ],
             ),
+          ],
         ],
         if (showPermanent || showOneTime) ...[
           if (showPermanent)
