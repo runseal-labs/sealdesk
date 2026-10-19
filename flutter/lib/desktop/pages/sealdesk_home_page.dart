@@ -93,6 +93,15 @@ class SealDeskHomePage extends StatefulWidget {
   final Widget? footer;
   final bool hostOnly;
 
+  /// Android share screen: one scrollable column, never a stack.
+  /// Order is QR/device card, service switch, permissions, security.
+  final bool shareColumn;
+
+  /// Android MainService state. The share-column switch must follow this,
+  /// not [_SealDeskHomePageState._phase]: a start error can happen while the
+  /// service is still running, and inferring "off" makes the next tap stop it.
+  final bool serviceStarted;
+
   /// Left column of the desktop home row. Host QR only; connect UI stays
   /// on the right pane.
   final bool sidePane;
@@ -117,6 +126,8 @@ class SealDeskHomePage extends StatefulWidget {
     this.shareSettings,
     this.footer,
     this.hostOnly = false,
+    this.shareColumn = false,
+    this.serviceStarted = false,
     this.sidePane = false,
   });
 
@@ -137,6 +148,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
   String? _error;
   String? _hostError;
   String? _hostDetail;
+  String _deviceAddress = '';
   SealDeskSharePhase _phase = SealDeskSharePhase.starting;
   bool _hidden = false;
   final _qrMask = SealDeskQrMask();
@@ -191,6 +203,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
     try {
       final host = await widget.loadHost();
       if (!mounted || _mode != 'host' || (_busy && !force)) return;
+      _deviceAddress = host.address == _revokedAddress ? '' : host.address;
       if (host.startError.isNotEmpty) {
         final raw = host.startError.trim();
         final friendly = isInternalRelayError(raw);
@@ -507,6 +520,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
   @override
   Widget build(BuildContext context) {
     if (widget.sidePane) return _buildSidePane(context);
+    if (widget.shareColumn) return _buildShareColumn(context);
     final page = Center(
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
@@ -959,6 +973,142 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _shareQrCard() {
+    return Card(
+      key: const ValueKey('sealdesk-share-qr-card'),
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (_phase == SealDeskSharePhase.error)
+              ..._buildError()
+            else if (_code != null)
+              _qrSlotResponsive()
+            else
+              Text(translate(_status), key: const ValueKey('sealdesk-status')),
+            const SizedBox(height: 12),
+            Text(translate('Device code')),
+            Text(
+              _deviceAddress.isEmpty ? '-' : _deviceAddress,
+              key: const ValueKey('sealdesk-device-code'),
+            ),
+            if (_code != null) ...[
+              const SizedBox(height: 4),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    TextButton.icon(
+                      key: const ValueKey('sealdesk-copy'),
+                      icon: const Icon(Icons.copy),
+                      label: Text(translate('Copy pairing code')),
+                      onPressed: _busy ? null : _copyPairing,
+                    ),
+                    TextButton.icon(
+                      icon: Icon(
+                          _hidden ? Icons.visibility : Icons.visibility_off),
+                      label: Text(
+                          translate(_hidden ? 'Show QR code' : 'Hide QR code')),
+                      onPressed: () => setState(_toggleQrMask),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
+            _scamLine(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// QR size follows the card width so landscape and large text do not
+  /// paint outside the card.
+  Widget _qrSlotResponsive() {
+    return LayoutBuilder(builder: (context, constraints) {
+      final width = constraints.maxWidth;
+      final available = width.isFinite ? width : 220.0;
+      final size = math.min(280.0, math.max(available, 0.0));
+      if (size < 48) {
+        return Text(translate(
+            'Pairing code is too long for a QR image. Copy the text instead.'));
+      }
+      return Center(child: _qrFrame(size));
+    });
+  }
+
+  Widget _shareServiceSwitch() {
+    return Card(
+      key: const ValueKey('sealdesk-share-service'),
+      margin: EdgeInsets.zero,
+      child: SwitchListTile(
+        key: const ValueKey('sealdesk-service-switch'),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+        title: Text(translate('Service')),
+        subtitle: Text(translate(widget.serviceStarted
+            ? 'Service is running'
+            : 'Service is not running')),
+        value: widget.serviceStarted,
+        onChanged: _busy
+            ? null
+            : (next) {
+                final action = next ? widget.onStart : widget.onStop;
+                if (action == null) return;
+                _act(action);
+              },
+      ),
+    );
+  }
+
+  Widget _buildShareColumn(BuildContext context) {
+    return SingleChildScrollView(
+      key: const ValueKey('sealdesk-share-scroll'),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _shareQrCard(),
+          const SizedBox(height: 12),
+          _shareServiceSwitch(),
+          if (widget.permissionBanner != null) ...[
+            const SizedBox(height: 12),
+            KeyedSubtree(
+              key: const ValueKey('sealdesk-share-permissions'),
+              child: widget.permissionBanner!,
+            ),
+          ],
+          if (widget.shareSettings != null) ...[
+            const SizedBox(height: 12),
+            KeyedSubtree(
+              key: const ValueKey('sealdesk-share-security'),
+              child: widget.shareSettings!,
+            ),
+          ],
+          if (_phase == SealDeskSharePhase.running &&
+              widget.lanPanelBuilder != null) ...[
+            const SizedBox(height: 12),
+            widget.lanPanelBuilder!(true),
+          ],
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 16),
+              child: Text(_error!,
+                  key: const ValueKey('sealdesk-error'),
+                  style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            ),
+          if (widget.footer != null) widget.footer!,
+        ],
+      ),
     );
   }
 

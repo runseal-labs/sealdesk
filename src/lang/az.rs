@@ -916,5 +916,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Screen recording needs a restart.", "Ekran qeydi yenidən başlatma tələb edir."),
         ("Later", "Daha sonra"),
         ("Restart", "Yenidən başlat"),
+        ("Device code", ""),
+        ("Password value", ""),
     ].iter().cloned().collect();
 }

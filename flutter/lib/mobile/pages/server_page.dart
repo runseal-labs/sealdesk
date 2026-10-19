@@ -59,6 +59,8 @@ class _ServerPageState extends State<ServerPage> {
         child: Consumer<ServerModel>(
           builder: (context, serverModel, child) => SealDeskNativeHomePage(
             hostOnly: true,
+            shareColumn: true,
+            serviceStarted: serverModel.isStart,
             onStart: () async {
               if (bind.mainGetLocalOption(key: 'show-scam-warning') != 'N') {
                 showScamWarning(context, serverModel);
@@ -75,6 +77,7 @@ class _ServerPageState extends State<ServerPage> {
                     openSetPassword: setPasswordDialog,
                     openOtpLength: () =>
                         setTemporaryPasswordLengthDialog(gFFI.dialogManager),
+                    includePasswordRefresh: true,
                   )
                 : null,
             footer: Column(
