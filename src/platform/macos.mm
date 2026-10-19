@@ -5,6 +5,11 @@
 #include <Security/AuthorizationTags.h>
 
 #include <CoreGraphics/CoreGraphics.h>
+#include <crt_externs.h>
+#include <dispatch/dispatch.h>
+#include <spawn.h>
+
+extern "C" void sealdesk_open_listen_event_settings(void);
 #include <vector>
 #include <map>
 #include <set>
@@ -53,8 +58,7 @@ extern "C" bool InputMonitoringAuthStatus(bool prompt) {
                 break;
             case kIOHIDAccessTypeDenied: {
                 if (prompt) {
-                    NSString *urlString = @"x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent";
-                    [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:urlString]];
+                    sealdesk_open_listen_event_settings();
                 }
                 break;
             }
@@ -114,6 +118,47 @@ extern "C" bool Elevate(char* process, char** args) {
 
 extern "C" bool MacCheckAdminAuthorization() {
     return Elevate(NULL, NULL);
+}
+
+static NSString *shellSingleQuote(NSString *value) {
+    NSString *escaped = [value stringByReplacingOccurrencesOfString:@"'" withString:@"'\\''"];
+    return [NSString stringWithFormat:@"'%@'", escaped];
+}
+
+// Detach a relaunch so quitting this process does not take the new one down.
+extern "C" bool RelaunchApp() {
+    @autoreleasepool {
+        NSString *bundle = [[NSBundle mainBundle] bundlePath];
+        if (bundle.length == 0) {
+            return false;
+        }
+        NSString *script;
+        if ([bundle hasSuffix:@".app"]) {
+            script = [NSString stringWithFormat:@"sleep 0.4; exec /usr/bin/open -n %@",
+                                                shellSingleQuote(bundle)];
+        } else {
+            NSString *exe = [[NSBundle mainBundle] executablePath];
+            if (exe.length == 0) {
+                return false;
+            }
+            script = [NSString stringWithFormat:@"sleep 0.4; exec %@", shellSingleQuote(exe)];
+        }
+        const char *shell = "/bin/sh";
+        const char *argv[] = {shell, "-c", script.UTF8String, NULL};
+        posix_spawnattr_t attr;
+        posix_spawnattr_init(&attr);
+        posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSID);
+        pid_t pid = 0;
+        int rc = posix_spawn(&pid, shell, NULL, &attr, (char *const *)argv, *_NSGetEnviron());
+        posix_spawnattr_destroy(&attr);
+        if (rc != 0) {
+            return false;
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [NSApp terminate:nil];
+        });
+        return true;
+    }
 }
 
 // https://gist.github.com/briankc/025415e25900750f402235dbf1b74e42

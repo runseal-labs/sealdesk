@@ -739,6 +739,36 @@ pub fn is_can_input_monitoring(_prompt: bool) -> bool {
 }
 
 #[inline]
+#[cfg(feature = "flutter")]
+pub fn show_permission_guide(kind: String) -> bool {
+    #[cfg(target_os = "macos")]
+    return crate::platform::macos::show_permission_guide(&kind);
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = kind;
+        false
+    }
+}
+
+#[inline]
+#[cfg(feature = "flutter")]
+pub fn screen_recording_access_observed() -> bool {
+    #[cfg(target_os = "macos")]
+    return crate::platform::macos::screen_recording_access_observed();
+    #[cfg(not(target_os = "macos"))]
+    return false;
+}
+
+#[inline]
+#[cfg(feature = "flutter")]
+pub fn relaunch_app() -> bool {
+    #[cfg(target_os = "macos")]
+    return crate::platform::macos::relaunch_app();
+    #[cfg(not(target_os = "macos"))]
+    return false;
+}
+
+#[inline]
 pub fn get_error() -> String {
     #[cfg(target_os = "linux")]
     {

@@ -2193,6 +2193,18 @@ pub fn main_is_can_input_monitoring(prompt: bool) -> SyncReturn<bool> {
     SyncReturn(is_can_input_monitoring(prompt))
 }
 
+pub fn main_show_permission_guide(kind: String) -> SyncReturn<bool> {
+    SyncReturn(show_permission_guide(kind))
+}
+
+pub fn main_screen_recording_access_observed() -> SyncReturn<bool> {
+    SyncReturn(screen_recording_access_observed())
+}
+
+pub fn main_relaunch_app() -> SyncReturn<bool> {
+    SyncReturn(relaunch_app())
+}
+
 pub fn main_is_share_rdp() -> SyncReturn<bool> {
     SyncReturn(is_share_rdp())
 }

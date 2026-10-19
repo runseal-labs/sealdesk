@@ -351,5 +351,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("LAN", "LAN"),
         ("Sharing", "Sharing"),
         ("Invalid connection address", "Invalid connection address"),
+        ("Screen recording needs a restart.", "Screen recording needs a restart."),
+        ("Later", "Later"),
+        ("Restart", "Restart"),
     ].iter().cloned().collect();
 }
