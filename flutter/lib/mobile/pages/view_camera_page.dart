@@ -13,6 +13,7 @@ import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 
 import '../../common.dart';
+import '../../common/system_ui_style.dart';
 import '../../common/widgets/overlay.dart';
 import '../../common/widgets/dialog.dart';
 import '../../common/widgets/remote_input.dart';
@@ -134,8 +135,7 @@ class _ViewCameraPageState extends State<ViewCameraPage>
     _timer?.cancel();
     _timerDidChangeMetrics?.cancel();
     gFFI.dialogManager.dismissAll();
-    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
-        overlays: SystemUiOverlay.values);
+    await restoreMobileSystemBars();
     WakelockManager.disable(_uniqueKey);
     removeSharedStates(widget.id);
     // `on_voice_call_closed` should be called when the connection is ended.

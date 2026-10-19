@@ -95,7 +95,11 @@ class HomePageState extends State<HomePage> {
               }
             }),
           ),
+          // No app bar: keep page content out of the status bar and
+          // display cutout. The bottom navigation bar consumes the
+          // navigation-bar inset itself.
           body: SafeArea(
+            top: true,
             bottom: false,
             child: _pages.elementAt(_selectedIndex),
           ),
