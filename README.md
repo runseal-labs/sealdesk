@@ -13,12 +13,19 @@ Scan the QR code from your phone or another computer. That's it: you're in.
 
 No account. No ID server. No relay to host. No port forwarding.
 
-> Tested on Linux x64 / x86_64, Windows, and macOS: connections work as host and as controller. Android has not been tested as a controlled (host) device. The macOS app is not notarized, so Gatekeeper may block the first launch:
+> Tested on Linux x64 / x86_64, Windows, and macOS: connections work as host and as controller. Android has not been tested as a controlled (host) device.
 >
-> ```bash
-> xattr -d com.apple.quarantine ~/Downloads/sealdesk-*.dmg
-> xattr -r -d com.apple.quarantine /Applications/SealDesk.app
-> ```
+> **macOS**
+>
+> - The app is not notarized. Before the first launch:
+>
+>   ```bash
+>   xattr -d com.apple.quarantine ~/Downloads/sealdesk-*.dmg
+>   xattr -r -d com.apple.quarantine /Applications/SealDesk.app
+>   ```
+>
+> - The app is ad-hoc signed. After each upgrade, Screen Recording, Accessibility, and Input Monitoring may stop working. In **System Settings > Privacy & Security**, remove the old SealDesk entry and grant the permissions again.
+> - After granting Screen Recording, quit the app and open it again.
 >
 > There is no iOS build in this release.
 
