@@ -8,7 +8,9 @@ import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sealdesk/common.dart';
+import 'package:sealdesk/common/sealdesk_share_settings.dart';
 import 'package:sealdesk/common/widgets/animated_rotation_widget.dart';
+import 'package:sealdesk/mobile/widgets/dialog.dart';
 import 'package:sealdesk/common/widgets/custom_password.dart';
 import 'package:sealdesk/consts.dart';
 import 'package:sealdesk/desktop/pages/connection_page.dart';
@@ -64,7 +66,18 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     super.build(context);
     if (bind.mainGetAppNameSync() == 'SealDesk') {
       return _buildBlock(
-          child: SealDeskNativeHomePage(initialInput: _sealdeskInitialInput));
+          child: SealDeskNativeHomePage(
+            initialInput: _sealdeskInitialInput,
+            onStart: () => start_service(true),
+            onStop: () => start_service(false),
+            shareSettings: sealDeskShareSettingsAllowed()
+                ? SealDeskShareSettings(
+                    openSetPassword: setPasswordDialog,
+                    openOtpLength: () =>
+                        setTemporaryPasswordLengthDialog(gFFI.dialogManager),
+                  )
+                : null,
+          ));
     }
     final isIncomingOnly = bind.isIncomingOnly();
     return _buildBlock(

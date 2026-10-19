@@ -464,7 +464,11 @@ pub fn set_options(m: HashMap<String, String>) {
         ipc::set_options(m).ok();
     }
     #[cfg(any(target_os = "android", target_os = "ios"))]
-    Config::set_options(m);
+    {
+        let compat_was = crate::lan::rustdesk_compat_enabled();
+        Config::set_options(m);
+        crate::lan::note_rustdesk_compat(compat_was);
+    }
 }
 
 #[inline]
@@ -519,7 +523,11 @@ pub fn set_option(key: String, value: String) {
             }
             return;
         }
+        let compat_was = key == crate::lan::OPTION_RUSTDESK_COMPAT && crate::lan::rustdesk_compat_enabled();
         Config::set_option(key, value);
+        if compat_was {
+            crate::lan::note_rustdesk_compat(true);
+        }
     }
 }
 

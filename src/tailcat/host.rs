@@ -73,14 +73,19 @@ fn preserve_host_state(options: &mut std::collections::HashMap<String, String>) 
 
 pub(crate) fn set_options(mut options: std::collections::HashMap<String, String>) {
     let _running = RUNNING.lock().unwrap();
+    let compat_was = crate::lan::rustdesk_compat_enabled();
     preserve_host_state(&mut options);
     Config::set_options(options);
+    crate::lan::note_rustdesk_compat(compat_was);
 }
 
 pub(crate) fn sync_config(mut config: hbb_common::config::Config2) -> bool {
     let _running = RUNNING.lock().unwrap();
+    let compat_was = crate::lan::rustdesk_compat_enabled();
     preserve_host_state(&mut config.options);
-    hbb_common::config::Config2::set(config)
+    let updated = hbb_common::config::Config2::set(config);
+    crate::lan::note_rustdesk_compat(compat_was);
+    updated
 }
 
 pub(crate) fn mode() -> &'static str {
