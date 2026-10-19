@@ -32,6 +32,7 @@ import 'package:window_size/window_size.dart' as window_size;
 
 import '../consts.dart';
 import 'common/sealdesk_connection.dart';
+import 'common/system_ui_style.dart';
 import 'common/widgets/overlay.dart';
 import 'mobile/pages/file_manager_page.dart';
 import 'mobile/pages/remote_page.dart';
@@ -712,8 +713,7 @@ String formatDurationToTime(Duration duration) {
 closeConnection({String? id}) {
   if (isAndroid || isIOS) {
     () async {
-      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
-          overlays: SystemUiOverlay.values);
+      await restoreMobileSystemBars();
       gFFI.chatModel.hideChatOverlay();
       Navigator.popUntil(globalKey.currentContext!, ModalRoute.withName("/"));
       stateGlobal.isInMainPage = true;

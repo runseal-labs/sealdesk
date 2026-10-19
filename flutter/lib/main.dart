@@ -26,6 +26,7 @@ import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'common.dart';
+import 'common/system_ui_style.dart';
 import 'consts.dart';
 import 'mobile/pages/home_page.dart';
 import 'mobile/pages/server_page.dart';
@@ -175,6 +176,7 @@ void runMobileApp() async {
   await initEnv(kAppTypeMain);
   if (isAndroid) androidChannelInit();
   if (isAndroid) platformFFI.syncAndroidServiceAppDirConfigPath();
+  if (isAndroid) await enableAndroidEdgeToEdge();
   draggablePositions.load();
   runApp(App());
   await initUniLinks();
@@ -514,7 +516,9 @@ class _AppState extends State<App> with WidgetsBindingObserver {
                       data: MediaQuery.of(context).copyWith(
                         textScaler: TextScaler.linear(1.0),
                       ),
-                      child: child ?? Container(),
+                      child: EdgeToEdgeSystemUi(
+                        child: child ?? const SizedBox.shrink(),
+                      ),
                     ),
                   )
               : (context, child) {
