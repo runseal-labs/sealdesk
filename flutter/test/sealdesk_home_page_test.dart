@@ -103,6 +103,8 @@ void main() {
     Future<void> Function()? resetAddress,
     Future<SealDeskPairing> Function()? pasteImage,
     bool sidePane = false,
+    bool hostOnly = false,
+    bool outgoingOnly = false,
     Size surface = const Size(800, 900),
   }) async {
     await tester.binding.setSurfaceSize(surface);
@@ -114,7 +116,8 @@ void main() {
           child: Builder(builder: (context) {
             final page = SealDeskHomePage(
               sidePane: sidePane,
-              hostOnly: sidePane,
+              hostOnly: hostOnly || sidePane,
+              outgoingOnly: outgoingOnly,
               initialMode: mode,
               initialInput: initialInput,
               loadHost: loadHost ??
@@ -478,6 +481,70 @@ void main() {
       expect(saved, isEmpty);
       await tester.pumpWidget(const SizedBox());
     }
+  });
+
+  test('saved page policy is unchanged from restoring the last page', () {
+    expect(sealDeskInitialPage('control'), 'control');
+    expect(sealDeskInitialPage('host'), 'host');
+    expect(sealDeskInitialPage(''), 'host');
+    expect(sealDeskInitialPage('nope'), 'host');
+    expect(
+      sealDeskShareCardStartsHost(
+          hostOnly: false, sidePane: false, outgoingOnly: false),
+      isFalse,
+    );
+    expect(
+      sealDeskShareCardStartsHost(
+          hostOnly: true, sidePane: false, outgoingOnly: false),
+      isTrue,
+    );
+    expect(
+      sealDeskShareCardStartsHost(
+          hostOnly: false, sidePane: true, outgoingOnly: false),
+      isTrue,
+    );
+    expect(
+      sealDeskShareCardStartsHost(
+          hostOnly: true, sidePane: true, outgoingOnly: true),
+      isFalse,
+    );
+  });
+
+  testWidgets(
+      'control mode share card calls saveMode host so the service can start',
+      (tester) async {
+    for (final forced in [
+      (sidePane: true, hostOnly: false),
+      (sidePane: false, hostOnly: true),
+    ]) {
+      final saved = <String>[];
+      await showPage(
+        tester,
+        mode: 'control',
+        sidePane: forced.sidePane,
+        hostOnly: forced.hostOnly,
+        saveMode: (mode) async => saved.add(mode),
+      );
+      expect(saved, ['host']);
+      expect(find.byType(QrImageView), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    }
+  });
+
+  testWidgets('outgoing-only share card does not start the host service',
+      (tester) async {
+    final saved = <String>[];
+    await showPage(
+      tester,
+      mode: 'control',
+      sidePane: true,
+      outgoingOnly: true,
+      saveMode: (mode) async => saved.add(mode),
+    );
+    expect(saved, isEmpty);
+    await tester.pump(const Duration(seconds: 1));
+    expect(saved, isEmpty);
+    await tester.pumpWidget(const SizedBox());
   });
 
   testWidgets('startup restores the connect page and saves the next choice',

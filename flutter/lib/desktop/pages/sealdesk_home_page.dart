@@ -17,6 +17,16 @@ const _defaultDerpMapUrl = 'https://tailcat.dev/derpmap.json';
 String sealDeskInitialPage(String saved) =>
     saved == 'control' ? 'control' : 'host';
 
+/// Share card (sidebar or host-only) must persist host mode so
+/// `request_mode("host")` starts the controlled service. The connect page
+/// still follows [sealDeskInitialPage]. Outgoing-only never starts it.
+bool sealDeskShareCardStartsHost({
+  required bool hostOnly,
+  required bool sidePane,
+  required bool outgoingOnly,
+}) =>
+    !outgoingOnly && (hostOnly || sidePane);
+
 class SealDeskHostState {
   final String address;
   final String? password;
@@ -67,6 +77,9 @@ class SealDeskHomePage extends StatefulWidget {
   /// on the right pane.
   final bool sidePane;
 
+  /// Hard outgoing-only builds must not be switched into host mode.
+  final bool outgoingOnly;
+
   const SealDeskHomePage({
     super.key,
     required this.initialMode,
@@ -88,6 +101,7 @@ class SealDeskHomePage extends StatefulWidget {
     this.footer,
     this.hostOnly = false,
     this.sidePane = false,
+    this.outgoingOnly = false,
   });
 
   @override
@@ -122,6 +136,13 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
     _mode = widget.hostOnly || widget.sidePane
         ? 'host'
         : sealDeskInitialPage(widget.initialMode);
+    if (sealDeskShareCardStartsHost(
+      hostOnly: widget.hostOnly,
+      sidePane: widget.sidePane,
+      outgoingOnly: widget.outgoingOnly,
+    )) {
+      unawaited(_persistHostMode());
+    }
     _poll();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) => _poll());
     if (_mode == 'control' && widget.initialInput != null) {
@@ -244,6 +265,22 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
     } finally {
       _loading = false;
     }
+  }
+
+  Future<void> _persistHostMode() async {
+    try {
+      await widget.saveMode('host');
+    } on FormatException catch (error) {
+      if (mounted) setState(() => _error = translate(error.message));
+      return;
+    } catch (_) {
+      if (mounted) {
+        setState(
+            () => _error = translate('Operation failed, please try again'));
+      }
+      return;
+    }
+    if (mounted) await _poll(force: true);
   }
 
   Future<void> _selectMode(String mode) async {

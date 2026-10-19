@@ -156,33 +156,70 @@ pub(crate) fn query_mode() -> hbb_common::ResultType<String> {
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[derive(Debug)]
+pub(crate) enum HostRequest {
+    /// No IPC server yet and the user is controlling only. Do not call `start_server`.
+    ControlWithoutServer,
+    /// No IPC server yet and the share card asked for host. `request_mode` spawns
+    /// `start_server(true, false)` for this variant only.
+    StartServer,
+    /// A server is already running; switch it through IPC.
+    ConfigureRunningDaemon,
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub(crate) fn host_request_action(
+    mode: &str,
+    outgoing_only: bool,
+    daemon_absent: bool,
+) -> hbb_common::ResultType<HostRequest> {
+    use hbb_common::bail;
+    if !matches!(mode, "host" | "control") {
+        bail!("请选择被控此设备或控制其他设备");
+    }
+    if mode == "host" && outgoing_only {
+        bail!("当前应用配置仅允许控制其他设备");
+    }
+    if !daemon_absent {
+        return Ok(HostRequest::ConfigureRunningDaemon);
+    }
+    if mode == "control" {
+        Ok(HostRequest::ControlWithoutServer)
+    } else {
+        Ok(HostRequest::StartServer)
+    }
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) fn request_mode(mode: &str) -> hbb_common::ResultType<()> {
-    use hbb_common::{anyhow::anyhow, bail};
+    use hbb_common::anyhow::anyhow;
     use std::{
         sync::Once,
         time::{Duration, Instant},
     };
 
-    if !matches!(mode, "host" | "control") {
-        bail!("请选择被控此设备或控制其他设备");
-    }
-    if mode == "host" && hbb_common::config::is_outgoing_only() {
-        bail!("当前应用配置仅允许控制其他设备");
-    }
-    match crate::ipc::get_config(keys::OPTION_SEALDESK_HOST_MODE) {
-        Err(error) if daemon_absent(&error) => {
+    let outgoing_only = hbb_common::config::is_outgoing_only();
+    // Reject outgoing-only and unknown modes before any IPC attempt.
+    host_request_action(mode, outgoing_only, true)?;
+    let absent = match crate::ipc::get_config(keys::OPTION_SEALDESK_HOST_MODE) {
+        Err(error) if daemon_absent(&error) => true,
+        Err(error) => return Err(error),
+        Ok(_) => false,
+    };
+    match host_request_action(mode, outgoing_only, absent)? {
+        HostRequest::ControlWithoutServer => {
             set_mode(mode.to_owned());
-            if mode == "control" {
-                set_address(String::new());
-                return Ok(());
-            }
+            set_address(String::new());
+            return Ok(());
+        }
+        HostRequest::StartServer => {
+            set_mode(mode.to_owned());
             static START: Once = Once::new();
             START.call_once(|| {
                 std::thread::spawn(|| crate::start_server(true, false));
             });
         }
-        Err(error) => return Err(error),
-        Ok(_) => {}
+        HostRequest::ConfigureRunningDaemon => {}
     }
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
@@ -376,6 +413,39 @@ fn is_tailcat_addr_byte(byte: u8) -> bool {
 #[cfg(all(test, not(any(target_os = "android", target_os = "ios"))))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remembered_control_starts_server_only_from_the_share_card() {
+        use super::super::launch::{controller_only, startup_mode, Mode};
+        assert_eq!(startup_mode(None, "control"), Mode::Control);
+        assert_eq!(startup_mode(None, "host"), Mode::Host);
+        assert_eq!(startup_mode(None, ""), Mode::Host);
+        assert!(controller_only("control", false));
+        assert!(!controller_only("host", false));
+        assert!(matches!(
+            host_request_action("control", false, true).unwrap(),
+            HostRequest::ControlWithoutServer
+        ));
+        assert!(matches!(
+            host_request_action("host", false, true).unwrap(),
+            HostRequest::StartServer
+        ));
+        assert!(host_request_action("host", true, true).is_err());
+        assert!(host_request_action("host", true, false).is_err());
+        assert!(matches!(
+            host_request_action("host", false, false).unwrap(),
+            HostRequest::ConfigureRunningDaemon
+        ));
+        assert!(matches!(
+            host_request_action("control", false, false).unwrap(),
+            HostRequest::ConfigureRunningDaemon
+        ));
+        let outgoing = host_request_action("host", true, true)
+            .unwrap_err()
+            .to_string();
+        assert!(outgoing.contains("仅允许控制"));
+        assert!(!outgoing.to_ascii_lowercase().contains("start_server"));
+    }
 
     #[test]
     fn only_missing_or_refused_daemons_count_as_inactive() {
