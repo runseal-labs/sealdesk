@@ -913,5 +913,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Tap to show", "اضغط للإظهار"),
         ("Invalid connection address", "عنوان اتصال غير صالح"),
         ("QR refreshes in {} min", "يتجدد رمز QR خلال {} دقيقة"),
+        ("Screen recording needs a restart.", "يحتاج تسجيل الشاشة إلى إعادة تشغيل."),
+        ("Later", "لاحقًا"),
+        ("Restart", "إعادة التشغيل"),
     ].iter().cloned().collect();
 }

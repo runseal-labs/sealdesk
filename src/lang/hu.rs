@@ -913,5 +913,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Tap to show", "Koppintson a megjelenítéshez"),
         ("Invalid connection address", "Érvénytelen kapcsolati cím"),
         ("QR refreshes in {} min", "A QR {} perc múlva frissül"),
+        ("Screen recording needs a restart.", "A képernyőfelvételhez újraindítás szükséges."),
+        ("Later", "Később"),
+        ("Restart", "Újraindítás"),
     ].iter().cloned().collect();
 }
