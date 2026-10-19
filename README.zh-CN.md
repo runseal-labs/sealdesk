@@ -12,12 +12,19 @@
 
 不用注册账号，不用 ID 服务器，不用自建中继，也不用做端口映射。
 
-> 已在 Linux x64 / x86_64、Windows 和 macOS 上验证：作为被控端和控制端连接均正常。尚未将 Android 作为被控设备测试。macOS 应用未经公证，首次打开可能被 Gatekeeper 拦截：
+> 已在 Linux x64 / x86_64、Windows 和 macOS 上验证：作为被控端和控制端连接均正常。尚未将 Android 作为被控设备测试。
 >
-> ```bash
-> xattr -d com.apple.quarantine ~/Downloads/sealdesk-*.dmg
-> xattr -r -d com.apple.quarantine /Applications/SealDesk.app
-> ```
+> **macOS**
+>
+> - 应用未公证。首次打开前执行：
+>
+>   ```bash
+>   xattr -d com.apple.quarantine ~/Downloads/sealdesk-*.dmg
+>   xattr -r -d com.apple.quarantine /Applications/SealDesk.app
+>   ```
+>
+> - 应用是 adhoc 签名。每次升级后，屏幕录制、辅助功能、输入监视权限可能失效。在**系统设置 > 隐私与安全性**中移除旧的 SealDesk 条目后重新授权。
+> - 屏幕录制授权后可能需要退出并重新打开应用。
 >
 > 本版本不包含 iOS 版本。
 
