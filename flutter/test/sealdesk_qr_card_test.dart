@@ -76,7 +76,15 @@ void main() {
 
   testWidgets('tap shows a full-size QR and the code itself has no controls',
       (tester) async {
+    await tester.binding.setSurfaceSize(const Size(412, 915));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     await show(tester, size: const Size(412, 915), host: () => running());
+    expect(find.byKey(const ValueKey('sealdesk-scam-line')), findsOneWidget);
+    final scam = tester.widget<Text>(find.descendant(
+        of: find.byKey(const ValueKey('sealdesk-scam-line')),
+        matching: find.byType(Text)));
+    expect(scam.maxLines, 1);
+    expect(scam.data, 'Stranger asks you to share? Hang up');
     expect(find.byKey(const ValueKey('sealdesk-qr')), findsOneWidget);
     expect(
         find.descendant(
@@ -97,6 +105,14 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.byKey(const ValueKey('sealdesk-qr-full')), findsOneWidget);
     expect(find.byKey(const ValueKey('sealdesk-qr')), findsOneWidget);
+    final full = tester.getSize(find.byKey(const ValueKey('sealdesk-qr-full')));
+    expect(full.width, closeTo(412, 1));
+    expect(full.height, closeTo(412, 1));
+    final fullRect =
+        tester.getRect(find.byKey(const ValueKey('sealdesk-qr-full')));
+    final close = tester.getRect(find.byKey(const ValueKey('sealdesk-qr-close')));
+    expect(fullRect.overlaps(close), isFalse);
+    expect(close.top, greaterThanOrEqualTo(fullRect.bottom - 1));
     await tester.tap(find.byKey(const ValueKey('sealdesk-qr-close')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
@@ -171,6 +187,8 @@ void main() {
         findsNothing);
     final qr = tester.getRect(find.byKey(const ValueKey('sealdesk-qr')));
     expect(qr.right, lessThanOrEqualTo(300));
+    final copy = tester.getRect(find.byKey(const ValueKey('sealdesk-copy')));
+    expect(copy.bottom, lessThanOrEqualTo(qr.top + 1));
 
     await tester.tap(find.byKey(const ValueKey('sealdesk-hide')));
     await tester.pump();

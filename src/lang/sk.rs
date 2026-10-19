@@ -855,9 +855,9 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Relay unreachable; scanning will likely time out", ""),
         ("Cannot reach the relay server. Check the network or relay settings", "Nedá sa pripojiť k relay serveru. Skontrolujte sieť alebo nastavenia relay"),
         ("Error details", "Podrobnosti chyby"),
-        ("Sharing", ""),
+        ("Sharing", "Zdieľanie"),
         ("Allow RustDesk compatible connections", ""),
-        ("Stranger asks you to share? Hang up", ""),
+        ("Stranger asks you to share? Hang up", "Cudzí žiada zdieľanie? Zaveste."),
         ("Share settings", ""),
         ("Access method", ""),
         ("Password type", ""),
@@ -911,8 +911,6 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Recent", "Nedávne"),
         ("LAN", "LAN"),
         ("Tap to show", "Ťuknutím zobraziť"),
-        ("Stranger asking you to share? Hang up.", "Cudzí žiada zdieľanie? Zaveste."),
-        ("Sharing", "Zdieľanie"),
         ("Invalid connection address", "Neplatná adresa pripojenia"),
     ].iter().cloned().collect();
 }

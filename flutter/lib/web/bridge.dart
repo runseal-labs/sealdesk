@@ -1139,6 +1139,10 @@ class SealdeskImpl {
         () => js.context.callMethod('getByName', ['load_recent_peers']));
   }
 
+  Future<void> mainHideSealdeskRecentPeers({dynamic hint}) {
+    throw UnimplementedError('mainHideSealdeskRecentPeers');
+  }
+
   String mainLoadRecentPeersSync({dynamic hint}) {
     return js.context.callMethod('getByName', ['load_recent_peers_sync']);
   }

@@ -927,9 +927,6 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Searching…", "查找中…"),
         ("Recent", "最近"),
         ("LAN", "局域网"),
-        ("Tap to show", "点按显示"),
-        ("Stranger asking you to share? Hang up.", "陌生人来电要求共享？请挂断"),
-        ("Sharing", "共享中"),
         ("Invalid connection address", "连接地址无效"),
     ].iter().cloned().collect();
 }

@@ -277,9 +277,18 @@ Future<void> clearSealDeskHistory(Iterable<String> ids) async {
   ensureSealDeskRecordsLoaded();
   sealDeskConnectionRecords.clearHistory();
   await persistSealDeskRecords();
-  for (final id in ids) {
-    await bind.mainSetPeerOption(
-        id: id, key: kSealDeskHideRecent, value: 'Y');
+  var hidden = false;
+  try {
+    await bind.mainHideSealdeskRecentPeers();
+    hidden = true;
+  } catch (_) {}
+  if (!hidden) {
+    for (final id in ids) {
+      final trimmed = id.trim();
+      if (trimmed.isEmpty) continue;
+      await bind.mainSetPeerOption(
+          id: trimmed, key: kSealDeskHideRecent, value: 'Y');
+    }
   }
   try {
     bind.mainLoadRecentPeers();

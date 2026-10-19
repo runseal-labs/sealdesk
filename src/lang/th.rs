@@ -855,9 +855,9 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Relay unreachable; scanning will likely time out", ""),
         ("Cannot reach the relay server. Check the network or relay settings", "เชื่อมต่อเซิร์ฟเวอร์รีเลย์ไม่ได้ โปรดตรวจสอบเครือข่ายหรือการตั้งค่ารีเลย์"),
         ("Error details", "รายละเอียดข้อผิดพลาด"),
-        ("Sharing", ""),
+        ("Sharing", "กำลังแชร์"),
         ("Allow RustDesk compatible connections", ""),
-        ("Stranger asks you to share? Hang up", ""),
+        ("Stranger asks you to share? Hang up", "คนแปลกหน้าขอให้แชร์? วางสาย"),
         ("Share settings", ""),
         ("Access method", ""),
         ("Password type", ""),
@@ -911,8 +911,6 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Recent", "ล่าสุด"),
         ("LAN", "LAN"),
         ("Tap to show", "แตะเพื่อแสดง"),
-        ("Stranger asking you to share? Hang up.", "คนแปลกหน้าขอให้แชร์? วางสาย"),
-        ("Sharing", "กำลังแชร์"),
         ("Invalid connection address", "ที่อยู่การเชื่อมต่อไม่ถูกต้อง"),
     ].iter().cloned().collect();
 }

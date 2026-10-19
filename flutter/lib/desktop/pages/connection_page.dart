@@ -306,16 +306,10 @@ class _ConnectionPageState extends State<ConnectionPage>
   /// Search for a peer.
   Widget _buildRemoteIDTextField(BuildContext context) {
     if (isSealDeskApp()) {
-      return Align(
-        alignment: Alignment.topLeft,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 640),
-          child: SealDeskConnectField(
-            controller: _idEditingController,
-            desktop: true,
-          ).marginOnly(right: 12, bottom: 8),
-        ),
-      );
+      return SealDeskConnectField(
+        controller: _idEditingController,
+        desktop: true,
+      ).marginOnly(right: 12, bottom: 8);
     }
     var w = Container(
       width: 320 + 20 * 2,

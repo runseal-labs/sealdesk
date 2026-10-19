@@ -349,8 +349,6 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Searching…", "Searching…"),
         ("Recent", "Recent"),
         ("LAN", "LAN"),
-        ("Tap to show", "Tap to show"),
-        ("Stranger asking you to share? Hang up.", "Stranger asking you to share? Hang up."),
         ("Sharing", "Sharing"),
         ("Invalid connection address", "Invalid connection address"),
     ].iter().cloned().collect();

@@ -1458,6 +1458,19 @@ pub fn main_load_recent_peers() {
     }
 }
 
+pub fn main_hide_sealdesk_recent_peers() {
+    let ids = PeerConfig::get_vec_id_modified_time_path(&None)
+        .into_iter()
+        .map(|(id, _, _)| id);
+    for id in crate::tailcat::history::recent_ids_for_history_clear(ids) {
+        set_peer_option(
+            id,
+            crate::tailcat::history::HIDE_RECENT_OPTION.to_owned(),
+            "Y".to_owned(),
+        );
+    }
+}
+
 pub fn main_load_fav_peers() {
     let push_to_flutter = |peers| {
         let data = HashMap::from([("name", "load_fav_peers".to_owned()), ("peers", peers)]);

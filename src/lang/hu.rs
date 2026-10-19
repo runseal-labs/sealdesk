@@ -855,9 +855,9 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Relay unreachable; scanning will likely time out", ""),
         ("Cannot reach the relay server. Check the network or relay settings", "Nem lehet csatlakozni a relay kiszolgálóhoz. Ellenőrizze a hálózatot vagy a relay beállításait"),
         ("Error details", "Hiba részletei"),
-        ("Sharing", ""),
+        ("Sharing", "Megosztás"),
         ("Allow RustDesk compatible connections", ""),
-        ("Stranger asks you to share? Hang up", ""),
+        ("Stranger asks you to share? Hang up", "Ismeretlen megosztást kér? Tegye le."),
         ("Share settings", ""),
         ("Access method", ""),
         ("Password type", ""),
@@ -911,8 +911,6 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Recent", "Legutóbbiak"),
         ("LAN", "LAN"),
         ("Tap to show", "Koppintson a megjelenítéshez"),
-        ("Stranger asking you to share? Hang up.", "Ismeretlen megosztást kér? Tegye le."),
-        ("Sharing", "Megosztás"),
         ("Invalid connection address", "Érvénytelen kapcsolati cím"),
     ].iter().cloned().collect();
 }

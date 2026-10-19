@@ -855,9 +855,9 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Relay unreachable; scanning will likely time out", ""),
         ("Cannot reach the relay server. Check the network or relay settings", "Δεν είναι δυνατή η σύνδεση με τον διακομιστή αναμετάδοσης. Ελέγξτε το δίκτυο ή τις ρυθμίσεις αναμετάδοσης"),
         ("Error details", "Λεπτομέρειες σφάλματος"),
-        ("Sharing", ""),
+        ("Sharing", "Κοινή χρήση"),
         ("Allow RustDesk compatible connections", ""),
-        ("Stranger asks you to share? Hang up", ""),
+        ("Stranger asks you to share? Hang up", "Άγνωστος ζητά κοινή χρήση; Κλείστε."),
         ("Share settings", ""),
         ("Access method", ""),
         ("Password type", ""),
@@ -911,8 +911,6 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Recent", "Πρόσφατα"),
         ("LAN", "LAN"),
         ("Tap to show", "Πατήστε για εμφάνιση"),
-        ("Stranger asking you to share? Hang up.", "Άγνωστος ζητά κοινή χρήση; Κλείστε."),
-        ("Sharing", "Κοινή χρήση"),
         ("Invalid connection address", "Μη έγκυρη διεύθυνση σύνδεσης"),
     ].iter().cloned().collect();
 }

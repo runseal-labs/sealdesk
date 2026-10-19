@@ -29,7 +29,6 @@ pub const PR2_I18N_KEYS: &[&str] = &[
     "Recent",
     "LAN",
     "Tap to show",
-    "Stranger asking you to share? Hang up.",
     "Sharing",
     "Invalid connection address",
 ];

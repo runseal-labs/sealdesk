@@ -918,8 +918,6 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Recent", "最近"),
         ("LAN", "區域網路"),
         ("Tap to show", "點按顯示"),
-        ("Stranger asking you to share? Hang up.", "陌生人來電要求共享？請掛斷"),
-        ("Sharing", "共享中"),
         ("Invalid connection address", "連線位址無效"),
     ].iter().cloned().collect();
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
@@ -425,28 +426,48 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
 
   Future<void> _openQrFullscreen() async {
     if (_code == null || _hidden) return;
-    await showDialog<void>(
+    await showGeneralDialog<void>(
       context: context,
-      builder: (context) {
-        final view = MediaQuery.sizeOf(context);
-        final shortest = view.width < view.height ? view.width : view.height;
-        final size = (shortest - 180).clamp(140.0, 320.0);
-        return AlertDialog(
-          backgroundColor: Colors.white,
-          contentPadding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-          content: SizedBox(
-            width: size,
-            height: size,
-            child: _buildQr(size, const ValueKey('sealdesk-qr-full')),
+      barrierDismissible: true,
+      barrierLabel: translate('Close'),
+      barrierColor: Colors.black87,
+      pageBuilder: (context, _, __) {
+        return Material(
+          color: Colors.black,
+          child: SafeArea(
+            child: LayoutBuilder(builder: (context, constraints) {
+              const button = 48.0;
+              final wide = constraints.maxWidth >= constraints.maxHeight;
+              final short =
+                  wide ? constraints.maxHeight : constraints.maxWidth;
+              final along = wide
+                  ? constraints.maxWidth - button
+                  : constraints.maxHeight - button;
+              final size = math.min(short, math.max(along, 0.0));
+              final qr = ColoredBox(
+                color: Colors.white,
+                child: _buildQr(size, const ValueKey('sealdesk-qr-full')),
+              );
+              final close = IconButton(
+                key: const ValueKey('sealdesk-qr-close'),
+                tooltip: translate('Close'),
+                color: Colors.white,
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close),
+              );
+              final code = SizedBox(width: size, height: size, child: qr);
+              if (wide) {
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [code, close],
+                );
+              }
+              return Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [code, close],
+              );
+            }),
           ),
-          actions: [
-            IconButton(
-              key: const ValueKey('sealdesk-qr-close'),
-              tooltip: translate('Close'),
-              onPressed: () => Navigator.of(context).pop(),
-              icon: const Icon(Icons.close),
-            ),
-          ],
         );
       },
     );
@@ -822,8 +843,8 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
     final ttl = _ttlLabel();
     return [
       Wrap(
-        spacing: 8,
-        runSpacing: 8,
+        spacing: 4,
+        runSpacing: 4,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Container(
@@ -847,13 +868,18 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
               ),
               child: Text(ttl, style: const TextStyle(fontSize: 13)),
             ),
+          if (widget.sidePane) ..._iconActionButtons(),
         ],
       ),
       ..._relayWidgets(),
       const SizedBox(height: 12),
       _qrSlot(),
-      const SizedBox(height: 12),
-      widget.sidePane ? _iconActions() : _textActions(),
+      if (!widget.sidePane) ...[
+        const SizedBox(height: 12),
+        _textActions(),
+      ],
+      const SizedBox(height: 8),
+      _scamLine(),
     ];
   }
 
@@ -911,7 +937,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
   Widget _buildSidePane(BuildContext context) {
     final narrow = MediaQuery.sizeOf(context).width < 800;
     final children = <Widget>[
-      if (narrow) _collapsedBar() else ..._expandedSide(),
+      if (narrow) _collapsedBar() else ..._buildHost(),
       if (_error != null)
         Padding(
           padding: const EdgeInsets.only(top: 8),
@@ -933,16 +959,6 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
         children: children,
       ),
     );
-  }
-
-  List<Widget> _expandedSide() {
-    final host = _buildHost();
-    if (_phase != SealDeskSharePhase.running) return host;
-    return [
-      ...host,
-      const SizedBox(height: 8),
-      _scamLine(),
-    ];
   }
 
   Future<void> _copyPairing() => _act(() =>
@@ -978,42 +994,41 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
         ],
       );
 
-  Widget _iconActions() {
+  List<Widget> _iconActionButtons() {
     final copyEnabled = _code != null && !_busy;
-    return Wrap(
-      spacing: 4,
-      alignment: WrapAlignment.center,
-      children: [
+    return [
+      IconButton(
+        key: const ValueKey('sealdesk-copy'),
+        tooltip: translate('Copy pairing code'),
+        visualDensity: VisualDensity.compact,
+        onPressed: copyEnabled ? _copyPairing : null,
+        icon: const Icon(Icons.copy, size: 20),
+      ),
+      IconButton(
+        key: const ValueKey('sealdesk-refresh'),
+        tooltip: translate('Refresh password'),
+        visualDensity: VisualDensity.compact,
+        onPressed: _busy ? null : _refreshPassword,
+        icon: const Icon(Icons.refresh, size: 20),
+      ),
+      if (widget.resetAddress != null)
         IconButton(
-          key: const ValueKey('sealdesk-copy'),
-          tooltip: translate('Copy pairing code'),
-          onPressed: copyEnabled ? _copyPairing : null,
-          icon: const Icon(Icons.copy, size: 20),
+          key: const ValueKey('sealdesk-reset-address'),
+          tooltip: translate('Reset address'),
+          visualDensity: VisualDensity.compact,
+          onPressed: _busy || (_pairing == null && _revokedAddress == null)
+              ? null
+              : _resetAddress,
+          icon: const Icon(Icons.restart_alt, size: 20),
         ),
-        IconButton(
-          key: const ValueKey('sealdesk-refresh'),
-          tooltip: translate('Refresh password'),
-          onPressed: _busy ? null : _refreshPassword,
-          icon: const Icon(Icons.refresh, size: 20),
-        ),
-        if (widget.resetAddress != null)
-          IconButton(
-            key: const ValueKey('sealdesk-reset-address'),
-            tooltip: translate('Reset address'),
-            onPressed: _busy || (_pairing == null && _revokedAddress == null)
-                ? null
-                : _resetAddress,
-            icon: const Icon(Icons.restart_alt, size: 20),
-          ),
-        IconButton(
-          key: const ValueKey('sealdesk-hide'),
-          tooltip: translate(_hidden ? 'Show QR code' : 'Hide QR code'),
-          onPressed: () => setState(_toggleQrMask),
-          icon:
-              Icon(_hidden ? Icons.visibility : Icons.visibility_off, size: 20),
-        ),
-      ],
-    );
+      IconButton(
+        key: const ValueKey('sealdesk-hide'),
+        tooltip: translate(_hidden ? 'Show QR code' : 'Hide QR code'),
+        visualDensity: VisualDensity.compact,
+        onPressed: () => setState(_toggleQrMask),
+        icon: Icon(_hidden ? Icons.visibility : Icons.visibility_off, size: 20),
+      ),
+    ];
   }
 
   List<Widget> _buildControl() => [

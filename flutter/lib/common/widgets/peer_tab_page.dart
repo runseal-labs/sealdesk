@@ -482,7 +482,11 @@ class _PeerTabPageState extends State<PeerTabPage>
           ),
         );
         if (confirmed != true || !mounted) return;
-        final ids = gFFI.recentPeersModel.peers.map((peer) => peer.id);
+        final recent = gFFI.recentPeersModel;
+        final ids = <String>[
+          ...recent.peers.map((peer) => peer.id),
+          ...recent.restPeerIds,
+        ];
         await clearSealDeskHistory(ids);
       },
       icon: const Icon(Icons.more_vert, size: 20),
