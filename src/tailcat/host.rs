@@ -10,7 +10,11 @@ pub(crate) fn start_error() -> String {
 }
 
 pub(crate) fn set_start_error(error: String) {
-    *START_ERROR.lock().unwrap() = scrub_init_error(&error);
+    let scrubbed = scrub_init_error(&error);
+    if !scrubbed.is_empty() {
+        hbb_common::log::error!("Tailcat sharing failed: {scrubbed}");
+    }
+    *START_ERROR.lock().unwrap() = scrubbed;
 }
 
 pub(crate) fn enabled() -> bool {
@@ -234,7 +238,43 @@ pub(crate) fn relay_status() -> String {
     {
         return String::new();
     }
+    log_relay_last_error(&merged);
     merged
+}
+
+fn log_relay_last_error(status: &str) {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(status) else {
+        return;
+    };
+    let current = value
+        .get("last_error")
+        .and_then(|item| item.as_str())
+        .unwrap_or("")
+        .trim();
+    static LAST: Mutex<String> = Mutex::new(String::new());
+    static THROTTLE: hbb_common::log_throttle::LogThrottle =
+        hbb_common::log_throttle::LogThrottle::new(std::time::Duration::from_secs(60));
+    let mut last = LAST.lock().unwrap();
+    if current.is_empty() {
+        last.clear();
+        return;
+    }
+    if *last == current {
+        return;
+    }
+    // Remember the text only after it is logged, so a change inside the
+    // interval is retried instead of dropped.
+    let Some(n) = THROTTLE.due() else {
+        return;
+    };
+    last.clear();
+    last.push_str(current);
+    drop(last);
+    if n > 1 {
+        hbb_common::log::error!("Relay unreachable: {current} (x{n})");
+    } else {
+        hbb_common::log::error!("Relay unreachable: {current}");
+    }
 }
 
 /// Adds `rust_init_error` when `status` is a JSON object whose `init_error` is

@@ -47,5 +47,9 @@ void main() {
     final connecting = RelayStatus.fromJson('{"state":"connecting"}')!;
     expect(connecting.hasChip, isTrue);
     expect(connecting.initFailure, isNull);
+
+    expect(isInternalRelayError('tailcat: DERP map fetch: timeout'), isTrue);
+    expect(isInternalRelayError('Local listener: unable to bind loopback port'),
+        isFalse);
   });
 }

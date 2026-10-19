@@ -853,6 +853,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Checking relay...", ""),
         ("Relay reachable", ""),
         ("Relay unreachable; scanning will likely time out", ""),
+        ("Cannot reach the relay server. Check the network or relay settings", "ரிலே சேவையகத்துடன் இணைக்க முடியவில்லை. பிணையம் அல்லது ரிலே அமைப்புகளைச் சரிபார்க்கவும்"),
+        ("Error details", "பிழை விவரங்கள்"),
         ("Sharing", ""),
         ("Allow RustDesk compatible connections", ""),
         ("Stranger asks you to share? Hang up", ""),
