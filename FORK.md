@@ -66,7 +66,7 @@ not a claim that all intervening changes were merged.
 | `392188596` | In progress | Static-frame re-encode and hwcodec 0.8.0 (#16128); separate PR, merge after macOS device testing |
 | `f705902ec` | Ported | Windows installer scripts use a protected temporary directory (#16554, this PR) |
 | `f1fa432bc` | Deferred | F-Droid bridge changes (#16560) remain postponed |
-| `e400bb755` | Deferred | F-Droid lockfile enforcement (#16560) remains postponed |
+| `e400bb755` | Deferred | F-Droid lockfile enforcement remains postponed |
 | `c0750fb50` | Skipped | Removed WebRTC connection-racing path |
 | `e614de83f` | Skipped | Removed executable host-configuration path |
 | `53996e3c` | Ported | Russian translations (#16570, this PR); WebRTC strings omitted |
