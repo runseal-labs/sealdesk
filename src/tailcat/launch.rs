@@ -63,23 +63,7 @@ impl Launch {
     }
 }
 
-/// Last UI page. Not whether the controlled service starts.
-pub(crate) fn startup_mode(launch: Option<&Launch>, remembered: &str) -> Mode {
-    if let Some(launch) = launch {
-        return launch.mode;
-    }
-    if remembered == Mode::Control.as_str() {
-        Mode::Control
-    } else {
-        Mode::Host
-    }
-}
-
-pub(crate) fn controller_only(mode: &str, no_server: bool) -> bool {
-    no_server || mode != Mode::Host.as_str()
-}
-
-/// Explicit blocks only. A remembered `control` page is not one of them.
+/// Explicit blocks only. The desktop UI page is fixed and is not an input.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct HostServiceGate {
     pub explicit_control: bool,
@@ -94,33 +78,25 @@ pub(crate) struct StartupServicePlan {
     /// `Some("host" | "control")` to apply through `request_mode`.
     /// `None` leaves host mode and stop-service untouched.
     pub request_mode: Option<&'static str>,
-    pub rewrite_remembered_mode: bool,
 }
 
-/// Desktop share card is always on screen, so a leftover `sealdesk-mode=control`
-/// must not suppress the service and must not be rewritten.
-pub(crate) fn plan_startup_service(
-    remembered_mode: &str,
-    gate: HostServiceGate,
-) -> StartupServicePlan {
-    let _ui_page = remembered_mode;
+/// Desktop cold start always shares unless the launch or the stop-service
+/// setting says not to. `sealdesk-mode` is not consulted.
+pub(crate) fn plan_startup_service(gate: HostServiceGate) -> StartupServicePlan {
     if gate.explicit_control || gate.no_server || gate.outgoing_only {
         StartupServicePlan {
             start_server: false,
             request_mode: Some(Mode::Control.as_str()),
-            rewrite_remembered_mode: false,
         }
     } else if gate.stop_service {
         StartupServicePlan {
             start_server: false,
             request_mode: None,
-            rewrite_remembered_mode: false,
         }
     } else {
         StartupServicePlan {
             start_server: true,
             request_mode: Some(Mode::Host.as_str()),
-            rewrite_remembered_mode: false,
         }
     }
 }
@@ -143,7 +119,7 @@ mod tests {
     }
 
     #[test]
-    fn modes_and_remembered_controller_policy() {
+    fn parses_host_and_control_without_a_stored_page() {
         assert_eq!(
             Launch::parse(&args(&["--host"]), false)
                 .unwrap()
@@ -159,26 +135,9 @@ mod tests {
             Mode::Control
         );
         assert!(Launch::parse(&[], false).unwrap().is_none());
-        assert_eq!(startup_mode(None, ""), Mode::Host);
-        assert_eq!(startup_mode(None, "host"), Mode::Host);
-        assert_eq!(startup_mode(None, "control"), Mode::Control);
-        assert_eq!(startup_mode(None, "nope"), Mode::Host);
-        for (arguments, expected) in [
-            (args(&["--host"]), Mode::Host),
-            (args(&["--control"]), Mode::Control),
-        ] {
-            let launch = Launch::parse(&arguments, false).unwrap();
-            assert_eq!(startup_mode(launch.as_ref(), "control"), expected);
-            assert_eq!(startup_mode(launch.as_ref(), ""), expected);
-        }
         assert!(Launch::parse(&args(&["--server"]), false)
             .unwrap()
             .is_none());
-        assert!(controller_only("control", false));
-        assert!(controller_only("host", true));
-        assert!(!controller_only("host", false));
-        assert!(controller_only("", false));
-        assert!(controller_only("unknown", false));
     }
 
     #[test]
@@ -255,7 +214,7 @@ mod tests {
     }
 
     #[test]
-    fn remembered_control_calls_start_server_and_explicit_blocks_do_not() {
+    fn desktop_start_calls_start_server_unless_explicitly_blocked() {
         use super::super::host::{host_request_action, HostRequest};
 
         let open = HostServiceGate {
@@ -264,16 +223,13 @@ mod tests {
             outgoing_only: false,
             stop_service: false,
         };
-        for remembered in ["control", "host", ""] {
-            let plan = plan_startup_service(remembered, open);
-            assert!(!plan.rewrite_remembered_mode, "{remembered}");
-            assert_eq!(plan.request_mode, Some("host"), "{remembered}");
-            assert_eq!(times_start_server_called(&plan), 1, "{remembered}");
-            assert!(matches!(
-                host_request_action(plan.request_mode.unwrap(), false, true).unwrap(),
-                HostRequest::StartServer
-            ));
-        }
+        let plan = plan_startup_service(open);
+        assert_eq!(plan.request_mode, Some("host"));
+        assert_eq!(times_start_server_called(&plan), 1);
+        assert!(matches!(
+            host_request_action(plan.request_mode.unwrap(), false, true).unwrap(),
+            HostRequest::StartServer
+        ));
 
         for (label, gate) in [
             (
@@ -305,8 +261,7 @@ mod tests {
                 },
             ),
         ] {
-            let plan = plan_startup_service("control", gate);
-            assert!(!plan.rewrite_remembered_mode, "{label}");
+            let plan = plan_startup_service(gate);
             assert_eq!(times_start_server_called(&plan), 0, "{label}");
             if gate.stop_service {
                 assert_eq!(plan.request_mode, None, "{label}");

@@ -111,25 +111,17 @@ pub fn core_main() -> Option<CoreMainAction> {
         }
     }
     #[cfg(all(target_os = "linux", feature = "flutter"))]
-    if matches!(args.first().map(String::as_str),
-        Some("--service" | "--server" | "--tray" | "--install-service" | "--uninstall-service"))
-    {
+    if matches!(
+        args.first().map(String::as_str),
+        Some("--service" | "--server" | "--tray" | "--install-service" | "--uninstall-service")
+    ) {
         return Some(CoreMainAction::ExitFailure(hbb_common::anyhow::anyhow!(
             "SealDesk runs as a desktop app; open Share this device or use --host"
         )));
     }
-    // Last page (`sealdesk-mode`) is not an input. Leftover `control` must not
-    // skip the server or be overwritten when the sidebar share card is shown.
-    let remembered = if sealdesk_launch.is_none()
-        && (args.is_empty()
-            || args
-                .first()
-                .is_some_and(|arg| crate::common::is_empty_uni_link(arg)))
-    {
-        config::LocalConfig::get_option(keys::OPTION_SEALDESK_MODE)
-    } else {
-        String::new()
-    };
+    // Desktop does not read `sealdesk-mode`. The controlled service starts
+    // unless this launch is --control / --no-server / outgoing-only, or the
+    // user has persisted stop-service.
     let explicit_control = sealdesk_launch
         .as_ref()
         .is_some_and(|launch| launch.mode == crate::tailcat::launch::Mode::Control);
@@ -137,15 +129,13 @@ pub fn core_main() -> Option<CoreMainAction> {
         keys::OPTION_STOP_SERVICE,
         &config::Config::get_option(keys::OPTION_STOP_SERVICE),
     );
-    let service_plan = crate::tailcat::launch::plan_startup_service(
-        &remembered,
-        crate::tailcat::launch::HostServiceGate {
+    let service_plan =
+        crate::tailcat::launch::plan_startup_service(crate::tailcat::launch::HostServiceGate {
             explicit_control,
             no_server,
             outgoing_only: config::is_outgoing_only(),
             stop_service,
-        },
-    );
+        });
     #[cfg(windows)]
     {
         no_server = !service_plan.start_server;
@@ -507,7 +497,9 @@ pub fn core_main() -> Option<CoreMainAction> {
             }
             return match crate::tailcat::host::reset_address() {
                 Ok(()) => {
-                    println!("地址已重置，旧二维码已失效；被控服务会按原运行状态恢复，请重新获取配对码");
+                    println!(
+                        "地址已重置，旧二维码已失效；被控服务会按原运行状态恢复，请重新获取配对码"
+                    );
                     None
                 }
                 Err(error) => Some(CoreMainAction::ExitFailure(hbb_common::anyhow::anyhow!(
@@ -627,9 +619,7 @@ pub fn core_main() -> Option<CoreMainAction> {
             Err(error) => return Some(CoreMainAction::ExitFailure(error.into())),
         };
         if let Some(name) = pairing.name {
-            crate::ui_interface::set_peer_option(
-                pairing.address.clone(), "alias".to_owned(), name,
-            );
+            crate::ui_interface::set_peer_option(pairing.address.clone(), "alias".to_owned(), name);
         }
         args = vec![
             "--connect".to_owned(),

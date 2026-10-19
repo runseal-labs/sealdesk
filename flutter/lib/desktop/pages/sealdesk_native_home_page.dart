@@ -145,9 +145,7 @@ class SealDeskNativeHomePage extends StatelessWidget {
                   connectPeer: (address) async {
                     await connect(context, address, isSharedPassword: false);
                   }),
-          initialMode: hostOnly || sidePane
-              ? 'host'
-              : bind.mainGetLocalOption(key: 'sealdesk-mode'),
+          initialMode: sealDeskInitialPage(),
           loadHost: _loadHost,
           onStart: onStart,
           onStop: onStop,
@@ -166,15 +164,7 @@ class SealDeskNativeHomePage extends StatelessWidget {
           refreshPassword: () async {
             await bind.mainUpdateTemporaryPassword();
           },
-          saveMode: (mode) async {
-            await bind.mainSetLocalOption(key: 'sealdesk-mode', value: mode);
-            final applied = await bind.mainGetOption(key: 'sealdesk-host-mode');
-            if (applied != mode ||
-                bind.mainGetLocalOption(key: 'sealdesk-mode') != mode) {
-              throw FormatException(
-                  translate('Switch failed, please try again'));
-            }
-          },
+          saveMode: applySealDeskUiMode,
           connect: (pairing) async {
             if (pairing.name != null && pairing.name!.isNotEmpty) {
               await bind.mainSetPeerAlias(

@@ -142,11 +142,19 @@ pub fn refresh_options() {
 #[inline]
 pub fn get_option<T: AsRef<str>>(key: T) -> String {
     #[cfg(not(target_os = "ios"))]
-    if key.as_ref() == "sealdesk-lan-peers" { return crate::lan::discover_json(); }
+    if key.as_ref() == "sealdesk-lan-peers" {
+        return crate::lan::discover_json();
+    }
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
-            if matches!(key.as_ref(),"sealdesk-lan-trusted"|"sealdesk-lan-ready"|"sealdesk-lan-compat") {
-            return crate::ipc::get_config(key.as_ref()).ok().flatten().unwrap_or_default();
+        if matches!(
+            key.as_ref(),
+            "sealdesk-lan-trusted" | "sealdesk-lan-ready" | "sealdesk-lan-compat"
+        ) {
+            return crate::ipc::get_config(key.as_ref())
+                .ok()
+                .flatten()
+                .unwrap_or_default();
         }
         if key.as_ref() == "sealdesk-connected-count" {
             return crate::ipc::get_config(key.as_ref())
@@ -292,22 +300,7 @@ pub fn get_builtin_option(key: &str) -> String {
 
 #[inline]
 pub fn set_local_option(key: String, value: String) {
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    if key == keys::OPTION_SEALDESK_MODE {
-        let mode = value.clone();
-        match std::thread::spawn(move || crate::tailcat::host::request_mode(&mode)).join() {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => {
-                log::warn!("SealDesk mode change failed: {error}");
-                return;
-            }
-            Err(_) => {
-                log::error!("SealDesk mode change worker failed");
-                return;
-            }
-        }
-    }
-    LocalConfig::set_option(key.clone(), value);
+    LocalConfig::set_option(key, value);
 }
 
 /// Resolve relative avatar path (e.g. "/avatar/xxx") to absolute URL
@@ -477,9 +470,22 @@ pub fn set_option(key: String, value: String) {
         crate::tailcat::publish_probe_ui(&value);
         return;
     }
+    // Desktop service role. Not the old `sealdesk-mode` page preference.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if key == keys::OPTION_SEALDESK_HOST_MODE {
+        let mode = value;
+        match std::thread::spawn(move || crate::tailcat::host::request_mode(&mode)).join() {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => log::warn!("SealDesk mode change failed: {error}"),
+            Err(_) => log::error!("SealDesk mode change worker failed"),
+        }
+        return;
+    }
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     if key == "sealdesk-lan-forget" {
-        if let Err(error) = ipc::set_config(&key,value) { log::error!("LAN authorization removal failed: {error}"); }
+        if let Err(error) = ipc::set_config(&key, value) {
+            log::error!("LAN authorization removal failed: {error}");
+        }
         return;
     }
     if &key == "stop-service" {
@@ -527,7 +533,8 @@ pub fn set_option(key: String, value: String) {
             }
             return;
         }
-        let compat_was = key == crate::lan::OPTION_RUSTDESK_COMPAT && crate::lan::rustdesk_compat_enabled();
+        let compat_was =
+            key == crate::lan::OPTION_RUSTDESK_COMPAT && crate::lan::rustdesk_compat_enabled();
         Config::set_option(key, value);
         if compat_was {
             crate::lan::note_rustdesk_compat(true);
@@ -1293,7 +1300,6 @@ fn check_connect_status(reconnect: bool) -> mpsc::UnboundedSender<ipc::Data> {
     std::thread::spawn(move || check_connect_status_(reconnect, rx));
     tx
 }
-
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tokio::main(flavor = "current_thread")]

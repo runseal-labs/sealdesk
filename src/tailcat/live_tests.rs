@@ -22,10 +22,9 @@ fn live_controller_does_not_start_host() {
         format!("SealDeskCliProbe-{}", std::process::id());
     assert!(!std::path::Path::new(&Config::ipc_path("")).exists());
     assert!(!crate::common::is_server_running());
-    let no_server = super::launch::controller_only("", false);
     host::request_mode("control").unwrap();
     assert!(hbb_common::config::LocalConfig::get_option(keys::OPTION_SEALDESK_MODE).is_empty());
-    crate::start_server(false, no_server);
+    crate::start_server(false, true);
     std::thread::sleep(std::time::Duration::from_secs(2));
     assert!(!crate::common::is_server_running());
     assert!(!std::path::Path::new(&Config::ipc_path("")).exists());
@@ -74,15 +73,11 @@ fn live_host_role_switch() {
             .collect()
     };
     let select = |mode: &str| {
-        crate::ui_interface::set_local_option(
-            keys::OPTION_SEALDESK_MODE.to_owned(),
-            mode.to_owned(),
-        );
-        assert_eq!(LocalConfig::get_option(keys::OPTION_SEALDESK_MODE), mode);
+        host::request_mode(mode).unwrap();
+        assert!(LocalConfig::get_option(keys::OPTION_SEALDESK_MODE).is_empty());
         assert_eq!(host::query_mode().unwrap(), mode);
     };
     assert!(LocalConfig::get_option(keys::OPTION_SEALDESK_MODE).is_empty());
-    assert!(super::launch::controller_only("", false));
     select("control");
     assert!(!std::path::Path::new(&Config::ipc_path("")).exists());
     assert!(!std::path::Path::new(&server_key_path()).exists());
@@ -164,14 +159,9 @@ fn live_host_role_switch() {
             address.len()
         );
     }
-    crate::ui_interface::set_local_option(
-        keys::OPTION_SEALDESK_MODE.to_owned(),
-        "invalid".to_owned(),
-    );
-    assert_eq!(
-        LocalConfig::get_option(keys::OPTION_SEALDESK_MODE),
-        "control"
-    );
+    assert!(host::request_mode("invalid").is_err());
+    assert!(LocalConfig::get_option(keys::OPTION_SEALDESK_MODE).is_empty());
+    assert_eq!(host::query_mode().unwrap(), "control");
     println!(
         "LIVE_ROLE_LIFECYCLE_OK initial control, host start, stop, and restart keep the same key"
     );
