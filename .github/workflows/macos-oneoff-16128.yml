@@ -1,0 +1,14 @@
+name: One-off macOS aarch64 16128
+on:
+  workflow_dispatch:
+jobs:
+  build:
+    permissions:
+      contents: write
+    uses: ./.github/workflows/flutter-build.yml
+    secrets: inherit
+    with:
+      upload-artifact: true
+      publish-release: false
+      platforms: macos
+      macos-jobs: '[{"target":"aarch64-apple-darwin","os":"macos-14","extra-build-args":"--screencapturekit","extra-cargo-features":",screencapturekit","arch":"aarch64","vcpkg-triplet":"arm64-osx"}]'
