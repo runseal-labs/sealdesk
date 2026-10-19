@@ -824,6 +824,17 @@ class SealdeskImpl {
     throw const FormatException('On the web, import a QR image instead');
   }
 
+  Future<String> mainCaptureSealdeskRegion(
+      {required int x,
+      required int y,
+      required int width,
+      required int height,
+      dynamic hint}) async {
+    return jsonEncode({
+      'error': 'On the web, import a QR image instead',
+    });
+  }
+
   String mainGetOptionSync({required String key, dynamic hint}) {
     return js.context.callMethod('getByName', ['option', key]);
   }
@@ -1126,6 +1137,10 @@ class SealdeskImpl {
   Future<void> mainLoadRecentPeers({dynamic hint}) {
     return Future(
         () => js.context.callMethod('getByName', ['load_recent_peers']));
+  }
+
+  Future<void> mainHideSealdeskRecentPeers({dynamic hint}) {
+    throw UnimplementedError('mainHideSealdeskRecentPeers');
   }
 
   String mainLoadRecentPeersSync({dynamic hint}) {

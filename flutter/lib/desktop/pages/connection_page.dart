@@ -13,7 +13,10 @@ import 'package:sealdesk/models/peer_model.dart';
 
 import '../../common.dart';
 import '../../common/formatter/id_formatter.dart';
+import '../../common/sealdesk_connect.dart';
+import '../../common/sealdesk_connect_target.dart';
 import '../../common/widgets/peer_tab_page.dart';
+import '../../common/widgets/sealdesk_connect_field.dart';
 import '../../common/widgets/autocomplete.dart';
 import '../../models/platform_model.dart';
 import '../../desktop/widgets/material_mod_popup_menu.dart' as mod_menu;
@@ -129,7 +132,8 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
 
 /// Connection page for connecting to a remote peer.
 class ConnectionPage extends StatefulWidget {
-  const ConnectionPage({Key? key}) : super(key: key);
+  final String? initialInput;
+  const ConnectionPage({Key? key, this.initialInput}) : super(key: key);
 
   @override
   State<ConnectionPage> createState() => _ConnectionPageState();
@@ -161,7 +165,7 @@ class _ConnectionPageState extends State<ConnectionPage>
     super.initState();
     _allPeersLoader.init(setState);
     _idFocusNode.addListener(onFocusChanged);
-    if (_idController.text.isEmpty) {
+    if (!isSealDeskApp() && _idController.text.isEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         final lastRemoteId = await bind.mainGetLastRemoteId();
         if (lastRemoteId != _idController.id) {
@@ -169,6 +173,13 @@ class _ConnectionPageState extends State<ConnectionPage>
             _idController.id = lastRemoteId;
           });
         }
+      });
+    }
+    final startup = widget.initialInput;
+    if (isSealDeskApp() && startup != null && startup.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        await importSealDeskStartup(context, startup);
       });
     }
     Get.put<TextEditingController>(_idEditingController);
@@ -272,6 +283,17 @@ class _ConnectionPageState extends State<ConnectionPage>
       bool isViewCamera = false,
       bool isTerminal = false,
       bool isTcpTunneling = false}) {
+    if (isSealDeskApp()) {
+      connectSealDeskInput(
+        context,
+        _idEditingController.text,
+        isFileTransfer: isFileTransfer,
+        isViewCamera: isViewCamera,
+        isTerminal: isTerminal,
+        isTcpTunneling: isTcpTunneling,
+      );
+      return;
+    }
     var id = _idController.id;
     connect(context, id,
         isFileTransfer: isFileTransfer,
@@ -283,6 +305,12 @@ class _ConnectionPageState extends State<ConnectionPage>
   /// UI for the remote ID TextField.
   /// Search for a peer.
   Widget _buildRemoteIDTextField(BuildContext context) {
+    if (isSealDeskApp()) {
+      return SealDeskConnectField(
+        controller: _idEditingController,
+        desktop: true,
+      ).marginOnly(right: 12, bottom: 8);
+    }
     var w = Container(
       width: 320 + 20 * 2,
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 22),

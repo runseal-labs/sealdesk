@@ -15,6 +15,8 @@ import 'package:get/get.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../common.dart';
+import '../sealdesk_connect_target.dart';
+import '../sealdesk_connection_record.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
 
@@ -918,6 +920,18 @@ void wrongPasswordDialog(SessionID sessionId,
   });
 }
 
+bool _sealDeskOfferRemember() {
+  if (!isSealDeskApp()) return true;
+  try {
+    return sealDeskOfferRememberPassword(
+        usedPermanentPassword: bind.mainGetPeerOptionSync(
+                id: gFFI.id, key: kSealDeskPasswordKind) ==
+            kSealDeskPasswordPermanent);
+  } catch (_) {
+    return false;
+  }
+}
+
 void enterPasswordDialog(
     SessionID sessionId, OverlayDialogManager dialogManager) async {
   await _connectDialog(
@@ -996,7 +1010,7 @@ _connectDialog(
         osPassword,
         sessionId,
         password,
-        rememberPassword,
+        _sealDeskOfferRemember() && rememberPassword,
       );
       close();
       dialogManager.showLoading(translate('Logging in...'),
@@ -1029,6 +1043,7 @@ _connectDialog(
       ValueChanged<bool?>? onChanged,
     ) {
       return CheckboxListTile(
+        key: const ValueKey('sealdesk-remember-password'),
         contentPadding: const EdgeInsets.all(0),
         dense: true,
         controlAffinity: ListTileControlAffinity.leading,
@@ -1082,15 +1097,16 @@ _connectDialog(
             controller: passwordController,
             autoFocus: osUsernameController == null,
           ),
-          rememberWidget(
-            translate('Remember password'),
-            rememberPassword,
-            (v) {
-              if (v != null) {
-                setState(() => rememberPassword = v);
-              }
-            },
-          ),
+          if (_sealDeskOfferRemember())
+            rememberWidget(
+              translate('Remember password'),
+              rememberPassword,
+              (v) {
+                if (v != null) {
+                  setState(() => rememberPassword = v);
+                }
+              },
+            ),
         ],
       );
     }

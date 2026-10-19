@@ -8,6 +8,7 @@ import 'package:sealdesk/models/platform_model.dart';
 import 'package:get/get.dart';
 
 import '../common.dart';
+import '../common/sealdesk_connect_target.dart';
 import 'model.dart';
 
 enum PeerTabIndex {
@@ -24,17 +25,19 @@ class PeerTabModel with ChangeNotifier {
   static const List<String> tabNames = [
     'Recent sessions',
     'Favorites',
-    'Discovered',
+    kSealDeskLanTab,
   ];
   static const List<IconData> icons = [
     Icons.access_time_filled,
     Icons.star,
-    Icons.explore,
+    Icons.radar,
   ];
   List<bool> isEnabled = List.from([
     true,
     true,
-    !isWeb && bind.mainGetLocalOption(key: "disable-discovery-panel") != "Y",
+    !isWeb &&
+        (isSealDeskApp() ||
+            bind.mainGetLocalOption(key: "disable-discovery-panel") != "Y"),
   ]);
   final List<bool> _isVisible = List.filled(maxTabCount, true, growable: false);
   List<bool> get isVisibleEnabled => () {

@@ -9,6 +9,8 @@ import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 
 import '../../common.dart';
+import '../sealdesk_connect.dart';
+import '../sealdesk_connect_target.dart';
 import '../../models/peer_model.dart';
 import '../../models/platform_model.dart';
 import 'peer_card.dart';
@@ -72,8 +74,10 @@ class _PeersView extends StatefulWidget {
 /// State for the peer widget.
 class _PeersViewState extends State<_PeersView> {
   final HashMap<String, String> _emptyMessages = HashMap.from({
-    LoadEvent.recent: 'empty_recent_tip',
-    LoadEvent.favorite: 'empty_favorite_tip',
+    LoadEvent.recent:
+        isSealDeskApp() ? kSealDeskNoRecords : 'empty_recent_tip',
+    LoadEvent.favorite:
+        isSealDeskApp() ? kSealDeskNoFavorites : 'empty_favorite_tip',
   });
   final space = (isDesktop || isWebDesktop) ? 12.0 : 8.0;
   final _scrollController = ScrollController();
@@ -82,6 +86,34 @@ class _PeersViewState extends State<_PeersView> {
   void dispose() {
     _scrollController.dispose();
     super.dispose();
+  }
+
+  Widget _emptyPeers() {
+    final recent = widget.peers.loadEvent == LoadEvent.recent;
+    final icon = isSealDeskApp()
+        ? (recent ? Icons.history : Icons.star_border)
+        : Icons.sentiment_very_dissatisfied_rounded;
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            icon,
+            color: Theme.of(context).tabBarTheme.labelColor,
+            size: 40,
+          ).paddingOnly(bottom: 10),
+          Text(
+            translate(
+              _emptyMessages[widget.peers.loadEvent] ?? 'Empty',
+            ),
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Theme.of(context).tabBarTheme.labelColor,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -94,27 +126,7 @@ class _PeersViewState extends State<_PeersView> {
       child: Consumer<Peers>(builder: (context, peers, child) {
         if (peers.peers.isEmpty) {
           gFFI.peerTabModel.setCurrentTabCachedPeers([]);
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.sentiment_very_dissatisfied_rounded,
-                  color: Theme.of(context).tabBarTheme.labelColor,
-                  size: 40,
-                ).paddingOnly(bottom: 10),
-                Text(
-                  translate(
-                    _emptyMessages[widget.peers.loadEvent] ?? 'Empty',
-                  ),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Theme.of(context).tabBarTheme.labelColor,
-                  ),
-                ),
-              ],
-            ),
-          );
+          return _emptyPeers();
         } else {
           return _buildPeersView(peers);
         }
@@ -128,6 +140,10 @@ class _PeersViewState extends State<_PeersView> {
         builder: (context, snapshot) {
           if (snapshot.hasData) {
             var peers = snapshot.data!;
+            if (peers.isEmpty) {
+              gFFI.peerTabModel.setCurrentTabCachedPeers([]);
+              return _emptyPeers();
+            }
             if (peers.length > 1000) peers = peers.sublist(0, 1000);
             gFFI.peerTabModel.setCurrentTabCachedPeers(peers);
             buildOnePeer(Peer peer, bool isPortrait) {
@@ -198,6 +214,11 @@ class _PeersViewState extends State<_PeersView> {
       String searchText, String sortedBy, List<Peer> peers) async {
     if (widget.peerFilter != null) {
       peers = peers.where((peer) => widget.peerFilter!(peer)).toList();
+    }
+    if (isSealDeskApp() && widget.peerTabIndex == PeerTabIndex.recent) {
+      final keep =
+          sealDeskVisibleRecentIds(peers.map((peer) => peer.id)).toSet();
+      peers = peers.where((peer) => keep.contains(peer.id)).toList();
     }
 
     // fallback to id sorting
@@ -286,6 +307,7 @@ class RecentPeersView extends BasePeersView {
       : super(
           key: key,
           peerTabIndex: PeerTabIndex.recent,
+          peerFilter: (peer) => sealDeskHistoryVisible(peer.id),
           peerCardBuilder: (Peer peer) => RecentPeerCard(
             peer: peer,
             menuPadding: menuPadding,

@@ -11,16 +11,13 @@ use crate::{
     input::*,
     ui_interface::{self, *},
 };
+use base::{config::keys, fs};
 use flutter_rust_bridge::{StreamSink, SyncReturn};
 use hbb_common::{
     config::{self, LocalConfig, PeerConfig, PeerInfoSerde},
     lazy_static, log,
     rendezvous_proto::ConnType,
     ResultType,
-};
-use base::{
-    config::keys,
-    fs,
 };
 use std::{
     collections::HashMap,
@@ -1015,6 +1012,19 @@ pub fn main_get_sealdesk_clipboard_image() -> String {
     }
 }
 
+pub fn main_capture_sealdesk_region(x: i32, y: i32, width: i32, height: i32) -> String {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let result = crate::tailcat::screen_region::capture_png(x, y, width, height);
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    let result: ResultType<Vec<u8>> = Err(hbb_common::anyhow::anyhow!(
+        "Unable to read the QR image. Please choose another one"
+    ));
+    match result {
+        Ok(png) => serde_json::json!({ "png": crate::common::encode64(png) }).to_string(),
+        Err(error) => serde_json::json!({ "error": error.to_string() }).to_string(),
+    }
+}
+
 pub fn main_get_option_sync(key: String) -> SyncReturn<String> {
     SyncReturn(get_option(key))
 }
@@ -1445,6 +1455,19 @@ pub fn main_load_recent_peers() {
         );
     } else {
         push_to_flutter("".to_owned(), None)
+    }
+}
+
+pub fn main_hide_sealdesk_recent_peers() {
+    let ids = PeerConfig::get_vec_id_modified_time_path(&None)
+        .into_iter()
+        .map(|(id, _, _)| id);
+    for id in crate::tailcat::history::recent_ids_for_history_clear(ids) {
+        set_peer_option(
+            id,
+            crate::tailcat::history::HIDE_RECENT_OPTION.to_owned(),
+            "Y".to_owned(),
+        );
     }
 }
 
@@ -2688,8 +2711,7 @@ pub fn main_set_common(_key: String, _value: String) {
 
 pub fn session_set_common(session_id: SessionID, key: String, value: String) {
     if let Some(s) = sessions::get_session_by_session_id(&session_id) {
-        if key == "continue-insecure-connection"
-        {
+        if key == "continue-insecure-connection" {
             s.continue_insecure_connection(value == "Y");
             return;
         }

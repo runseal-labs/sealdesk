@@ -56,6 +56,9 @@ class SealDeskNativeHomePage extends StatelessWidget {
   final Future<void> Function()? onStop;
   final bool hostOnly;
 
+  /// Desktop left column: host QR only, no connect-page controls.
+  final bool sidePane;
+
   const SealDeskNativeHomePage({
     super.key,
     this.initialInput,
@@ -65,6 +68,7 @@ class SealDeskNativeHomePage extends StatelessWidget {
     this.onStart,
     this.onStop,
     this.hostOnly = false,
+    this.sidePane = false,
   });
 
   Future<SealDeskHostState> _loadHost() async {
@@ -130,10 +134,15 @@ class SealDeskNativeHomePage extends StatelessWidget {
   Widget build(BuildContext context) => SealDeskHomePage(
         hostOnly: hostOnly,
         footer: footer,
-        lanPanelBuilder: (host) => SealDeskLanPanel(host: host, connectPeer: (address) async {
-          await connect(context, address, isSharedPassword: false);
-        }),
-        initialMode: hostOnly
+        sidePane: sidePane,
+        lanPanelBuilder: sidePane
+            ? null
+            : (host) => SealDeskLanPanel(
+                host: host,
+                connectPeer: (address) async {
+                  await connect(context, address, isSharedPassword: false);
+                }),
+        initialMode: hostOnly || sidePane
             ? 'host'
             : bind.mainGetLocalOption(key: 'sealdesk-mode'),
         loadHost: _loadHost,
