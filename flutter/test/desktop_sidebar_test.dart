@@ -123,6 +123,46 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('rtl drag widens the pane toward the pointer', (tester) async {
+    final controller = ScrollController();
+    addTearDown(controller.dispose);
+    await tester.binding.setSurfaceSize(const Size(800, 600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+      home: Directionality(
+        textDirection: TextDirection.rtl,
+        child: Scaffold(
+          body: DesktopSidebarScaffold(
+            savedWidth: '',
+            defaultWidth: kDesktopSidebarDefaultWidth,
+            onSave: (_) {},
+            scrollController: controller,
+            leftChildren: const [SizedBox(height: 20)],
+            right: const ColoredBox(color: Color(0xFFF7F8FA)),
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    final pane =
+        tester.getRect(find.byKey(const ValueKey('desktop-sidebar-pane')));
+    final divider =
+        tester.getRect(find.byKey(const ValueKey('desktop-sidebar-divider')));
+    expect(pane.left, greaterThanOrEqualTo(divider.right - 0.1));
+    expect(pane.width, kDesktopSidebarDefaultWidth);
+
+    await tester.drag(find.byKey(const ValueKey('desktop-sidebar-divider')),
+        const Offset(-60, 0));
+    await tester.pump();
+    expect(_paneWidth(tester), kDesktopSidebarDefaultWidth + 60);
+
+    await tester.drag(find.byKey(const ValueKey('desktop-sidebar-divider')),
+        const Offset(60, 0));
+    await tester.pump();
+    expect(_paneWidth(tester), kDesktopSidebarDefaultWidth);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('desktop sidebar screenshots', (tester) async {
     final dir = Platform.environment['SEALDESK_SIDE_SHOT'];
     if (dir == null || dir.isEmpty) return;

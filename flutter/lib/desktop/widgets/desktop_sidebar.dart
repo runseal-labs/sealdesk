@@ -195,7 +195,10 @@ class _SidebarDividerState extends State<_SidebarDivider> {
       onPointerDown: (event) => _pointer = event.pointer,
       onPointerMove: (event) {
         if (_pointer != event.pointer) return;
-        widget.onDrag(event.delta.dx);
+        final dx = Directionality.of(context) == TextDirection.rtl
+            ? -event.delta.dx
+            : event.delta.dx;
+        widget.onDrag(dx);
       },
       onPointerUp: (event) {
         if (_pointer != event.pointer) return;
