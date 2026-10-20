@@ -100,7 +100,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onResume() {
         super.onResume()
-        ffi.FFI.pushTailcatInterfaces()
+        ffi.FFI.pushTailcatInterfaces(this)
         val inputPer = InputService.isOpen
         activity.runOnUiThread {
             flutterMethodChannel?.invokeMethod(
