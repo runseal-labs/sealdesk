@@ -344,9 +344,15 @@ pub(crate) fn lan_iface_if_kept(
 }
 
 pub(crate) fn interfaces_from_default_net() -> Vec<LanIface> {
+    #[cfg(windows)]
+    let oper = windows_oper_status();
     default_net::get_interfaces()
         .into_iter()
         .filter_map(|iface| {
+            #[cfg(windows)]
+            if !windows_keep_iface(&iface, oper.as_ref()) {
+                return None;
+            }
             lan_iface_if_kept(
                 &iface.name,
                 iface.index,
@@ -364,6 +370,39 @@ pub(crate) fn interfaces_from_default_net() -> Vec<LanIface> {
             )
         })
         .collect()
+}
+
+#[cfg(windows)]
+fn windows_oper_status() -> Option<crate::platform::win_lan::AdapterOperStatus> {
+    let status = crate::platform::win_lan::adapter_oper_status();
+    if status.is_none() {
+        hbb_common::throttled_log!(
+            Duration::from_secs(30),
+            warn,
+            "LAN discovery could not read Windows adapter status; tunnel and virtual-adapter name filters still apply"
+        );
+    }
+    status
+}
+
+#[cfg(windows)]
+fn windows_keep_iface(
+    iface: &default_net::Interface,
+    oper: Option<&crate::platform::win_lan::AdapterOperStatus>,
+) -> bool {
+    let oper_status = match oper {
+        Some(oper) => oper.get(&iface.name, iface.index).unwrap_or(0),
+        None => super::IF_OPER_STATUS_UP,
+    };
+    let friendly = iface.friendly_name.as_deref().unwrap_or("");
+    let description = iface.description.as_deref().unwrap_or("");
+    super::windows_discovery_adapter_allowed(&super::WindowsDiscoveryAdapter {
+        if_type: iface.if_type.value(),
+        oper_status,
+        name: &iface.name,
+        friendly_name: friendly,
+        description,
+    })
 }
 
 fn has_discovery_addr(ifaces: &[LanIface]) -> bool {
