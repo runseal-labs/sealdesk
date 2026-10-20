@@ -1175,34 +1175,30 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
   List<Widget> _iconActionButtons() {
     final copyEnabled = _code != null && !_busy;
     return [
-      IconButton(
+      _shareIcon(
         key: const ValueKey('sealdesk-copy'),
         tooltip: translate('Copy pairing code'),
-        visualDensity: VisualDensity.compact,
         onPressed: copyEnabled ? _copyPairing : null,
         icon: const Icon(Icons.copy, size: 20),
       ),
-      IconButton(
+      _shareIcon(
         key: const ValueKey('sealdesk-refresh'),
         tooltip: translate('Refresh password'),
-        visualDensity: VisualDensity.compact,
         onPressed: _busy ? null : _refreshPassword,
         icon: const Icon(Icons.refresh, size: 20),
       ),
       if (widget.resetAddress != null)
-        IconButton(
+        _shareIcon(
           key: const ValueKey('sealdesk-reset-address'),
           tooltip: translate('Reset address'),
-          visualDensity: VisualDensity.compact,
           onPressed: _busy || (_pairing == null && _revokedAddress == null)
               ? null
               : _resetAddress,
           icon: const Icon(Icons.restart_alt, size: 20),
         ),
-      IconButton(
+      _shareIcon(
         key: const ValueKey('sealdesk-hide'),
         tooltip: translate(_hidden ? 'Show QR code' : 'Hide QR code'),
-        visualDensity: VisualDensity.compact,
         onPressed: () => setState(_toggleQrMask),
         icon: Icon(_hidden ? Icons.visibility : Icons.visibility_off, size: 20),
       ),
@@ -1417,5 +1413,173 @@ Future<void> showSealDeskRelaySettings(BuildContext context) async {
         ],
       ),
     );
+  }
+}
+
+Widget _shareIcon({
+  required Key key,
+  required String tooltip,
+  required Widget icon,
+  required VoidCallback? onPressed,
+}) {
+  return _ShareIconTip(
+    message: tooltip,
+    child: IconButton(
+      key: key,
+      visualDensity: VisualDensity.compact,
+      onPressed: onPressed,
+      icon: icon,
+    ),
+  );
+}
+
+/// Hover tip for the share-page icons. A normal tooltip opens downward and
+/// covers the relay chip directly under this row. When there is no room
+/// above, the tip stays beside the icon and never extends below it.
+class _ShareIconTip extends StatefulWidget {
+  const _ShareIconTip({required this.message, required this.child});
+
+  final String message;
+  final Widget child;
+
+  @override
+  State<_ShareIconTip> createState() => _ShareIconTipState();
+}
+
+class _ShareIconTipState extends State<_ShareIconTip> {
+  final _key = GlobalKey();
+  OverlayEntry? _entry;
+  Timer? _timer;
+
+  void _arm() {
+    _timer?.cancel();
+    final wait = TooltipTheme.of(context).waitDuration ?? Duration.zero;
+    _timer = Timer(wait, () {
+      if (mounted) _show();
+    });
+  }
+
+  void _show() {
+    _hide();
+    final box = _key.currentContext?.findRenderObject() as RenderBox?;
+    final overlay = Overlay.maybeOf(context)?.context.findRenderObject();
+    if (box == null ||
+        overlay is! RenderBox ||
+        !box.hasSize ||
+        !overlay.hasSize) {
+      return;
+    }
+    final target = box.localToGlobal(Offset.zero, ancestor: overlay);
+    final entry = OverlayEntry(
+      builder: (context) => _ShareIconTipBubble(
+        message: widget.message,
+        target: target,
+        targetSize: box.size,
+      ),
+    );
+    _entry = entry;
+    Overlay.of(context).insert(entry);
+  }
+
+  void _hide() {
+    _timer?.cancel();
+    _timer = null;
+    _entry?.remove();
+    _entry = null;
+  }
+
+  @override
+  void dispose() {
+    _hide();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => _arm(),
+      onExit: (_) => _hide(),
+      child: Semantics(
+        tooltip: widget.message,
+        child: KeyedSubtree(key: _key, child: widget.child),
+      ),
+    );
+  }
+}
+
+class _ShareIconTipBubble extends StatelessWidget {
+  const _ShareIconTipBubble({
+    required this.message,
+    required this.target,
+    required this.targetSize,
+  });
+
+  final String message;
+  final Offset target;
+  final Size targetSize;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned.fill(
+      child: CustomSingleChildLayout(
+        delegate: _ShareIconTipDelegate(target: target, targetSize: targetSize),
+        child: IgnorePointer(
+          child: DecoratedBox(
+            key: const ValueKey('sealdesk-share-tip'),
+            decoration: BoxDecoration(
+              color: const Color(0xE6616161),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Text(
+                message,
+                style: const TextStyle(
+                    color: Colors.white, fontSize: 12, height: 1.2),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ShareIconTipDelegate extends SingleChildLayoutDelegate {
+  _ShareIconTipDelegate({required this.target, required this.targetSize});
+
+  final Offset target;
+  final Size targetSize;
+
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) =>
+      constraints.loosen();
+
+  @override
+  Offset getPositionForChild(Size size, Size childSize) {
+    const margin = 8.0;
+    final above = target.dy - childSize.height - 4;
+    final maxLeft = math.max(margin, size.width - margin - childSize.width);
+    if (above >= margin) {
+      final left = (target.dx + targetSize.width / 2 - childSize.width / 2)
+          .clamp(margin, maxLeft);
+      return Offset(left, above);
+    }
+    var top = childSize.height <= targetSize.height
+        ? target.dy + (targetSize.height - childSize.height) / 2
+        : target.dy + targetSize.height - childSize.height;
+    if (top < margin) top = margin;
+    var left = target.dx + targetSize.width + 6;
+    if (left + childSize.width > size.width - margin) {
+      left = target.dx - 6 - childSize.width;
+    }
+    if (left < margin) left = margin;
+    if (left > maxLeft) left = maxLeft;
+    return Offset(left, top);
+  }
+
+  @override
+  bool shouldRelayout(_ShareIconTipDelegate oldDelegate) {
+    return target != oldDelegate.target || targetSize != oldDelegate.targetSize;
   }
 }

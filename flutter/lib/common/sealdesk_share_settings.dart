@@ -25,7 +25,6 @@ bool sealDeskShareSettingsAllowed() =>
 
 class SealDeskShareSettings extends StatefulWidget {
   final SealDeskSetPassword openSetPassword;
-  final VoidCallback openOtpLength;
 
   /// Android share screen owns the only password refresh control.
   final bool includePasswordRefresh;
@@ -33,7 +32,6 @@ class SealDeskShareSettings extends StatefulWidget {
   const SealDeskShareSettings({
     super.key,
     required this.openSetPassword,
-    required this.openOtpLength,
     this.includePasswordRefresh = false,
   });
 
@@ -57,6 +55,15 @@ class _SealDeskShareSettingsState extends State<SealDeskShareSettings> {
 
   void _rebuild() {
     if (mounted) setState(() {});
+  }
+
+  Future<void> _setOtpLength(String value) async {
+    final model = gFFI.serverModel;
+    if (value == model.temporaryPasswordLength) return;
+    await model.setTemporaryPasswordLength(value);
+    await bind.mainUpdateTemporaryPassword();
+    await model.updatePasswordModel();
+    showToast(translate('Successful'));
   }
 
   Future<void> _applyMethod(String value) async {
@@ -96,7 +103,9 @@ class _SealDeskShareSettingsState extends State<SealDeskShareSettings> {
       },
       onVerification: _onVerification,
       onSetPermanent: () => widget.openSetPassword(),
-      onSetOtpLength: widget.openOtpLength,
+      onOtpLength: (value) {
+        unawaited(_setOtpLength(value));
+      },
       onToggleNumeric: () {
         model.switchAllowNumericOneTimePassword();
         model.updatePasswordModel();
@@ -127,7 +136,7 @@ class SealDeskShareSettingsView extends StatelessWidget {
   final Future<void> Function(String mode) onApprove;
   final Future<void> Function(String method) onVerification;
   final VoidCallback onSetPermanent;
-  final VoidCallback onSetOtpLength;
+  final ValueChanged<String> onOtpLength;
   final VoidCallback onToggleNumeric;
   final String passwordValue;
   final VoidCallback? onRefreshPassword;
@@ -144,7 +153,7 @@ class SealDeskShareSettingsView extends StatelessWidget {
     required this.onApprove,
     required this.onVerification,
     required this.onSetPermanent,
-    required this.onSetOtpLength,
+    required this.onOtpLength,
     required this.onToggleNumeric,
     this.passwordValue = '',
     this.onRefreshPassword,
@@ -188,11 +197,11 @@ class SealDeskShareSettingsView extends StatelessWidget {
           const ValueKey('sealdesk-approve'),
           _approveKey,
           [
-            _item('password', 'Accept sessions via password',
+            _item('password', 'Password only',
                 const ValueKey('sealdesk-approve-password')),
-            _item('click', 'Accept sessions via click',
+            _item('click', 'Click only',
                 const ValueKey('sealdesk-approve-click')),
-            _item('both', 'Accept sessions via both',
+            _item('both', 'Password or click',
                 const ValueKey('sealdesk-approve-both')),
           ],
           approveFixed
@@ -259,22 +268,25 @@ class SealDeskShareSettingsView extends StatelessWidget {
               trailing: const Icon(Icons.chevron_right),
               onTap: onSetPermanent,
             ),
-          if (showOneTime)
-            ListTile(
-              key: const ValueKey('sealdesk-otp-length'),
-              dense: true,
-              visualDensity: VisualDensity.compact,
-              contentPadding: EdgeInsets.zero,
-              title: Text(translate('One-time password length')),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(otpLength),
-                  const Icon(Icons.chevron_right),
-                ],
-              ),
-              onTap: onSetOtpLength,
+          if (showOneTime) ...[
+            const SizedBox(height: 8),
+            Text(
+              translate('One-time password length'),
+              key: const ValueKey('sealdesk-otp-length-label'),
             ),
+            _menu(
+              const ValueKey('sealdesk-otp-length'),
+              otpLength == '8' || otpLength == '10' ? otpLength : '6',
+              [
+                _item('6', '6', const ValueKey('sealdesk-otp-6')),
+                _item('8', '8', const ValueKey('sealdesk-otp-8')),
+                _item('10', '10', const ValueKey('sealdesk-otp-10')),
+              ],
+              (value) {
+                if (value != null) onOtpLength(value);
+              },
+            ),
+          ],
           if (showOneTime)
             SwitchListTile(
               key: const ValueKey('sealdesk-otp-numeric'),
@@ -296,7 +308,10 @@ class SealDeskShareSettingsView extends StatelessWidget {
         value: value,
         child: Text(
           translate(label),
+          maxLines: 2,
+          softWrap: true,
           overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 13, height: 1.15),
         ),
       );
 

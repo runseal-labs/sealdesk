@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sealdesk/common/sealdesk_share_settings.dart';
 import 'package:sealdesk/desktop/pages/sealdesk_home_page.dart';
@@ -277,7 +278,7 @@ void main() {
     final approved = <String>[];
     final methods = <String>[];
     var permanent = 0;
-    var lengths = 0;
+    final lengths = <String>[];
     var numericToggles = 0;
     Future<void> pump({
       required String approve,
@@ -299,7 +300,7 @@ void main() {
             onApprove: (mode) async => approved.add(mode),
             onVerification: (method) async => methods.add(method),
             onSetPermanent: () => permanent++,
-            onSetOtpLength: () => lengths++,
+            onOtpLength: lengths.add,
             onToggleNumeric: () => numericToggles++,
           ),
         ),
@@ -309,14 +310,14 @@ void main() {
     await pump(approve: 'password-click', method: kUseTemporaryPassword);
     expect(
         find.byKey(const ValueKey('sealdesk-share-settings')), findsOneWidget);
-    expect(find.text('Accept sessions via both'), findsOneWidget);
+    expect(find.text('Password or click'), findsOneWidget);
     expect(find.text('Use one-time password'), findsOneWidget);
     expect(find.byKey(const ValueKey('sealdesk-set-permanent')), findsNothing);
     expect(find.text('One-time password length'), findsOneWidget);
     expect(find.text('6'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('sealdesk-approve')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Accept sessions via password').last);
+    await tester.tap(find.text('Password only').last);
     await tester.pumpAndSettle();
     expect(approved, ['password']);
     await tester.tap(find.byKey(const ValueKey('sealdesk-verify')));
@@ -325,7 +326,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(methods, [kUsePermanentPassword]);
     await tester.tap(find.byKey(const ValueKey('sealdesk-otp-length')));
-    expect(lengths, 1);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('8').last);
+    await tester.pumpAndSettle();
+    expect(lengths, ['8']);
 
     await pump(
         approve: 'click',
@@ -354,5 +358,44 @@ void main() {
     final numeric = tester.widget<SwitchListTile>(
         find.byKey(const ValueKey('sealdesk-otp-numeric')));
     expect(numeric.onChanged, isNotNull);
+  });
+
+  testWidgets('access method stays readable at the minimum sidebar width',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(400, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: 184,
+            child: SealDeskShareSettingsView(
+              approveMode: 'password-click',
+              verificationMethod: kUseTemporaryPassword,
+              otpLength: '6',
+              numeric: true,
+              approveFixed: false,
+              numericFixed: false,
+              permanentPasswordDisabled: false,
+              onApprove: (_) async {},
+              onVerification: (_) async {},
+              onSetPermanent: () {},
+              onOtpLength: (_) {},
+              onToggleNumeric: () {},
+            ),
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    final label = find.text('Password or click');
+    expect(label, findsOneWidget);
+    final paragraph = tester.renderObject<RenderParagraph>(label);
+    expect(paragraph.didExceedMaxLines, isFalse);
+    final button =
+        tester.getSize(find.byKey(const ValueKey('sealdesk-approve')));
+    expect(paragraph.size.height, lessThanOrEqualTo(button.height));
+    expect(tester.takeException(), isNull);
   });
 }

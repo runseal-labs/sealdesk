@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:desktop_drop/desktop_drop.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -1221,6 +1222,56 @@ void main() {
     await showPage(tester, surface: const Size(412, 915));
     expect(find.byType(QrImageView), findsOneWidget);
     await _shot(tester, 'qr-mobile');
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('share icon tips do not cover the relay status', (tester) async {
+    binding.language = 'en';
+    await showPage(
+      tester,
+      sidePane: true,
+      surface: const Size(1400, 900),
+      resetAddress: () async {},
+      loadHost: () async => SealDeskHostState(
+        address: address,
+        password: 'secret',
+        name: 'pc',
+        relayStatus: RelayStatus.fromJson(
+            '{"running":true,"state":"reachable","probe_rtt_ms":42}'),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Relay reachable (42 ms)'), findsOneWidget);
+
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.addPointer(location: const Offset(2, 2));
+    addTearDown(gesture.removePointer);
+
+    Future<void> expectTip(String key, String message) async {
+      final icon = find.byKey(ValueKey(key));
+      await gesture.moveTo(const Offset(2, 2));
+      await tester.pump();
+      await gesture.moveTo(tester.getCenter(icon));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 20));
+      final tip = find.byKey(const ValueKey('sealdesk-share-tip'));
+      expect(tip, findsOneWidget);
+      expect(find.text(message), findsWidgets);
+      final tipRect = tester.getRect(tip);
+      final iconRect = tester.getRect(icon);
+      final relayRect =
+          tester.getRect(find.byKey(const ValueKey('sealdesk-relay')));
+      expect(tipRect.overlaps(relayRect), isFalse);
+      expect(tipRect.bottom, lessThanOrEqualTo(iconRect.bottom + 0.5));
+    }
+
+    await expectTip('sealdesk-refresh', 'Refresh password');
+    await expectTip('sealdesk-reset-address', 'Reset address');
+    await expectTip('sealdesk-hide', 'Hide QR code');
+    await gesture.moveTo(const Offset(2, 2));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('sealdesk-share-tip')), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
 }

@@ -185,8 +185,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       shareSettings: sealDeskShareSettingsAllowed()
           ? SealDeskShareSettings(
               openSetPassword: setPasswordDialog,
-              openOtpLength: () =>
-                  setTemporaryPasswordLengthDialog(gFFI.dialogManager),
             )
           : null,
     );

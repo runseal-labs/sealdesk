@@ -454,21 +454,12 @@ class _GeneralState extends State<_General> {
 
     final isOptFixed = isOptionFixed(kCommConfKeyTheme);
     return _Card(title: 'Theme', children: [
-      _Radio<String>(context,
-          value: 'light',
-          groupValue: current,
-          label: 'Light',
-          onChanged: isOptFixed ? null : onChanged),
-      _Radio<String>(context,
-          value: 'dark',
-          groupValue: current,
-          label: 'Dark',
-          onChanged: isOptFixed ? null : onChanged),
-      _Radio<String>(context,
-          value: 'system',
-          groupValue: current,
-          label: 'Follow System',
-          onChanged: isOptFixed ? null : onChanged),
+      _optionCombo(
+        keys: const ['light', 'dark', 'system'],
+        labels: const ['Light', 'Dark', 'Follow System'],
+        initialKey: current,
+        onChanged: isOptFixed ? null : onChanged,
+      ),
     ]);
   }
 
@@ -504,7 +495,9 @@ class _GeneralState extends State<_General> {
     final incomingOnly = bind.isIncomingOnly();
     final outgoingOnly = bind.isOutgoingOnly();
     final showAutoUpdate = (isWindows && bind.mainIsInstalled()) ||
-    (isMacOS && bind.mainIsInstalled() && bind.mainIsInstalledDaemon(prompt: false));
+        (isMacOS &&
+            bind.mainIsInstalled() &&
+            bind.mainIsInstalledDaemon(prompt: false));
     final children = <Widget>[
       if (!isWeb && !incomingOnly)
         _OptionCheckBox(context, 'Confirm before closing multiple tabs',
@@ -840,8 +833,8 @@ class _GeneralState extends State<_General> {
       List<String> values = langsMap.values.toList();
       keys.insert(0, defaultOptionLang);
       values.insert(0, translate('Follow System'));
-      final currentKey = effectiveLangOption(
-          bind.mainGetLocalOption(key: kCommConfKeyLang));
+      final currentKey =
+          effectiveLangOption(bind.mainGetLocalOption(key: kCommConfKeyLang));
       final isOptFixed = isOptionFixed(kCommConfKeyLang);
       return ComboBox(
         keys: keys,
@@ -1483,16 +1476,12 @@ class _DisplayState extends State<_Display> {
 
     final groupValue = bind.mainGetUserDefaultOption(key: kOptionViewStyle);
     return _Card(title: 'Default View Style', children: [
-      _Radio(context,
-          value: kRemoteViewStyleOriginal,
-          groupValue: groupValue,
-          label: 'Scale original',
-          onChanged: isOptFixed ? null : onChanged),
-      _Radio(context,
-          value: kRemoteViewStyleAdaptive,
-          groupValue: groupValue,
-          label: 'Scale adaptive',
-          onChanged: isOptFixed ? null : onChanged),
+      _optionCombo(
+        keys: const [kRemoteViewStyleOriginal, kRemoteViewStyleAdaptive],
+        labels: const ['Scale original', 'Scale adaptive'],
+        initialKey: groupValue,
+        onChanged: isOptFixed ? null : onChanged,
+      ),
     ]);
   }
 
@@ -1513,22 +1502,21 @@ class _DisplayState extends State<_Display> {
     }
 
     return _Card(title: 'Default Scroll Style', children: [
-      _Radio(context,
-          value: kRemoteScrollStyleAuto,
-          groupValue: groupValue,
-          label: 'ScrollAuto',
-          onChanged: isOptFixed ? null : onChanged),
-      _Radio(context,
-          value: kRemoteScrollStyleBar,
-          groupValue: groupValue,
-          label: 'Scrollbar',
-          onChanged: isOptFixed ? null : onChanged),
-      if (!isWeb) ...[
-        _Radio(context,
-            value: kRemoteScrollStyleEdge,
-            groupValue: groupValue,
-            label: 'ScrollEdge',
-            onChanged: isOptFixed ? null : onChanged),
+      _optionCombo(
+        keys: [
+          kRemoteScrollStyleAuto,
+          kRemoteScrollStyleBar,
+          if (!isWeb) kRemoteScrollStyleEdge,
+        ],
+        labels: [
+          'ScrollAuto',
+          'Scrollbar',
+          if (!isWeb) 'ScrollEdge',
+        ],
+        initialKey: groupValue,
+        onChanged: isOptFixed ? null : onChanged,
+      ),
+      if (!isWeb)
         Offstage(
             offstage: groupValue != kRemoteScrollStyleEdge,
             child: EdgeThicknessControl(
@@ -1539,7 +1527,6 @@ class _DisplayState extends State<_Display> {
                   ? null
                   : onEdgeScrollEdgeThicknessChanged,
             )),
-      ],
     ]);
   }
 
@@ -1553,26 +1540,22 @@ class _DisplayState extends State<_Display> {
     final isOptFixed = isOptionFixed(kOptionImageQuality);
     final groupValue = bind.mainGetUserDefaultOption(key: kOptionImageQuality);
     return _Card(title: 'Default Image Quality', children: [
-      _Radio(context,
-          value: kRemoteImageQualityBest,
-          groupValue: groupValue,
-          label: 'Good image quality',
-          onChanged: isOptFixed ? null : onChanged),
-      _Radio(context,
-          value: kRemoteImageQualityBalanced,
-          groupValue: groupValue,
-          label: 'Balanced',
-          onChanged: isOptFixed ? null : onChanged),
-      _Radio(context,
-          value: kRemoteImageQualityLow,
-          groupValue: groupValue,
-          label: 'Optimize reaction time',
-          onChanged: isOptFixed ? null : onChanged),
-      _Radio(context,
-          value: kRemoteImageQualityCustom,
-          groupValue: groupValue,
-          label: 'Custom',
-          onChanged: isOptFixed ? null : onChanged),
+      _optionCombo(
+        keys: const [
+          kRemoteImageQualityBest,
+          kRemoteImageQualityBalanced,
+          kRemoteImageQualityLow,
+          kRemoteImageQualityCustom,
+        ],
+        labels: const [
+          'Good image quality',
+          'Balanced',
+          'Optimize reaction time',
+          'Custom',
+        ],
+        initialKey: groupValue,
+        onChanged: isOptFixed ? null : onChanged,
+      ),
       Offstage(
         offstage: groupValue != kRemoteImageQualityCustom,
         child: customImageQualitySetting(),
@@ -1609,51 +1592,31 @@ class _DisplayState extends State<_Display> {
 
     final groupValue =
         bind.mainGetUserDefaultOption(key: kOptionCodecPreference);
-    var hwRadios = [];
+    final keys = ['auto', 'vp8', 'vp9', 'av1'];
+    final labels = ['Auto', 'VP8', 'VP9', 'AV1'];
     final isOptFixed = isOptionFixed(kOptionCodecPreference);
     try {
       final Map codecsJson = jsonDecode(bind.mainSupportedHwdecodings());
       final h264 = codecsJson['h264'] ?? false;
       final h265 = codecsJson['h265'] ?? false;
       if (h264) {
-        hwRadios.add(_Radio(context,
-            value: 'h264',
-            groupValue: groupValue,
-            label: 'H264',
-            onChanged: isOptFixed ? null : onChanged));
+        keys.add('h264');
+        labels.add('H264');
       }
       if (h265) {
-        hwRadios.add(_Radio(context,
-            value: 'h265',
-            groupValue: groupValue,
-            label: 'H265',
-            onChanged: isOptFixed ? null : onChanged));
+        keys.add('h265');
+        labels.add('H265');
       }
     } catch (e) {
       debugPrint("failed to parse supported hwdecodings, err=$e");
     }
     return _Card(title: 'Default Codec', children: [
-      _Radio(context,
-          value: 'auto',
-          groupValue: groupValue,
-          label: 'Auto',
-          onChanged: isOptFixed ? null : onChanged),
-      _Radio(context,
-          value: 'vp8',
-          groupValue: groupValue,
-          label: 'VP8',
-          onChanged: isOptFixed ? null : onChanged),
-      _Radio(context,
-          value: 'vp9',
-          groupValue: groupValue,
-          label: 'VP9',
-          onChanged: isOptFixed ? null : onChanged),
-      _Radio(context,
-          value: 'av1',
-          groupValue: groupValue,
-          label: 'AV1',
-          onChanged: isOptFixed ? null : onChanged),
-      ...hwRadios,
+      _optionCombo(
+        keys: keys,
+        labels: labels,
+        initialKey: groupValue,
+        onChanged: isOptFixed ? null : onChanged,
+      ),
     ]);
   }
 
@@ -1680,16 +1643,23 @@ class _DisplayState extends State<_Display> {
     if (groupValue.isEmpty) {
       groupValue = bind.mainDefaultPrivacyModeImpl();
     }
+    final keys = <String>[];
+    final labels = <String>[];
+    for (final impl in privacyModeImpls) {
+      final d = impl as List<dynamic>;
+      keys.add(d[0] as String);
+      labels.add(d[1] as String);
+    }
     return _Card(
       title: 'Privacy mode',
-      children: privacyModeImpls.map((impl) {
-        final d = impl as List<dynamic>;
-        return _Radio(context,
-            value: d[0] as String,
-            groupValue: groupValue,
-            label: d[1] as String,
-            onChanged: onChanged);
-      }).toList(),
+      children: [
+        _optionCombo(
+          keys: keys,
+          labels: labels,
+          initialKey: groupValue,
+          onChanged: onChanged,
+        ),
+      ],
     );
   }
 
@@ -1951,7 +1921,7 @@ class _AboutState extends State<_About> {
       final scrollController = ScrollController();
       return SingleChildScrollView(
         controller: scrollController,
-        child: _Card(title: translate('About SealDesk'), children: [
+        child: _Card(title: 'About SealDesk', children: [
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -2126,6 +2096,22 @@ Widget _OptionCheckBox(
           }
         : null,
   );
+}
+
+Widget _optionCombo({
+  required List<String> keys,
+  required List<String> labels,
+  required String initialKey,
+  required Function(String value)? onChanged,
+}) {
+  final selected = keys.contains(initialKey) ? initialKey : keys.first;
+  return ComboBox(
+    keys: keys,
+    values: labels.map(translate).toList(),
+    initialKey: selected,
+    enabled: onChanged != null,
+    onChanged: onChanged ?? (_) {},
+  ).marginOnly(left: _kContentHMargin);
 }
 
 // ignore: non_constant_identifier_names

@@ -75,8 +75,6 @@ class _ServerPageState extends State<ServerPage> {
             shareSettings: sealDeskShareSettingsAllowed()
                 ? SealDeskShareSettings(
                     openSetPassword: setPasswordDialog,
-                    openOtpLength: () =>
-                        setTemporaryPasswordLengthDialog(gFFI.dialogManager),
                     includePasswordRefresh: true,
                   )
                 : null,
