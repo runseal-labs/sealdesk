@@ -2,6 +2,30 @@ name: SealDesk transport libraries
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/sealdesk-transport.yml'
+      - 'libs/tailcat-ffi/**'
+      - 'build.rs'
+      - 'src/tailcat/build_target.rs'
+      - 'tests/build_tailcat_archive.sh'
+      - 'tests/tailcat_archive_smoke.c'
+      - 'tests/build_tailcat_android.sh'
+      - 'tests/tailcat_android_link.rs'
+      - 'tests/check_sealdesk_android_package.py'
+      - 'tests/test_sealdesk_android_package.py'
+  pull_request:
+    paths:
+      - '.github/workflows/sealdesk-transport.yml'
+      - 'libs/tailcat-ffi/**'
+      - 'build.rs'
+      - 'src/tailcat/build_target.rs'
+      - 'tests/build_tailcat_archive.sh'
+      - 'tests/tailcat_archive_smoke.c'
+      - 'tests/build_tailcat_android.sh'
+      - 'tests/tailcat_android_link.rs'
+      - 'tests/check_sealdesk_android_package.py'
+      - 'tests/test_sealdesk_android_package.py'
 
 permissions:
   contents: read

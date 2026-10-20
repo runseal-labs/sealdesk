@@ -108,10 +108,9 @@ C 链接探针默认使用 `cc`；可用 `TAILCAT_SMOKE_CC` 指定编译器可�
 `-buildmode=c-archive not supported on android/arm64`。因此 Android 构建入口使用
 `c-shared`，Cargo 使用 `dylib=tailcat`。桌面和 iOS 的静态库格式保持原有选择。
 
-正式 Android CI、playground 和 F-Droid 构建均将 `libtailcat.so` 复制到对应 ABI 的
-`jniLibs` 目录；正式 CI 的原生库 artifact 同时包含 Rust 与 Go 两个库，供通用 APK
-任务下载。使用这些 artifact 的其他构建流程也必须保留 Go 库，不能只取 Rust 库。
-主 Android CI 与 playground 显式安装 Go；本地和 F-Droid 环境也需要可用的 Go 工具链。
+正式 Android CI 将 `libtailcat.so` 复制到对应 ABI 的 `jniLibs` 目录；正式 CI 的原生库
+artifact 同时包含 Rust 与 Go 两个库，供通用 APK 任务下载。使用这些 artifact 的其他构建流程
+也必须保留 Go 库，不能只取 Rust 库。主 Android CI 显式安装 Go；本地环境也需要可用的 Go 工具链。
 
 独立隧道 CI 还定义 ARM64、ARMv7、x86-64、x86 四个 Android 构建任务，使用 NDK r28c
 与 API 21 编译动态库，并用实际 Rust Android target 编译调用导出函数的动态库，检查
@@ -129,7 +128,7 @@ Android 二进制，也不生成完整 APK。JNI 库实际入包、设备动态�
 
 ## APK 原生库入包检查
 
-Android 正式分架构包、通用包、playground 与 F-Droid 在打包后、签名发布前执行
+Android 正式分架构包和通用包在打包后、签名发布前执行
 `tests/check_sealdesk_android_package.py`。检查 APK 内实际出现的 ABI 是否与预期完全
 一致，每个 ABI 是否恰好包含一份 `libsealdesk.so` 和 `libtailcat.so`，两个库的
 ELF 架构与动态库类型是否正确，以及 Rust 库是否声明对 Go 库的动态依赖。
