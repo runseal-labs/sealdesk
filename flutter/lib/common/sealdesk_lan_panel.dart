@@ -75,6 +75,10 @@ class _SealDeskLanPanelState extends State<SealDeskLanPanel> {
     }
   }
 
+  Future<void> _connectDiscovered(Map<String, dynamic> peer) async {
+    await widget.connectPeer(peer['address'] as String);
+  }
+
   Future<void> _forget(Map<String, dynamic> peer) async {
     await bind.mainSetOption(
         key: 'sealdesk-lan-forget', value: peer['key'] as String);
@@ -136,7 +140,7 @@ class _SealDeskLanPanelState extends State<SealDeskLanPanel> {
                     if (widget.host) {
                       await _forget(Map<String, dynamic>.from(item));
                     } else {
-                      await widget.connectPeer(item['address'] as String);
+                      await _connectDiscovered(Map<String, dynamic>.from(item));
                     }
                   },
                   child: Text(widget.host

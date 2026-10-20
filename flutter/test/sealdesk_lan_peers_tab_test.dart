@@ -9,7 +9,7 @@ import 'package:sealdesk/models/platform_model.dart';
 
 class _LanTabBinding extends Fake implements SealdeskImpl {
   final Map<String, Map<String, String>> options = {};
-  List<Map<String, String>> peers = [];
+  List<Map<String, dynamic>> peers = [];
 
   @override
   String translate(

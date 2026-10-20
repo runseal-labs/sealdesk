@@ -14,6 +14,7 @@ import "C"
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -448,6 +449,29 @@ func TcQRPNG(s, path *C.char) *C.char {
 		return cerr(err)
 	}
 	return cstr("")
+}
+
+// nodePublicHex is the controlled node's Curve25519 public key carried in a
+// tailcat address ("p" / ServerPublic), as 64 hex chars with no prefix.
+func nodePublicHex(addr string) (string, error) {
+	ci, err := tailcat.ParseAddr(tailcat.Addr(addr))
+	if err != nil {
+		return "", err
+	}
+	raw := ci.ServerPublic.Raw32()
+	return hex.EncodeToString(raw[:]), nil
+}
+
+// TcNodePublic returns that public key so a controller can check a LAN
+// possession proof. It does not return a private key. Free the result with TcFree.
+//
+//export TcNodePublic
+func TcNodePublic(addr *C.char) *C.char {
+	got, err := nodePublicHex(C.GoString(addr))
+	if err != nil {
+		return cerr(err)
+	}
+	return cstr(got)
 }
 
 func main() {}

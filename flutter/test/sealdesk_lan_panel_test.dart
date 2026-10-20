@@ -6,8 +6,8 @@ import 'package:sealdesk/generated_bridge.dart';
 import 'package:sealdesk/models/platform_model.dart';
 
 class _LanBinding extends Fake implements SealdeskImpl {
-  List<Map<String, String>> peers = [];
-  List<Map<String, String>> trusted = [];
+  List<Map<String, dynamic>> peers = [];
+  List<Map<String, dynamic>> trusted = [];
   final List<String> revoked = [];
   int discoveryQueries = 0;
   bool ready = true;
