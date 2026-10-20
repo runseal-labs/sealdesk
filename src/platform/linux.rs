@@ -1393,6 +1393,12 @@ pub fn is_prelogin() -> bool {
         return false;
     }
     let name = get_active_username();
+    if name.is_empty() {
+        // get_values_of_seat0 filters Wayland gdm/sddm greeters. An empty name
+        // is that greeter or no seat / no graphical session; is_login_screen_wayland()
+        // separates them. `getent passwd` with no argument lists every account.
+        return is_login_screen_wayland();
+    }
     if let Ok(res) = run_cmds(&format!("getent passwd {}", name)) {
         return res.contains("/bin/false") || res.contains("/usr/sbin/nologin");
     }
