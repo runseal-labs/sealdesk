@@ -152,19 +152,12 @@ Future<void> prepareSealDeskRecord(SealDeskConnectTarget target) async {
   if (target.alias != null && target.alias!.isNotEmpty) {
     await bind.mainSetPeerAlias(id: target.id, alias: target.alias!);
   }
-  await bind.mainSetPeerOption(
-      id: target.id, key: kSealDeskPasswordKind, value: target.passwordKind);
   await bind.mainSetPeerOption(id: target.id, key: kSealDeskHideRecent, value: '');
-  final permanent = target.passwordKind == kSealDeskPasswordPermanent;
-  if (!permanent) {
-    await bind.mainForgetPassword(id: target.id);
-  }
   try {
     sealDeskConnectionRecords.upsert(SealDeskConnectEvent(
       address: target.id,
       alias: target.alias ?? '',
       password: target.password ?? '',
-      usedPermanentPassword: permanent,
       rememberPassword: false,
       connectedAtMillis: DateTime.now().millisecondsSinceEpoch,
     ));
@@ -222,7 +215,6 @@ Future<void> connectSealDeskInput(
 Future<void> connectSealDeskPairing(
     BuildContext context, SealDeskPairing pairing) {
   pairing.encode();
-  final temporary = pairing.password != null && pairing.password!.isNotEmpty;
   return connectSealDeskTarget(
     context,
     SealDeskConnectTarget(
@@ -230,9 +222,6 @@ Future<void> connectSealDeskPairing(
       password: pairing.password,
       alias: pairing.name,
       kind: 'pairing',
-      passwordKind: temporary
-          ? kSealDeskPasswordTemporary
-          : kSealDeskPasswordPermanent,
     ),
   );
 }

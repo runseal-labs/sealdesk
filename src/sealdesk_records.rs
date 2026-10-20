@@ -65,7 +65,6 @@ pub struct ConnectEvent {
     pub hostname: String,
     pub alias: String,
     pub password: String,
-    pub used_permanent_password: bool,
     pub remember_password: bool,
     pub connected_at_millis: i64,
     pub favorite: Option<bool>,
@@ -78,7 +77,6 @@ impl ConnectEvent {
             hostname: String::new(),
             alias: String::new(),
             password: String::new(),
-            used_permanent_password: false,
             remember_password: false,
             connected_at_millis,
             favorite: None,
@@ -184,11 +182,7 @@ impl ConnectionRecordStore {
             connected_at_millis: event.connected_at_millis,
             favorite: event.favorite.or_else(|| previous.as_ref().map(|record| record.favorite)).unwrap_or(false),
             in_history: true,
-            password: password_to_store(
-                event.used_permanent_password,
-                event.remember_password,
-                &event.password,
-            ),
+            password: password_to_store(event.remember_password, &event.password),
         };
         self.records.retain(|item| item.id != id);
         self.records.push(record.clone());
@@ -298,16 +292,8 @@ impl ConnectionRecord {
     }
 }
 
-pub fn offer_remember_password(used_permanent_password: bool) -> bool {
-    used_permanent_password
-}
-
-pub fn password_to_store(
-    used_permanent_password: bool,
-    remember_password: bool,
-    password: &str,
-) -> String {
-    if !used_permanent_password || !remember_password {
+pub fn password_to_store(remember_password: bool, password: &str) -> String {
+    if !remember_password {
         String::new()
     } else {
         password.to_owned()
@@ -635,17 +621,14 @@ mod tests {
     }
 
     #[test]
-    fn temporary_passwords_are_never_stored() {
-        assert!(!offer_remember_password(false));
-        assert!(offer_remember_password(true));
-        assert_eq!(password_to_store(false, true, "temp"), "");
-        assert_eq!(password_to_store(true, false, "secret"), "");
+    fn password_is_stored_only_when_remembered() {
+        assert_eq!(password_to_store(false, "secret"), "");
+        assert_eq!(password_to_store(true, "secret"), "secret");
 
         let fixture = fixture();
         let mut store = ConnectionRecordStore::default();
         let mut event = ConnectEvent::new(text(&fixture, "lan_url"), 1);
         event.password = "secret".into();
-        event.used_permanent_password = true;
         event.remember_password = true;
         store.upsert(event).unwrap();
         assert_eq!(store.get(text(&fixture, "lan_id")).unwrap().password, "secret");
@@ -659,12 +642,10 @@ mod tests {
 
         let mut event = ConnectEvent::new(text(&fixture, "lan_url"), 3);
         event.password = "secret".into();
-        event.used_permanent_password = true;
         event.remember_password = true;
         store.upsert(event).unwrap();
         let mut event = ConnectEvent::new(text(&fixture, "lan_url"), 4);
         event.password = "secret".into();
-        event.used_permanent_password = true;
         store.upsert(event).unwrap();
         assert!(store.get(text(&fixture, "lan_id")).unwrap().password.is_empty());
     }

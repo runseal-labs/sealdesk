@@ -13,7 +13,6 @@ class SealDeskConnectEvent {
   final String hostname;
   final String alias;
   final String password;
-  final bool usedPermanentPassword;
   final bool rememberPassword;
   final int connectedAtMillis;
   final bool? favorite;
@@ -23,7 +22,6 @@ class SealDeskConnectEvent {
     this.hostname = '',
     this.alias = '',
     this.password = '',
-    required this.usedPermanentPassword,
     this.rememberPassword = false,
     required this.connectedAtMillis,
     this.favorite,
@@ -117,7 +115,7 @@ class SealDeskConnectionRecordStore {
     return null;
   }
 
-  /// Insert or refresh a history row. Temporary passwords are never stored.
+  /// Insert or refresh a history row. A password is kept only when remember is set.
   /// The same host's LAN address and tc address stay two records.
   SealDeskConnectionRecord upsert(SealDeskConnectEvent event) {
     final address = event.address.trim();
@@ -145,7 +143,6 @@ class SealDeskConnectionRecordStore {
       favorite: event.favorite ?? previous?.favorite ?? false,
       inHistory: true,
       password: sealDeskPasswordToStore(
-        usedPermanentPassword: event.usedPermanentPassword,
         rememberPassword: event.rememberPassword,
         password: event.password,
       ),
@@ -234,16 +231,12 @@ List<String> sealDeskPreferredRecentIds(
   return preferred;
 }
 
-bool sealDeskOfferRememberPassword({required bool usedPermanentPassword}) =>
-    usedPermanentPassword;
-
-/// Empty unless the host used a permanent password and the user opted in.
+/// Empty unless the user opted in.
 String sealDeskPasswordToStore({
-  required bool usedPermanentPassword,
   required bool rememberPassword,
   required String password,
 }) {
-  if (!usedPermanentPassword || !rememberPassword) return '';
+  if (!rememberPassword) return '';
   return password;
 }
 

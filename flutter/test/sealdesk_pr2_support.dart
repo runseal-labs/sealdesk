@@ -13,7 +13,6 @@ SealDeskConnectEvent sealDeskTestConnect({
   String hostname = '',
   String alias = '',
   String password = '',
-  bool usedPermanentPassword = false,
   bool rememberPassword = false,
   bool? favorite,
 }) {
@@ -22,7 +21,6 @@ SealDeskConnectEvent sealDeskTestConnect({
     hostname: hostname,
     alias: alias,
     password: password,
-    usedPermanentPassword: usedPermanentPassword,
     rememberPassword: rememberPassword,
     connectedAtMillis: connectedAtMillis,
     favorite: favorite,

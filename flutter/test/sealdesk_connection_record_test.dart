@@ -134,31 +134,25 @@ void main() {
     ]);
   });
 
-  test('never stores a temporary password and offers remember only for permanent', () {
-    expect(
-        sealDeskOfferRememberPassword(usedPermanentPassword: false), isFalse);
-    expect(sealDeskOfferRememberPassword(usedPermanentPassword: true), isTrue);
+  test('stores a password only when remember is set', () {
     expect(
         sealDeskPasswordToStore(
-          usedPermanentPassword: false,
-          rememberPassword: true,
-          password: 'temp',
-        ),
-        isEmpty);
-    expect(
-        sealDeskPasswordToStore(
-          usedPermanentPassword: true,
           rememberPassword: false,
           password: 'secret',
         ),
         isEmpty);
+    expect(
+        sealDeskPasswordToStore(
+          rememberPassword: true,
+          password: 'secret',
+        ),
+        'secret');
 
     final store = SealDeskConnectionRecordStore();
     final id = fixture['lan_id'] as String;
     store.upsert(sealDeskTestConnect(
       address: fixture['lan_url'] as String,
       password: 'secret',
-      usedPermanentPassword: true,
       rememberPassword: true,
       connectedAtMillis: 1,
     ));
@@ -167,8 +161,7 @@ void main() {
     store.upsert(sealDeskTestConnect(
       address: fixture['lan_url'] as String,
       password: 'temp',
-      usedPermanentPassword: false,
-      rememberPassword: true,
+      rememberPassword: false,
       connectedAtMillis: 2,
     ));
     expect(store.get(id)!.password, isEmpty);
@@ -177,14 +170,12 @@ void main() {
     store.upsert(sealDeskTestConnect(
       address: fixture['lan_url'] as String,
       password: 'secret',
-      usedPermanentPassword: true,
       rememberPassword: true,
       connectedAtMillis: 3,
     ));
     store.upsert(sealDeskTestConnect(
       address: fixture['lan_url'] as String,
       password: 'secret',
-      usedPermanentPassword: true,
       rememberPassword: false,
       connectedAtMillis: 4,
     ));

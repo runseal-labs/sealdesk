@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sealdesk/common/sealdesk_connect_target.dart';
 import 'package:sealdesk/common/widgets/sealdesk_lan_peers_tab.dart';
 import 'package:sealdesk/generated_bridge.dart';
 import 'package:sealdesk/models/platform_model.dart';
@@ -46,7 +45,7 @@ void main() {
     binding.peers.clear();
   });
 
-  testWidgets('LAN connect clears hide-recent and records a permanent password',
+  testWidgets('LAN connect clears hide-recent',
       (tester) async {
     final address = 'lan:192.168.1.7:21118/${'ab' * 32}';
     binding.peers.add({
@@ -61,9 +60,7 @@ void main() {
     await tester.tap(find.byKey(ValueKey('sealdesk-lan-connect-$address')));
     await tester.pump();
     await tester.pump();
-    expect(binding.options[address]?[kSealDeskPasswordKind],
-        kSealDeskPasswordPermanent);
-    expect(binding.options[address]?[kSealDeskHideRecent], isEmpty);
+    expect(binding.options[address]?['sealdesk-hide-recent'], isEmpty);
     tester.takeException();
     await tester.pumpWidget(const SizedBox());
     await tester.pump();
