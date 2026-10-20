@@ -133,6 +133,16 @@ FocusOnKeyEventCallback terminalDesktopKeyHandler(
   };
 }
 
+KeyEventResult terminalFocusedDesktopKeyEvent(
+  Terminal terminal,
+  TerminalController controller,
+  FocusNode focusNode,
+  KeyEvent event,
+) {
+  if (!focusNode.hasPrimaryFocus) return KeyEventResult.ignored;
+  return terminalDesktopKeyHandler(terminal, controller)(focusNode, event);
+}
+
 bool _isModifierKey(LogicalKeyboardKey key) {
   return key == LogicalKeyboardKey.control ||
       key == LogicalKeyboardKey.controlLeft ||

@@ -57,6 +57,11 @@ pub(crate) fn set_android_interfaces(payload: &std::ffi::CStr) {
 }
 
 #[cfg(target_os = "android")]
+pub(crate) fn android_interface_json() -> String {
+    ANDROID_INTERFACES.lock().unwrap().clone()
+}
+
+#[cfg(target_os = "android")]
 pub(crate) fn android_private_ipv4() -> Vec<Ipv4Addr> {
     let payload = ANDROID_INTERFACES.lock().unwrap().clone();
     private_ipv4_from_interface_json(&payload)
@@ -66,6 +71,26 @@ pub(crate) fn android_private_ipv4() -> Vec<Ipv4Addr> {
 pub(crate) fn android_private_nets() -> Vec<(Ipv4Addr, u8)> {
     let payload = ANDROID_INTERFACES.lock().unwrap().clone();
     private_nets_from_interface_json(&payload)
+}
+
+/// Go `net.Flags` in the Android interface JSON: 1 up, 4 loopback, 8 point-to-point.
+/// `tun*`, `ppp*`, and `wg*` are VPN names. Java also drops `TRANSPORT_VPN`.
+pub(crate) fn android_iface_usable(name: &str, flags: u64) -> bool {
+    if flags & 1 == 0 || flags & 4 != 0 || flags & 8 != 0 {
+        return false;
+    }
+    !android_vpn_iface_name(name)
+}
+
+pub(crate) fn android_vpn_iface_name(name: &str) -> bool {
+    name.get(..3)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("tun"))
+        || name
+            .get(..3)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("ppp"))
+        || name
+            .get(..2)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("wg"))
 }
 
 /// Addresses are `ip/prefix`. Prefix is kept so LAN dials can require the same subnet.
@@ -79,8 +104,9 @@ pub(crate) fn private_nets_from_interface_json(payload: &str) -> Vec<(Ipv4Addr, 
     };
     let mut out = Vec::new();
     for iface in list {
+        let name = iface.get("name").and_then(|v| v.as_str()).unwrap_or("");
         let flags = iface.get("flags").and_then(|v| v.as_u64()).unwrap_or(0);
-        if flags & 1 == 0 || flags & 4 != 0 {
+        if !android_iface_usable(name, flags) {
             continue;
         }
         let Some(addrs) = iface.get("addrs").and_then(|v| v.as_array()) else {
@@ -113,7 +139,7 @@ pub(crate) fn private_nets_from_interface_json(payload: &str) -> Vec<(Ipv4Addr, 
     out
 }
 
-/// `flags`: 1 = up, 4 = loopback. Addresses are `ip/prefix` strings.
+/// `flags` follow Go `net.Flags`. Addresses are `ip/prefix` strings.
 #[cfg(any(target_os = "android", test))]
 pub(crate) fn private_ipv4_from_interface_json(payload: &str) -> Vec<Ipv4Addr> {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) else {
@@ -124,8 +150,9 @@ pub(crate) fn private_ipv4_from_interface_json(payload: &str) -> Vec<Ipv4Addr> {
     };
     let mut out = Vec::new();
     for iface in list {
+        let name = iface.get("name").and_then(|v| v.as_str()).unwrap_or("");
         let flags = iface.get("flags").and_then(|v| v.as_u64()).unwrap_or(0);
-        if flags & 1 == 0 || flags & 4 != 0 {
+        if !android_iface_usable(name, flags) {
             continue;
         }
         let Some(addrs) = iface.get("addrs").and_then(|v| v.as_array()) else {
@@ -694,5 +721,29 @@ mod tests {
         );
         let down = r#"[{"flags":0,"addrs":["192.168.1.8/24"]}]"#;
         assert!(super::private_nets_from_interface_json(down).is_empty());
+    }
+
+    #[test]
+    fn android_interface_json_skips_vpn_point_to_point_and_loopback() {
+        let payload = r#"[
+            {"name":"tun0","flags":9,"addrs":["10.8.0.2/24"]},
+            {"name":"ppp0","flags":1,"addrs":["10.9.0.2/24"]},
+            {"name":"wg0","flags":1,"addrs":["10.7.0.2/32"]},
+            {"name":"wlan0","flags":1,"addrs":["192.168.4.2/24"]},
+            {"name":"lo","flags":5,"addrs":["127.0.0.1/8"]},
+            {"name":"down0","flags":0,"addrs":["192.168.9.2/24"]}
+        ]"#;
+        assert_eq!(
+            super::private_ipv4_from_interface_json(payload),
+            vec!["192.168.4.2".parse::<std::net::Ipv4Addr>().unwrap()]
+        );
+        assert_eq!(
+            super::private_nets_from_interface_json(payload),
+            vec![("192.168.4.2".parse::<std::net::Ipv4Addr>().unwrap(), 24)]
+        );
+        assert!(super::android_vpn_iface_name("TUN1"));
+        assert!(super::android_vpn_iface_name("Wg0"));
+        assert!(!super::android_vpn_iface_name("wlan0"));
+        assert!(!super::android_iface_usable("wlan0", 0));
     }
 }
