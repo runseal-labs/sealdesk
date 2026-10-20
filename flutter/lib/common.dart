@@ -1626,6 +1626,10 @@ String translate(String name) {
 // sciter: Does not have the function, but it should be kept the same.
 bool option2bool(String option, String value) {
   bool res;
+  // Keep in sync with the Rust special case: missing means off.
+  if (option == kOptionSealDeskRustDeskCompat) {
+    return value == 'Y';
+  }
   if (option.startsWith("enable-")) {
     res = value != "N";
   } else if (option.startsWith("allow-") || option == kOptionStopService) {

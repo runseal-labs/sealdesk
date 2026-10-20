@@ -189,6 +189,7 @@ fn preserves_literal_rustdesk(name: &str) -> bool {
                 | "Allow RustDesk compatible connections"
                 | "Compatible with RustDesk · Unencrypted"
                 | "compat-lan-hint"
+                | "compat-lan-enable-warning"
         )
 }
 
@@ -367,6 +368,8 @@ mod test {
         assert!(
             !super::apply_branding("compat-lan-hint", hint).contains("SealDesk")
         );
+        let warning = "RustDesk compatible LAN connections are not encrypted. Anyone on the local network can read this session. Enable only for old RustDesk clients.";
+        assert_eq!(super::apply_branding("compat-lan-enable-warning", warning), warning);
         let branded = super::apply_branding("install_tip", "Grant RustDesk access");
         assert_eq!(branded, "Grant SealDesk access");
     }

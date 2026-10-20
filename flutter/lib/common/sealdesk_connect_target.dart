@@ -5,6 +5,7 @@ const kSealDeskHint = 'tc… / lan: / SEALDESK: pairing code';
 const kSealDeskCompatChip = 'Compatible with RustDesk · Unencrypted';
 const kSealDeskEncryptedChip = 'Encrypted direct connection';
 const kSealDeskCompatHint = 'compat-lan-hint';
+const kSealDeskCompatEnableWarning = 'compat-lan-enable-warning';
 const kSealDeskClearHistory = 'Clear history';
 const kSealDeskClearHistoryTitle = 'Clear connection history?';
 const kSealDeskClearHistoryBody = 'Favorites are kept.';

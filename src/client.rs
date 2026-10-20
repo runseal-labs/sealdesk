@@ -224,6 +224,34 @@ impl Client {
         if !crate::tailcat::is_addr(peer) {
             bail!("Unsupported peer {peer:?}: connect with the peer's tailcat address (tc...)");
         }
+        if let Some(upgrade) = crate::lan::prepare_tailcat_lan_upgrade(peer).await {
+            if !upgrade.delay.is_zero() {
+                hbb_common::tokio::time::sleep(upgrade.delay).await;
+            }
+            match hbb_common::tokio::time::timeout(
+                crate::lan::LAN_UPGRADE_TIMEOUT,
+                crate::lan::connect(&upgrade.address),
+            )
+            .await
+            {
+                Ok(Ok(stream)) => {
+                    return Ok(((stream, Some(true), None, "LAN"), (0, String::new())));
+                }
+                Ok(Err(error)) => {
+                    log::info!(
+                        "LAN direct failed ({}); using {}",
+                        error,
+                        crate::lan::transport_after_lan_error(&error.to_string())
+                    );
+                }
+                Err(_) => {
+                    log::info!(
+                        "LAN direct timed out; using {}",
+                        crate::lan::transport_after_lan_error("timed out")
+                    );
+                }
+            }
+        }
         let stream = crate::tailcat::connect(peer, CONNECT_TIMEOUT).await?;
         let direct = crate::tailcat::initial_tailcat_direct();
         Ok(((stream, direct, None, crate::tailcat::tailcat_stream_type(direct)), (0, "".to_owned())))

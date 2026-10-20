@@ -25,6 +25,28 @@ class _SealDeskLanPeersTabState extends State<SealDeskLanPeersTab> {
     super.dispose();
   }
 
+  Future<void> _open(
+    BuildContext context,
+    SealDeskLanDevice device, {
+    bool isFileTransfer = false,
+    bool isTerminal = false,
+  }) async {
+    if (!device.encrypted) {
+      await maybeShowSealDeskCompatHint(context);
+    }
+    if (!context.mounted) return;
+    await connectSealDeskTarget(
+      context,
+      SealDeskConnectTarget(
+        id: device.address,
+        kind: 'lan',
+        passwordKind: kSealDeskPasswordPermanent,
+      ),
+      isFileTransfer: isFileTransfer,
+      isTerminal: isTerminal,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -61,27 +83,34 @@ class _SealDeskLanPeersTabState extends State<SealDeskLanPeersTab> {
                   Text(device.ip),
                   const SizedBox(height: 4),
                   SealDeskSecurityChip(encrypted: device.encrypted),
+                  Wrap(
+                    spacing: 4,
+                    children: [
+                      TextButton(
+                        key: ValueKey('sealdesk-lan-connect-${device.address}'),
+                        onPressed: () => _open(context, device),
+                        child: Text(translate('Connect')),
+                      ),
+                      if (device.encrypted)
+                        TextButton(
+                          key: ValueKey('sealdesk-lan-file-${device.address}'),
+                          onPressed: () =>
+                              _open(context, device, isFileTransfer: true),
+                          child: Text(translate('Transfer file')),
+                        ),
+                      if (device.encrypted && device.showsTerminal)
+                        TextButton(
+                          key: ValueKey(
+                              'sealdesk-lan-terminal-${device.address}'),
+                          onPressed: () =>
+                              _open(context, device, isTerminal: true),
+                          child: Text(translate('Terminal')),
+                        ),
+                    ],
+                  ),
                 ],
               ),
               isThreeLine: true,
-              trailing: TextButton(
-                key: ValueKey('sealdesk-lan-connect-${device.address}'),
-                onPressed: () async {
-                  if (!device.encrypted) {
-                    await maybeShowSealDeskCompatHint(context);
-                  }
-                  if (!context.mounted) return;
-                  await connectSealDeskTarget(
-                    context,
-                    SealDeskConnectTarget(
-                      id: device.address,
-                      kind: 'lan',
-                      passwordKind: kSealDeskPasswordPermanent,
-                    ),
-                  );
-                },
-                child: Text(translate('Connect')),
-              ),
             );
           },
         );

@@ -6,8 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge.dart';
 
 import '../common.dart';
+import '../consts.dart';
 import '../models/platform_model.dart';
 import 'sealdesk_connect_target.dart';
+export 'sealdesk_connect_target.dart' show kSealDeskCompatEnableWarning;
 import 'sealdesk_connection_record.dart';
 import 'sealdesk_pairing.dart';
 import 'sealdesk_qr_file.dart';
@@ -57,15 +59,19 @@ class SealDeskLanDevice {
   final String ip;
   final String address;
   final String protocol;
+  final String platform;
 
   const SealDeskLanDevice({
     required this.name,
     required this.ip,
     required this.address,
     required this.protocol,
+    this.platform = '',
   });
 
   bool get encrypted => protocol != 'rustdesk';
+
+  bool get showsTerminal => platform != kPeerPlatformAndroid;
 
   factory SealDeskLanDevice.fromJson(Map<String, dynamic> json) {
     return SealDeskLanDevice(
@@ -73,6 +79,7 @@ class SealDeskLanDevice {
       ip: json['ip'] as String? ?? '',
       address: json['address'] as String? ?? '',
       protocol: json['protocol'] as String? ?? 'sealdesk',
+      platform: json['platform'] as String? ?? '',
     );
   }
 }
@@ -294,6 +301,28 @@ Future<void> clearSealDeskHistory(Iterable<String> ids) async {
     bind.mainLoadRecentPeers();
     gFFI.recentPeersModel.bump();
   } catch (_) {}
+}
+
+Future<bool> confirmSealDeskCompatEnable(BuildContext context) async {
+  final enabled = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      key: const ValueKey('sealdesk-compat-warning'),
+      title: Text(translate('Allow RustDesk compatible connections')),
+      content: Text(translate(kSealDeskCompatEnableWarning)),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: Text(translate('Cancel')),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: Text(translate('OK')),
+        ),
+      ],
+    ),
+  );
+  return enabled == true;
 }
 
 Future<void> maybeShowSealDeskCompatHint(BuildContext context) async {

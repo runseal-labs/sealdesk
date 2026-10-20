@@ -805,8 +805,7 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
       BuildContext context, _ToolbarEdge edge, bool isHorizontal) {
     final List<Widget> toolbarItems = [];
     toolbarItems.add(_PinMenu(state: widget.state));
-    if (widget.id.startsWith('tc')) {
-      toolbarItems.add(Obx(() {
+    toolbarItems.add(Obx(() {
         final streamType = ConnectionTypeState.find(widget.id).stream_type.value;
         final label = sealDeskConnectionLabel(streamType);
         if (label == null) return const SizedBox.shrink();
@@ -818,7 +817,6 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
           ),
         );
       }));
-    }
     toolbarItems.add(Obx(() {
       final privacyModeState = PrivacyModeState.find(widget.id);
       if ((privacyModeState.isEmpty ||

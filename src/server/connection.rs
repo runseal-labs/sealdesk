@@ -281,6 +281,8 @@ struct Session {
     random_password: String,
     tfa: bool,
     lan_permissions: Option<[bool;8]>,
+    /// Set only after this peer was accepted for a terminal login. Desktop remember does not set it.
+    lan_terminal: bool,
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -734,7 +736,8 @@ impl Connection {
                     match data {
                         ipc::Data::AuthorizeRemember => {
                             if let Some(key) = &conn.lan_peer {
-                                if let Err(error) = crate::lan::remember(key,&conn.lr.my_name,conn.lan_permissions(),conn.lan_generation) { log::error!("LAN trust save failed: {error}"); continue; }
+                                let terminal = conn.terminal || crate::lan::trusted(key).is_some_and(|peer| peer.terminal);
+                                if let Err(error) = crate::lan::remember(key,&conn.lr.my_name,conn.lan_permissions(),conn.lan_generation, terminal) { log::error!("LAN trust save failed: {error}"); continue; }
                             }
                             conn.require_2fa.take();
                             if !conn.send_logon_response_and_keep_alive().await { break; }
@@ -898,7 +901,8 @@ impl Connection {
                             if conn.authorized && conn.lan_authorization_current() {
                                 conn.save_lan_session_permissions();
                                 if let Some(key) = conn.lan_peer.as_deref().filter(|k|crate::lan::trusted(k).is_some()) {
-                                    if let Err(error) = crate::lan::remember(key,&conn.lr.my_name,conn.lan_permissions(),conn.lan_generation) { log::error!("LAN permission save failed: {error}"); }
+                                    let terminal = crate::lan::trusted(key).is_some_and(|peer| peer.terminal);
+                                    if let Err(error) = crate::lan::remember(key,&conn.lr.my_name,conn.lan_permissions(),conn.lan_generation, terminal) { log::error!("LAN permission save failed: {error}"); }
                                 }
                             }
                         }
@@ -1587,7 +1591,33 @@ impl Connection {
 
     fn save_lan_session_permissions(&self) {
         if self.lan_peer.is_some() {
-            if let Some(session) = SESSIONS.lock().unwrap().get_mut(&self.session_key()) { session.lan_permissions = Some(self.lan_permissions()); }
+            if let Some(session) = SESSIONS.lock().unwrap().get_mut(&self.session_key()) {
+                session.lan_permissions = Some(self.lan_permissions());
+                if self.terminal {
+                    session.lan_terminal = true;
+                }
+            }
+        }
+    }
+
+    fn lan_remembered_auth(&self) -> Option<crate::lan::LanRemembered> {
+        let recent = {
+            let sessions = SESSIONS.lock().unwrap();
+            sessions
+                .get(&self.session_key())
+                .filter(|session| session.is_recent(&self.session_key()))
+                .map(|session| (session.lan_permissions, session.lan_terminal))
+        };
+        let trusted = self.lan_peer.as_deref().and_then(crate::lan::trusted);
+        match (trusted, recent) {
+            (Some(saved), recent) => Some(crate::lan::LanRemembered {
+                permissions: saved.permissions,
+                terminal: saved.terminal || recent.is_some_and(|(_, terminal)| terminal),
+            }),
+            (None, Some((Some(permissions), terminal))) => {
+                Some(crate::lan::LanRemembered { permissions, terminal })
+            }
+            _ => None,
         }
     }
 
@@ -2646,6 +2676,37 @@ impl Connection {
             if !self.check_id_whitelist().await {
                 return false;
             }
+            let lan_kind = match &lr.union {
+                Some(login_request::Union::FileTransfer(_)) => crate::lan::LanLoginKind::FileTransfer,
+                Some(login_request::Union::ViewCamera(_)) => crate::lan::LanLoginKind::Camera,
+                Some(login_request::Union::Terminal(_)) => crate::lan::LanLoginKind::Terminal,
+                Some(login_request::Union::PortForward(_)) => crate::lan::LanLoginKind::PortForward,
+                _ => crate::lan::LanLoginKind::Desktop,
+            };
+            let lan_decision = crate::lan::decide_lan_login(
+                self.lan_peer.is_some(),
+                self.via_legacy_lan,
+                lan_kind,
+                crate::lan::LanServiceGate {
+                    file: Self::permission(keys::OPTION_ENABLE_FILE_TRANSFER, &self.control_permissions),
+                    camera: Self::permission(keys::OPTION_ENABLE_CAMERA, &self.control_permissions),
+                    terminal: Self::permission(keys::OPTION_ENABLE_TERMINAL, &self.control_permissions),
+                    tunnel: Self::permission(keys::OPTION_ENABLE_TUNNEL, &self.control_permissions),
+                },
+                self.lan_remembered_auth(),
+            );
+            match lan_decision {
+                crate::lan::LanLoginDecision::RejectPermission(message) => {
+                    self.send_login_error(message).await;
+                    sleep(1.).await;
+                    return false;
+                }
+                crate::lan::LanLoginDecision::RejectCompatDesktopOnly => {
+                    self.send_login_error("LAN connections support desktop control only").await;
+                    return false;
+                }
+                _ => {}
+            }
             match lr.union {
                 Some(login_request::Union::FileTransfer(ft)) => {
                     if !Self::permission(
@@ -2746,17 +2807,14 @@ impl Connection {
             }
 
             if self.lan_peer.is_some() {
-                if self.lr.union.is_some() {
-                    self.send_login_error("LAN connections support desktop control only").await;
-                    return false;
-                }
-                let recent = SESSIONS.lock().unwrap().get(&self.session_key()).filter(|s| s.is_recent(&self.session_key())).and_then(|s|s.lan_permissions);
-                let trusted = self.lan_peer.as_deref().and_then(crate::lan::trusted).map(|p|p.permissions);
-                if let Some(permissions) = trusted.or(recent) {
-                    self.apply_lan_permissions(permissions);
-                    if !self.send_logon_response_and_keep_alive().await { return false; }
-                } else {
-                    self.send_login_error(crate::client::LOGIN_MSG_NO_PASSWORD_ACCESS).await;
+                match lan_decision {
+                    crate::lan::LanLoginDecision::AllowRemembered(permissions) => {
+                        self.apply_lan_permissions(permissions);
+                        if !self.send_logon_response_and_keep_alive().await { return false; }
+                    }
+                    _ => {
+                        self.send_login_error(crate::client::LOGIN_MSG_NO_PASSWORD_ACCESS).await;
+                    }
                 }
                 self.try_start_cm(lr.my_id.clone(),lr.my_name.clone(),self.authorized);
                 return true;
@@ -6669,6 +6727,7 @@ mod raii {
                     Session {
                         random_password: password.unwrap_or_default(),
                         lan_permissions: None,
+                        lan_terminal: false,
                         tfa: tfa.unwrap_or_default(),
                         last_recv_time: Arc::new(Mutex::new(Instant::now())),
                     },
@@ -6688,6 +6747,7 @@ mod raii {
                         last_recv_time: Arc::new(Mutex::new(Instant::now())),
                         random_password: "".to_owned(),
                         lan_permissions: None,
+                        lan_terminal: false,
                         tfa: true,
                     },
                 );
@@ -6865,7 +6925,7 @@ mod test {
     #[test]
     fn lan_resume_is_key_bound_and_revocation_clears_recovery() {
         let key = SessionKey { peer_id: "lan-test".into(), name: "same name".into(), session_id: 902, tailcat_peer: None, lan_peer: Some("lan-key-one".into()) };
-        let session = Session { last_recv_time: Arc::new(Mutex::new(Instant::now() - Duration::from_secs(90))), random_password: String::new(), tfa: true, lan_permissions: Some([false;8]) };
+        let session = Session { last_recv_time: Arc::new(Mutex::new(Instant::now() - Duration::from_secs(90))), random_password: String::new(), tfa: true, lan_permissions: Some([false;8]), lan_terminal: false };
         assert!(session.is_recent(&key));
         SESSIONS.lock().unwrap().insert(key.clone(),session);
         let mut impostor=key.clone(); impostor.lan_peer=Some("lan-key-two".into());
@@ -6888,6 +6948,7 @@ mod test {
             last_recv_time: Arc::new(Mutex::new(Instant::now() - Duration::from_secs(90))),
             random_password: "one-time-secret".into(),
             lan_permissions: None,
+            lan_terminal: false,
             tfa: true,
         };
         assert!(session.is_recent(&key));
