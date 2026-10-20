@@ -823,6 +823,15 @@ pub fn discover_json() -> String {
         }
     }
 }
+
+#[cfg(unix)]
+fn discovery_interface_flags(flags: u32) -> bool {
+    use hbb_common::libc::{IFF_BROADCAST, IFF_LOOPBACK, IFF_POINTOPOINT, IFF_UP};
+
+    flags & (IFF_UP | IFF_BROADCAST) as u32 == (IFF_UP | IFF_BROADCAST) as u32
+        && flags & (IFF_LOOPBACK | IFF_POINTOPOINT) as u32 == 0
+}
+
 fn discover() -> ResultType<Vec<Peer>> {
     let (key, _) = identity()?;
     let own = hex::encode(key.0);
@@ -836,6 +845,11 @@ fn discover() -> ResultType<Vec<Peer>> {
     let bytes = query.write_to_bytes()?;
     let mut sockets = vec![];
     for iface in default_net::get_interfaces() {
+        // A TUN subnet broadcast uses the local routing table even outside a VPN's app allowlist.
+        #[cfg(unix)]
+        if !discovery_interface_flags(iface.flags) {
+            continue;
+        }
         for addr in iface.ipv4 {
             if !addr.addr.is_private() {
                 continue;
@@ -1117,6 +1131,28 @@ pub(crate) async fn prepare_tailcat_lan_upgrade(peer: &str) -> Option<LanUpgrade
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    #[test]
+    fn discovery_skips_vpn_interfaces() {
+        use hbb_common::libc::{IFF_BROADCAST, IFF_POINTOPOINT, IFF_UP};
+
+        assert!(!discovery_interface_flags(
+            (IFF_UP | IFF_POINTOPOINT) as u32
+        ));
+        assert!(!discovery_interface_flags(
+            (IFF_UP | IFF_BROADCAST | IFF_POINTOPOINT) as u32
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn discovery_keeps_active_lan_broadcast_interfaces() {
+        use hbb_common::libc::{IFF_BROADCAST, IFF_UP};
+
+        assert!(discovery_interface_flags((IFF_UP | IFF_BROADCAST) as u32));
+        assert!(!discovery_interface_flags(IFF_BROADCAST as u32));
+    }
+
     #[test]
     fn direct_address_support_does_not_expand_broadcast_discovery() {
         let reply = PeerDiscovery {
