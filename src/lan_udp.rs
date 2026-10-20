@@ -9,8 +9,10 @@
 //! on the private unicast socket. That path still does not bind `0.0.0.0` or
 //! `::`. macOS uses `IP_BOUND_IF` around an unspecified bind because that is
 //! what receives broadcasts there. Windows delivers broadcasts to the interface
-//! unicast socket, and cannot bind the IPv6 all-nodes group (`ff02::1` returns
-//! `WSAEADDRNOTAVAIL`). That listener binds the interface address and joins the group.
+//! unicast socket. Windows cannot bind the IPv6 all-nodes group (`ff02::1`
+//! returns `WSAEADDRNOTAVAIL`). macOS accepts that bind, but `ip6_output`
+//! rejects a multicast source with `EOPNOTSUPP`, so the socket cannot send the
+//! discovery reply. Those listeners bind the interface address and join the group.
 
 use hbb_common::tokio;
 use socket2::{Domain, SockAddr, Socket, Type};
@@ -502,10 +504,11 @@ pub(crate) fn discovery_bind_plan(ifaces: &[LanIface]) -> Vec<BindTarget> {
                     index: iface.index,
                     name: iface.name.clone(),
                 });
-                // Windows binds this socket to `reply` (it cannot bind ff02::1).
-                // Drop the unicast listener for that address so the port is free
-                // and multicast queries are not delivered twice.
-                #[cfg(windows)]
+                // This socket binds `reply` on Windows and Darwin (see
+                // `bind_v6_multicast_on_reply`). Drop the unicast listener for
+                // that address so the port is free and queries are not delivered
+                // twice. The same socket still receives unicast to `reply`.
+                #[cfg(any(windows, target_os = "macos", target_os = "ios"))]
                 {
                     let replaced = BindKey::Unicast(reply);
                     if let Some(pos) = targets
@@ -877,7 +880,7 @@ fn bind_unicast(ip: IpAddr, port: u16, index: u32) -> io::Result<UdpSocket> {
     {
         // IPv4 all-hosts is joined here because Windows also rejects a bind to
         // 224.0.0.1. IPv6 all-nodes is joined on the V6Multicast socket, which
-        // binds this interface's reply address (see `bind_v6_multicast_windows`).
+        // binds this interface's reply address (see `bind_v6_multicast_on_reply`).
         if let IpAddr::V4(iface) = ip {
             let _ = socket.join_multicast_v4(&IPV4_ALL_HOSTS, &iface);
         }
@@ -885,6 +888,9 @@ fn bind_unicast(ip: IpAddr, port: u16, index: u32) -> io::Result<UdpSocket> {
     Ok(socket.into())
 }
 
+// Only `open_linux` binds `ff02::1` directly. Darwin and Windows join the
+// group on a unicast socket (`bind_v6_multicast_on_reply`).
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn bind_v6_multicast(index: u32, port: u16) -> io::Result<UdpSocket> {
     let Some(index) = NonZeroU32::new(index) else {
         return Err(io::Error::new(
@@ -1014,7 +1020,7 @@ fn open_darwin(target: &BindTarget, port: u16) -> io::Result<UdpSocket> {
             socket.join_multicast_v4(&IPV4_ALL_HOSTS, &iface)?;
             Ok(socket.into())
         }
-        BindKey::V6Multicast { index } => bind_v6_multicast(*index, port),
+        BindKey::V6Multicast { .. } => bind_v6_multicast_on_reply_target(target, port),
     }
 }
 
@@ -1056,23 +1062,37 @@ fn open_windows(target: &BindTarget, port: u16) -> io::Result<UdpSocket> {
             socket.join_multicast_v4(&IPV4_ALL_HOSTS, &iface)?;
             Ok(socket.into())
         }
-        BindKey::V6Multicast { index } => {
-            let IpAddr::V6(ip) = target.reply else {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "IPv6 multicast needs an interface address",
-                ));
-            };
-            bind_v6_multicast_windows(ip, *index, port)
-        }
+        BindKey::V6Multicast { .. } => bind_v6_multicast_on_reply_target(target, port),
     }
 }
 
-/// Windows `bind` of `ff02::1` fails with `WSAEADDRNOTAVAIL` (10049). Winsock
-/// requires a local unicast address (not the group, and not a global `::`
-/// listen) followed by `IPV6_ADD_MEMBERSHIP` on the interface index.
-#[cfg(windows)]
-fn bind_v6_multicast_windows(ip: Ipv6Addr, index: u32, port: u16) -> io::Result<UdpSocket> {
+/// Bind the all-nodes listener to the interface address, then join `ff02::1`.
+///
+/// Windows `bind` of `ff02::1` fails with `WSAEADDRNOTAVAIL` (10049). macOS
+/// accepts it, and `recv` works, but `udp6_output` uses the bound address as
+/// `ip6_src`. `ip6_output` then rejects a multicast source with `EOPNOTSUPP`
+/// (102, "Operation not supported on socket") before the destination scope is
+/// considered. `IPV6_MULTICAST_IF` and `sin6_scope_id` on the peer do not
+/// change that source. A unicast bind can still send the reply.
+#[cfg(any(windows, target_os = "macos", target_os = "ios"))]
+fn bind_v6_multicast_on_reply_target(target: &BindTarget, port: u16) -> io::Result<UdpSocket> {
+    let IpAddr::V6(ip) = target.reply else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "IPv6 multicast needs an interface address",
+        ));
+    };
+    let BindKey::V6Multicast { index } = target.key else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "IPv6 multicast needs an interface index",
+        ));
+    };
+    bind_v6_multicast_on_reply(ip, index, port)
+}
+
+#[cfg(any(windows, target_os = "macos", target_os = "ios"))]
+fn bind_v6_multicast_on_reply(ip: Ipv6Addr, index: u32, port: u16) -> io::Result<UdpSocket> {
     if !udp_ip_allowed(IpAddr::V6(ip)) {
         return Err(io::Error::new(
             io::ErrorKind::AddrNotAvailable,
@@ -1087,6 +1107,10 @@ fn bind_v6_multicast_windows(ip: Ipv6Addr, index: u32, port: u16) -> io::Result<
     };
     let socket = Socket::new(Domain::IPV6, Type::DGRAM, None)?;
     socket.set_only_v6(true)?;
+    // `IPV6_BOUND_IF` keeps the reply on this interface. Link-local `bind`
+    // also needs the scope id; a ULA has none.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    socket.bind_device_by_index_v6(Some(index))?;
     let scope = if ip.is_unicast_link_local() {
         index.get()
     } else {
