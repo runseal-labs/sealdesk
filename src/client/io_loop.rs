@@ -19,8 +19,8 @@ use crate::{clipboard::try_empty_clipboard_files, clipboard_file::unix_file_clip
 use base::{
     config::keys,
     fs::{
-        self, can_enable_overwrite_detection, get_job, get_string, new_send_confirm,
-        DigestCheckResult, RemoveJobMeta,
+        self, can_enable_overwrite_detection, get_job, get_string, join_receiver_path,
+        new_send_confirm, DigestCheckResult, RemoveJobMeta,
     },
     message_proto::{permission_info::Permission, *},
 };
@@ -252,12 +252,10 @@ impl<T: InvokeUiSession> Remote<T> {
                 let mut last_recv_time = Instant::now();
                 let path_handler = self.handler.clone();
                 let path_address = path_handler.get_id();
-                let mut path_monitor = Box::pin(crate::tailcat::watch_path(
-                    &path_address,
-                    move |direct| {
+                let mut path_monitor =
+                    Box::pin(crate::tailcat::watch_path(&path_address, move |direct| {
                         path_handler.update_tailcat_path(direct);
-                    },
-                ));
+                    }));
 
                 loop {
                     tokio::select! {
@@ -638,7 +636,10 @@ impl<T: InvokeUiSession> Remote<T> {
     // Capture after readiness so changes during the read can invalidate the snapshot.
     // A separate task keeps a stalled backend from blocking the connection loop.
     #[cfg(target_os = "linux")]
-    fn spawn_initial_clipboard_read_after_ready(&self, read_clipboard: impl FnOnce() + Send + 'static) {
+    fn spawn_initial_clipboard_read_after_ready(
+        &self,
+        read_clipboard: impl FnOnce() + Send + 'static,
+    ) {
         // Initial-sync wait budget, not a protocol-defined startup deadline.
         const CLIPBOARD_READY_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -725,7 +726,8 @@ impl<T: InvokeUiSession> Remote<T> {
                         return true;
                     }
                     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-                    Some(message::Union::Clipboard(_)) | Some(message::Union::MultiClipboards(_)) => {
+                    Some(message::Union::Clipboard(_))
+                    | Some(message::Union::MultiClipboards(_)) => {
                         self.initial_clipboard_pending = false;
                     }
                     #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -1771,11 +1773,17 @@ impl<T: InvokeUiSession> Remote<T> {
                         }
                         Some(file_response::Union::Digest(digest)) => {
                             if digest.is_upload {
+                                let receiver_windows =
+                                    self.handler.peer_platform() == crate::PLATFORM_WINDOWS;
                                 if let Some(job) = fs::get_job(digest.id, &mut self.read_jobs) {
                                     if let Some(file) = job.files().get(digest.file_num as usize) {
-                                        if let fs::DataSource::FilePath(p) = &job.data_source {
-                                            let read_path =
-                                                get_string(&fs::TransferJob::join(p, &file.name));
+                                        if matches!(&job.data_source, fs::DataSource::FilePath(_)) {
+                                            // Show the path the receiver would overwrite, not the sender's source.
+                                            let dest_path = join_receiver_path(
+                                                &job.remote,
+                                                &file.name,
+                                                receiver_windows,
+                                            );
                                             let mut overwrite_strategy =
                                                 job.default_overwrite_strategy();
                                             let mut offset = 0;
@@ -1805,7 +1813,7 @@ impl<T: InvokeUiSession> Remote<T> {
                                                 self.handler.override_file_confirm(
                                                     digest.id,
                                                     digest.file_num,
-                                                    read_path,
+                                                    dest_path,
                                                     true,
                                                     digest.is_identical,
                                                 );

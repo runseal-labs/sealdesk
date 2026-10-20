@@ -1445,6 +1445,30 @@ pub fn transform_windows_path(entries: &mut Vec<FileEntry>) {
     }
 }
 
+/// Path that would be overwritten on the receiving side.
+///
+/// `base` is the transfer destination: a file path when `name` is empty, otherwise
+/// the destination directory. Separators follow the receiver, not the sender.
+pub fn join_receiver_path(base: &str, name: &str, receiver_is_windows: bool) -> String {
+    if name.is_empty() {
+        return base.to_owned();
+    }
+    let name = if receiver_is_windows {
+        name.replace('/', "\\")
+    } else {
+        name.replace('\\', "/")
+    };
+    let sep = if receiver_is_windows { '\\' } else { '/' };
+    if base.is_empty() {
+        return name;
+    }
+    if base.ends_with('/') || base.ends_with('\\') {
+        format!("{base}{name}")
+    } else {
+        format!("{base}{sep}{name}")
+    }
+}
+
 pub enum DigestCheckResult {
     IsSame,
     NeedConfirm(FileTransferDigest),
@@ -1747,5 +1771,31 @@ mod tests {
 
         assert!(!src.exists());
         assert!(dst.exists());
+    }
+
+    #[test]
+    fn join_receiver_path_uses_destination_and_receiver_separator() {
+        assert_eq!(
+            join_receiver_path("/home/c2/run/small.txt", "", false),
+            "/home/c2/run/small.txt"
+        );
+        assert_eq!(
+            join_receiver_path("/home/c2/run/folder", "sub/file.txt", false),
+            "/home/c2/run/folder/sub/file.txt"
+        );
+        assert_eq!(
+            join_receiver_path("/home/c2/run/folder", "sub\\file.txt", false),
+            "/home/c2/run/folder/sub/file.txt"
+        );
+        assert_eq!(
+            join_receiver_path("C:\\Users\\c2\\run\\small.txt", "", true),
+            "C:\\Users\\c2\\run\\small.txt"
+        );
+        assert_eq!(
+            join_receiver_path("C:\\Users\\c2\\run\\folder", "sub/file.txt", true),
+            "C:\\Users\\c2\\run\\folder\\sub\\file.txt"
+        );
+        assert_eq!(join_receiver_path("/", "file.txt", false), "/file.txt");
+        assert_eq!(join_receiver_path("C:\\", "file.txt", true), "C:\\file.txt");
     }
 }

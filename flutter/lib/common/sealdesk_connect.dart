@@ -333,8 +333,4 @@ Future<void> maybeShowSealDeskCompatHint(BuildContext context) async {
 
 void _showConnectError(BuildContext context, String message) {
   showToast(message);
-  final messenger = ScaffoldMessenger.maybeOf(context);
-  messenger?.showSnackBar(SnackBar(
-    content: Text(message, key: const ValueKey('sealdesk-connect-error')),
-  ));
 }
