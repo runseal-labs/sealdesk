@@ -79,7 +79,8 @@ address. Quitting the app alone doesn't revoke it.
 
 SealDesk can reach original RustDesk hosts over direct IP (TCP 21118), and
 vice versa. That path uses RustDesk's legacy protocol and is **not encrypted**.
-SealDesk warns you before connecting. RustDesk IDs, hbbs/hbbr, and accounts
+It is off unless explicitly enabled, and turning it on shows a warning.
+SealDesk also warns before connecting. RustDesk IDs, hbbs/hbbr, and accounts
 are not supported.
 
 ## Build

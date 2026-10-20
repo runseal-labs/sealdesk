@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 import 'package:settings_ui/settings_ui.dart';
 
 import '../../common.dart';
+import '../../common/sealdesk_connect.dart';
 import '../../common/widgets/dialog.dart';
 import '../../consts.dart';
 import '../../models/model.dart';
@@ -635,12 +636,29 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
             },
           ),
           SettingsTile.switchTile(
-            title: Text(translate('Allow RustDesk compatible connections')),
+            title: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(translate('Allow RustDesk compatible connections')),
+                if (_allowRustDeskCompat)
+                  Text(
+                    translate(kSealDeskCompatEnableWarning),
+                    key: const ValueKey('sealdesk-compat-warning-text'),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                      fontSize: 12,
+                    ),
+                  ),
+              ],
+            ),
             initialValue: _allowRustDeskCompat,
             onToggle: disabledSettings ||
                     isOptionFixed(kOptionSealDeskRustDeskCompat)
                 ? null
                 : (v) async {
+                    if (v && !await confirmSealDeskCompatEnable(context)) {
+                      return;
+                    }
                     await mainSetBoolOption(kOptionSealDeskRustDeskCompat, v);
                     setState(() {
                       _allowRustDeskCompat = mainGetBoolOptionSync(

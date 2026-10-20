@@ -62,6 +62,57 @@ pub(crate) fn android_private_ipv4() -> Vec<Ipv4Addr> {
     private_ipv4_from_interface_json(&payload)
 }
 
+#[cfg(target_os = "android")]
+pub(crate) fn android_private_nets() -> Vec<(Ipv4Addr, u8)> {
+    let payload = ANDROID_INTERFACES.lock().unwrap().clone();
+    private_nets_from_interface_json(&payload)
+}
+
+/// Addresses are `ip/prefix`. Prefix is kept so LAN dials can require the same subnet.
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn private_nets_from_interface_json(payload: &str) -> Vec<(Ipv4Addr, u8)> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) else {
+        return Vec::new();
+    };
+    let Some(list) = value.as_array() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for iface in list {
+        let flags = iface.get("flags").and_then(|v| v.as_u64()).unwrap_or(0);
+        if flags & 1 == 0 || flags & 4 != 0 {
+            continue;
+        }
+        let Some(addrs) = iface.get("addrs").and_then(|v| v.as_array()) else {
+            continue;
+        };
+        for addr in addrs {
+            let Some(text) = addr.as_str() else {
+                continue;
+            };
+            let mut parts = text.split('/');
+            let Some(ip) = parts.next() else {
+                continue;
+            };
+            let Ok(ip) = ip.parse::<Ipv4Addr>() else {
+                continue;
+            };
+            let prefix = parts
+                .next()
+                .and_then(|value| value.parse::<u8>().ok())
+                .unwrap_or(0);
+            if ip.is_private()
+                && prefix > 0
+                && prefix <= 32
+                && !out.iter().any(|(seen, _)| *seen == ip)
+            {
+                out.push((ip, prefix));
+            }
+        }
+    }
+    out
+}
+
 /// `flags`: 1 = up, 4 = loopback. Addresses are `ip/prefix` strings.
 #[cfg(any(target_os = "android", test))]
 pub(crate) fn private_ipv4_from_interface_json(payload: &str) -> Vec<Ipv4Addr> {
@@ -589,5 +640,21 @@ mod tests {
         assert_eq!(state, Some(false));
         assert_eq!(super::tailcat_stream_type(state), "Tailcat/DERP");
         assert_eq!(super::direct_flag(state), "false");
+    }
+
+    #[test]
+    fn android_interface_json_keeps_private_prefixes() {
+        let payload =
+            r#"[{"flags":1,"addrs":["192.168.1.8/24","8.8.8.8/32","10.1.2.3/8","127.0.0.1/8"]}]"#;
+        let nets = super::private_nets_from_interface_json(payload);
+        assert_eq!(
+            nets,
+            vec![
+                ("192.168.1.8".parse().unwrap(), 24),
+                ("10.1.2.3".parse().unwrap(), 8),
+            ]
+        );
+        let down = r#"[{"flags":0,"addrs":["192.168.1.8/24"]}]"#;
+        assert!(super::private_nets_from_interface_json(down).is_empty());
     }
 }

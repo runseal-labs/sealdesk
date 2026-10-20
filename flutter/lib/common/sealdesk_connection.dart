@@ -6,6 +6,8 @@ String? sealDeskConnectionLabel(String streamType) {
       return 'P2P direct';
     case 'Tailcat/DERP':
       return 'DERP relay';
+    case 'LAN':
+      return 'LAN direct';
     default:
       return null;
   }
@@ -14,6 +16,9 @@ String? sealDeskConnectionLabel(String streamType) {
 String? sealDeskConnectionDescription(String streamType) {
   final label = sealDeskConnectionLabel(streamType);
   if (label == null) return null;
+  if (streamType == 'LAN') {
+    return '$label · encrypted connection';
+  }
   final description = '$label · WireGuard encrypted connection';
   return streamType == 'Tailcat/DERP'
       ? '$description; hole punching failed, speed may be limited'
@@ -29,6 +34,8 @@ String sealDeskRelaySuffix(String streamType, String directToken) {
       return '';
     case 'Tailcat/DERP':
       return '_relay';
+    case 'LAN':
+      return '';
     default:
       return directToken == '_relay' ? '_relay' : '';
   }

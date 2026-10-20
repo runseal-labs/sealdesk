@@ -17,8 +17,12 @@ interoperability.
   password or click authorization. These compatibility sessions are unencrypted
   and explicitly identified. SealDesk encrypted-handshake failures do not fall
   back to the legacy protocol.
-- Both direct protocols share TCP 21118. Direct admission accepts IPv4 and IPv6
-  without subnet classification. Discovery remains private-IPv4 UDP 21119.
+- Both direct protocols share TCP 21118. The listener binds only this host's
+  private IPv4 (10/8, 172.16/12, 192.168/16) and IPv6 ULA addresses, and only
+  while sharing is on. It does not fall back to 0.0.0.0 or ::. Discovery
+  remains private-IPv4 UDP 21119. `enable-lan-discovery` and `direct-server`
+  control discovery replies and the TCP listener. Plaintext RustDesk
+  compatibility is off unless `sealdesk-rustdesk-compat` is `Y`.
 - Incoming sessions are accepted only while sharing is enabled. Linux has no
   installed systemd daemon, autostart, or tray process.
 - RustDesk hbbs/hbbr registration and relay, account synchronization, and address

@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sealdesk/common.dart';
+import 'package:sealdesk/common/sealdesk_connect.dart';
 import 'package:sealdesk/common/widgets/audio_input.dart';
 import 'package:sealdesk/common/widgets/setting_widgets.dart';
 import 'package:sealdesk/consts.dart';
@@ -889,7 +890,23 @@ class _GeneralState extends State<_General> {
         'Allow RustDesk compatible connections',
         kOptionSealDeskRustDeskCompat,
         enabled: !bind.isDisableSettings(),
+        update: (_) => setState(() {}),
+        optSetter: (key, value) async {
+          if (value && !await confirmSealDeskCompatEnable(context)) {
+            return;
+          }
+          await mainSetBoolOption(key, value);
+        },
       ),
+      if (mainGetBoolOptionSync(kOptionSealDeskRustDeskCompat))
+        Padding(
+          padding: const EdgeInsets.only(left: _kContentHMargin, right: 8),
+          child: Text(
+            translate(kSealDeskCompatEnableWarning),
+            key: const ValueKey('sealdesk-compat-warning-text'),
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+        ),
     ]);
   }
 }

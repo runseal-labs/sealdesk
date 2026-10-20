@@ -65,7 +65,7 @@ sealdesk --tc-reset-address         # 作废当前地址
 
 ## 和 RustDesk 互通
 
-SealDesk 可以通过 IP 直连（TCP 21118）连接原版 RustDesk，反过来也行。这条路走的是 RustDesk 的旧协议，**不加密**，连接前 SealDesk 会提醒你。不支持 RustDesk ID、hbbs/hbbr 和账号。
+SealDesk 可以通过 IP 直连（TCP 21118）连接原版 RustDesk，反过来也行。这条路走的是 RustDesk 的旧协议，**不加密**。默认关闭，打开时会给出明确警告，连接前也会提醒。不支持 RustDesk ID、hbbs/hbbr 和账号。
 
 ## 构建
 

@@ -97,7 +97,8 @@ lazy_static::lazy_static! {
 }
 
 pub const LINK_DOCS_HOME: &str = "https://github.com/runseal-labs/sealdesk#readme";
-pub const LINK_DOCS_X11_REQUIRED: &str = "https://github.com/runseal-labs/sealdesk/blob/main/docs/linux-x11.md";
+pub const LINK_DOCS_X11_REQUIRED: &str =
+    "https://github.com/runseal-labs/sealdesk/blob/main/docs/linux-x11.md";
 
 lazy_static::lazy_static! {
     pub static ref HELPER_URL: HashMap<&'static str, &'static str> = HashMap::from([
@@ -2544,6 +2545,10 @@ pub fn is_disable_installation() -> bool {
 // flutter: flutter/lib/common.dart -> option2bool()
 // sciter: Does not have the function, but it should be kept the same.
 pub fn option2bool(option: &str, value: &str) -> bool {
+    // Unencrypted RustDesk compatibility is opt-in. A missing value stays off.
+    if option == "sealdesk-rustdesk-compat" {
+        return value == "Y";
+    }
     if option.starts_with("enable-") {
         value != "N"
     } else if option.starts_with("allow-") || option == "stop-service" {

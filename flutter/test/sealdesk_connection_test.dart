@@ -17,6 +17,11 @@ void main() {
     expect(sealDeskConnectionLabel('Tailcat/DERP'), 'DERP relay');
     expect(sealDeskConnectionDescription('Tailcat/DERP'),
         'DERP relay · WireGuard encrypted connection; hole punching failed, speed may be limited');
+    expect(sealDeskConnectionLabel('LAN'), 'LAN direct');
+    expect(sealDeskConnectionDescription('LAN'),
+        'LAN direct · encrypted connection');
+    expect(sealDeskRelaySuffix('LAN', ''), '');
+    expect(sealDeskConnectionAsset('secure', 'LAN', ''), 'assets/secure.svg');
   });
 
   test('path label and glyph follow unknown, DERP, P2P, then DERP again', () {

@@ -68,4 +68,37 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.pump();
   });
+
+  testWidgets('LAN list offers file transfer and hides terminal on Android', (tester) async {
+    final desktop = 'lan:192.168.1.8:21118/${'cd' * 32}';
+    final android = 'lan:192.168.1.9:21118/${'ef' * 32}';
+    binding.peers.addAll([
+      {
+        'name': 'Desk',
+        'ip': '192.168.1.8',
+        'address': desktop,
+        'protocol': 'sealdesk',
+        'platform': 'Linux',
+      },
+      {
+        'name': 'Phone',
+        'ip': '192.168.1.9',
+        'address': android,
+        'protocol': 'sealdesk',
+        'platform': 'Android',
+      },
+    ]);
+    await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: SealDeskLanPeersTab())));
+    await tester.pumpAndSettle();
+    expect(find.byKey(ValueKey('sealdesk-lan-file-$desktop')), findsOneWidget);
+    expect(find.byKey(ValueKey('sealdesk-lan-terminal-$desktop')), findsOneWidget);
+    expect(find.byKey(ValueKey('sealdesk-lan-file-$android')), findsOneWidget);
+    expect(find.byKey(ValueKey('sealdesk-lan-terminal-$android')), findsNothing);
+    await tester.tap(find.byKey(ValueKey('sealdesk-lan-terminal-$desktop')));
+    await tester.pump();
+    tester.takeException();
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
 }
