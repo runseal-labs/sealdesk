@@ -80,6 +80,7 @@ rdev = { git = "https://github.com/rustdesk-org/rdev" }
 url = { version = "2.3", features = ["serde"] }
 crossbeam-queue = "0.3"
 hex = "0.4"
+zeroize = "1.8"
 chrono = "0.4"
 cidr-utils = "0.5"
 fon = "0.6"

@@ -159,6 +159,7 @@ extern "C" {
         derp_map_url: *const c_char,
     ) -> *mut c_char;
     fn TcClientPubkey(key_path: *const c_char) -> *mut c_char;
+    fn TcNodePublic(addr: *const c_char) -> *mut c_char;
     fn TcForwardWithDERPMap(
         addr: *const c_char,
         key_path: *const c_char,
@@ -282,7 +283,7 @@ fn take(p: *mut c_char) -> ResultType<String> {
     }
 }
 
-fn server_key_path() -> String {
+pub(crate) fn server_key_path() -> String {
     Config::path("tailcat-server.json")
         .to_string_lossy()
         .into_owned()
@@ -300,6 +301,43 @@ fn secure_key_file(path: &str) -> ResultType<()> {
 
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     Ok(())
+}
+
+/// Node secret from the controlled side's tailcat key file, or `None` when
+/// the file is missing or unreadable. Callers drop it when the possession
+/// proof is sealed.
+pub(crate) fn node_private_key() -> Option<zeroize::Zeroizing<[u8; 32]>> {
+    use zeroize::Zeroize;
+
+    let text = std::fs::read_to_string(server_key_path()).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let encoded = value.get("Private")?.as_str()?;
+    let hex_key = encoded.strip_prefix("privkey:")?;
+    let mut bytes = hex::decode(hex_key).ok()?;
+    if bytes.len() != 32 {
+        bytes.zeroize();
+        return None;
+    }
+    let mut key = zeroize::Zeroizing::new([0u8; 32]);
+    key.copy_from_slice(&bytes);
+    bytes.zeroize();
+    Some(key)
+}
+
+/// Curve25519 node public key embedded in a tailcat address.
+/// `None` when the address cannot be read. Used only to open a possession proof.
+pub(crate) fn node_public(addr: &str) -> Option<[u8; 32]> {
+    let c = cstring(addr).ok()?;
+    // SAFETY: `addr` is a NUL-terminated C string. The Go side parses it and
+    // returns a hex public key or an `ERR:` string. It does not call Rust.
+    let text = take(unsafe { TcNodePublic(c.as_ptr()) }).ok()?;
+    let bytes = hex::decode(text).ok()?;
+    if bytes.len() != 32 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&bytes);
+    Some(out)
 }
 
 /// A tailcat address: `tc` + unpadded base64url. Always far longer than a RustDesk ID.

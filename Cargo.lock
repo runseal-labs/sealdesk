@@ -6873,6 +6873,7 @@ dependencies = [
  "x11rb 0.12.0",
  "xkbcommon-dl",
  "xxhash-rust",
+ "zeroize",
  "zstd",
 ]
 
