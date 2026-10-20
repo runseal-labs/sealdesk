@@ -60,6 +60,7 @@ class SealDeskLanDevice {
   final String address;
   final String protocol;
   final String platform;
+  final bool identityChecked;
 
   const SealDeskLanDevice({
     required this.name,
@@ -67,9 +68,13 @@ class SealDeskLanDevice {
     required this.address,
     required this.protocol,
     this.platform = '',
+    this.identityChecked = true,
   });
 
   bool get encrypted => protocol != 'rustdesk';
+
+  bool get needsIdentityConfirmation =>
+      sealDeskLanNeedsIdentityConfirmation(protocol, identityChecked);
 
   bool get showsTerminal => platform != kPeerPlatformAndroid;
 
@@ -80,8 +85,36 @@ class SealDeskLanDevice {
       address: json['address'] as String? ?? '',
       protocol: json['protocol'] as String? ?? 'sealdesk',
       platform: json['platform'] as String? ?? '',
+      identityChecked: json['identity_checked'] as bool? ?? true,
     );
   }
+}
+
+bool sealDeskLanNeedsIdentityConfirmation(String protocol, bool identityChecked) {
+  return protocol != 'rustdesk' && !identityChecked;
+}
+
+Future<bool> confirmSealDeskUnverifiedLan(BuildContext context) async {
+  final accepted = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      key: const ValueKey('sealdesk-unverified-lan'),
+      title: Text(translate(kSealDeskUnverifiedIdentity)),
+      content: Text(translate(kSealDeskUnverifiedIdentityPrompt)),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: Text(translate('Cancel')),
+        ),
+        TextButton(
+          key: const ValueKey('sealdesk-unverified-lan-continue'),
+          onPressed: () => Navigator.pop(context, true),
+          child: Text(translate('OK')),
+        ),
+      ],
+    ),
+  );
+  return accepted == true;
 }
 
 class SealDeskLanDirectory extends ChangeNotifier {

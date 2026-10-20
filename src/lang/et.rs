@@ -935,5 +935,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Arrow right", ""),
         ("Page down", ""),
         ("Long press", ""),
+        ("Identity not verified", "Identiteeti ei ole kontrollitud"),
+        ("This device did not complete an identity check. Connect only if you trust it on this network.", "See seade ei läbinud identiteedikontrolli. Ühenduge ainult siis, kui usaldate seda selles võrgus."),
     ].iter().cloned().collect();
 }

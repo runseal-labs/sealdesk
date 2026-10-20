@@ -1,13 +1,14 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sealdesk/common/sealdesk_connect_target.dart';
 import 'package:sealdesk/common/sealdesk_lan_panel.dart';
 import 'package:sealdesk/generated_bridge.dart';
 import 'package:sealdesk/models/platform_model.dart';
 
 class _LanBinding extends Fake implements SealdeskImpl {
-  List<Map<String, String>> peers = [];
-  List<Map<String, String>> trusted = [];
+  List<Map<String, dynamic>> peers = [];
+  List<Map<String, dynamic>> trusted = [];
   final List<String> revoked = [];
   int discoveryQueries = 0;
   bool ready = true;
@@ -137,6 +138,41 @@ void main() {
     await tester.pump(const Duration(seconds: 4));
     expect(binding.discoveryQueries, queries);
     expect(tester.takeException(), isNull);
+  });
+  testWidgets('version 1 is labeled unverified and connect asks first',
+      (tester) async {
+    final address = 'lan:192.168.1.6:21118/${'a' * 64}';
+    binding.peers.add({
+      'name': 'Old host',
+      'ip': '192.168.1.6',
+      'address': address,
+      'protocol': 'sealdesk',
+      'identity_checked': false,
+    });
+    String? connected;
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SealDeskLanPanel(
+                host: false,
+                connectPeer: (value) async {
+                  connected = value;
+                }))));
+    await tester.pumpAndSettle();
+    expect(find.text(kSealDeskUnverifiedIdentity), findsOneWidget);
+    expect(find.text('Encrypted direct connection'), findsNothing);
+    await tester.tap(find.text('Connect'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('sealdesk-unverified-lan')), findsOneWidget);
+    expect(connected, isNull);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(connected, isNull);
+    await tester.tap(find.text('Connect'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('sealdesk-unverified-lan-continue')));
+    await tester.pumpAndSettle();
+    expect(connected, address);
+    await tester.pumpWidget(const SizedBox());
   });
   testWidgets('revocation reads back the updated controller list',
       (tester) async {

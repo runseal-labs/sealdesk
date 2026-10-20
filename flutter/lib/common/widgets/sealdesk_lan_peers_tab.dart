@@ -31,7 +31,10 @@ class _SealDeskLanPeersTabState extends State<SealDeskLanPeersTab> {
     bool isFileTransfer = false,
     bool isTerminal = false,
   }) async {
-    if (!device.encrypted) {
+    if (device.needsIdentityConfirmation) {
+      final accepted = await confirmSealDeskUnverifiedLan(context);
+      if (!accepted || !context.mounted) return;
+    } else if (!device.encrypted) {
       await maybeShowSealDeskCompatHint(context);
     }
     if (!context.mounted) return;
@@ -82,7 +85,14 @@ class _SealDeskLanPeersTabState extends State<SealDeskLanPeersTab> {
                 children: [
                   Text(device.ip),
                   const SizedBox(height: 4),
-                  SealDeskSecurityChip(encrypted: device.encrypted),
+                  if (device.needsIdentityConfirmation)
+                    Text(
+                      translate(kSealDeskUnverifiedIdentity),
+                      key: ValueKey(
+                          'sealdesk-lan-unverified-${device.address}'),
+                    )
+                  else
+                    SealDeskSecurityChip(encrypted: device.encrypted),
                   Wrap(
                     spacing: 4,
                     children: [

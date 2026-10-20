@@ -1064,12 +1064,18 @@ class _SealDeskPresenceDot extends StatelessWidget {
       builder: (context, _) {
         final device = SealDeskLanDirectory.instance.match(peerId);
         if (device == null) return const SizedBox.shrink();
-        final color =
-            device.encrypted ? const Color(0xFF1B8A3A) : const Color(0xFF6B7280);
+        final unverified = device.needsIdentityConfirmation;
+        final color = unverified
+            ? const Color(0xFFB45309)
+            : device.encrypted
+                ? const Color(0xFF1B8A3A)
+                : const Color(0xFF6B7280);
         return Tooltip(
-          message: translate(device.encrypted
-              ? kSealDeskEncryptedChip
-              : kSealDeskCompatChip),
+          message: translate(unverified
+              ? kSealDeskUnverifiedIdentity
+              : device.encrypted
+                  ? kSealDeskEncryptedChip
+                  : kSealDeskCompatChip),
           child: Padding(
             padding: EdgeInsets.fromLTRB(0, 4, rightPadding, 4),
             child: CircleAvatar(

@@ -4,6 +4,9 @@ import '../models/platform_model.dart';
 const kSealDeskHint = 'tc… / lan: / SEALDESK: pairing code';
 const kSealDeskCompatChip = 'Compatible with RustDesk · Unencrypted';
 const kSealDeskEncryptedChip = 'Encrypted direct connection';
+const kSealDeskUnverifiedIdentity = 'Identity not verified';
+const kSealDeskUnverifiedIdentityPrompt =
+    'This device did not complete an identity check. Connect only if you trust it on this network.';
 const kSealDeskCompatHint = 'compat-lan-hint';
 const kSealDeskCompatEnableWarning = 'compat-lan-enable-warning';
 const kSealDeskClearHistory = 'Clear history';
