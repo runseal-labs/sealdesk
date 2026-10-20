@@ -1155,6 +1155,9 @@ enum PasswordSource {
     PersonalAb(Vec<u8>),
     SharedAb(String),
     Undefined,
+    /// Password supplied with this connect (home-page field or pairing code).
+    /// It must not replace a saved password unless the user opts in.
+    Preset,
 }
 
 impl Default for PasswordSource {
@@ -1164,6 +1167,11 @@ impl Default for PasswordSource {
 }
 
 impl PasswordSource {
+    /// Connect preset (typed password or pairing code), not a saved peer password.
+    fn is_preset(&self) -> bool {
+        matches!(self, PasswordSource::Preset)
+    }
+
     // Whether the password is personal ab password
     pub fn is_personal_ab(&self, password: &[u8]) -> bool {
         if password.is_empty() {
@@ -1984,10 +1992,17 @@ impl LoginConfigHandler {
         if remember {
             // remember is true: use PeerConfig password or ui login
             // not sync shared password to recent
-            if !password.is_empty()
-                && password != password0
-                && !self.password_source.is_shared_ab(&password, &hash)
-            {
+            // A preset is chosen before the saved password and before the
+            // dialog. remember may already be true from that saved password;
+            // do not treat it as consent to overwrite. handle_login_from_ui
+            // clears the preset source when the user submits Remember.
+            if should_replace_saved_password(
+                true,
+                self.password_source.is_preset(),
+                &password,
+                &password0,
+                self.password_source.is_shared_ab(&password, &hash),
+            ) {
                 config.password = password.clone();
                 log::debug!("remember password of {}", self.id);
             }
@@ -1996,7 +2011,7 @@ impl LoginConfigHandler {
                 // sync personal ab password to recent automatically
                 config.password = password.clone();
                 log::debug!("save ab password of {} to recent", self.id);
-            } else if !password0.is_empty() {
+            } else if should_clear_saved_password(self.password_source.is_preset(), &password0) {
                 config.password = Default::default();
                 log::debug!("remove password of {}", self.id);
             }
@@ -2980,7 +2995,9 @@ pub async fn handle_hash(
             hasher.update(&hash.salt);
             let res = hasher.finalize();
             password = res[..].into();
-            lc.write().unwrap().password_source = Default::default();
+            // Not a user "remember" choice. handle_peer_info must not
+            // overwrite a saved password with this hash.
+            lc.write().unwrap().password_source = PasswordSource::Preset;
         }
     }
     // shared password
@@ -3447,6 +3464,26 @@ pub fn check_if_retry(msgtype: &str, title: &str, text: &str) -> bool {
             && !text.to_lowercase().contains("not allowed"))
 }
 
+/// Saved peer password is replaced only when the user asked to remember a
+/// different, non-shared password. A connect/pairing preset is not that ask:
+/// `remember` is initialized from the existing saved password.
+fn should_replace_saved_password(
+    remember: bool,
+    password_from_preset: bool,
+    password: &[u8],
+    saved: &[u8],
+    shared_ab: bool,
+) -> bool {
+    remember && !password_from_preset && !password.is_empty() && password != saved && !shared_ab
+}
+
+/// A preset login must not delete a saved password. Clearing still happens
+/// when the user submits the dialog with Remember unchecked (source is no
+/// longer preset).
+fn should_clear_saved_password(password_from_preset: bool, saved: &[u8]) -> bool {
+    !password_from_preset && !saved.is_empty()
+}
+
 #[cfg(test)]
 mod retry_tests {
     use super::check_if_retry;
@@ -3462,6 +3499,50 @@ mod retry_tests {
             "Connection Error",
             "Incoming only mode",
         ));
+    }
+}
+
+#[cfg(test)]
+mod password_remember_tests {
+    use super::{
+        should_clear_saved_password, should_replace_saved_password, ConnToken, LoginConfigHandler,
+        PasswordSource,
+    };
+
+    #[test]
+    fn preset_does_not_replace_or_clear_a_saved_password() {
+        let saved = b"permanent-hash";
+        let preset = b"temporary-hash";
+        assert!(!should_replace_saved_password(
+            true, true, preset, saved, false
+        ));
+        assert!(!should_clear_saved_password(true, saved));
+        // User submitted the dialog with Remember checked: source is not preset.
+        assert!(should_replace_saved_password(
+            true, false, preset, saved, false
+        ));
+        // User submitted with Remember unchecked.
+        assert!(should_clear_saved_password(false, saved));
+        // Same hash, or a shared address-book password, is left alone.
+        assert!(!should_replace_saved_password(
+            true, false, saved, saved, false
+        ));
+        assert!(!should_replace_saved_password(
+            true, false, preset, saved, true
+        ));
+        assert!(!should_clear_saved_password(false, b""));
+    }
+
+    #[test]
+    fn preset_source_survives_reconnect_token() {
+        let mut lc = LoginConfigHandler::default();
+        lc.password = b"temporary-hash".to_vec();
+        lc.password_source = PasswordSource::Preset;
+        lc.session_id = 7;
+        let token = lc.get_conn_token().expect("token");
+        let parsed: ConnToken = serde_json::from_str(&token).unwrap();
+        assert_eq!(parsed.password_source, PasswordSource::Preset);
+        assert!(parsed.password_source.is_preset());
     }
 }
 

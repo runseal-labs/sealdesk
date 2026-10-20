@@ -19,9 +19,6 @@ const kSealDeskImageTooltip = 'Recognize QR from image';
 const kSealDeskInvalidInput = 'Invalid connection address';
 const kSealDeskLanTab = 'LAN';
 
-const kSealDeskPasswordKind = 'sealdesk-password-kind';
-const kSealDeskPasswordTemporary = 'temporary';
-const kSealDeskPasswordPermanent = 'permanent';
 const kSealDeskHideRecent = 'sealdesk-hide-recent';
 const kSealDeskCompatHintOption = 'sealdesk-compat-lan-hint';
 
@@ -38,7 +35,6 @@ class SealDeskConnectTarget {
   final String? password;
   final String? alias;
   final String kind;
-  final String passwordKind;
   final String? error;
 
   const SealDeskConnectTarget({
@@ -46,7 +42,6 @@ class SealDeskConnectTarget {
     this.password,
     this.alias,
     required this.kind,
-    required this.passwordKind,
     this.error,
   });
 
@@ -59,29 +54,22 @@ SealDeskConnectTarget parseSealDeskConnectInput(String raw, {int? now}) {
     return const SealDeskConnectTarget(
       id: '',
       kind: 'invalid',
-      passwordKind: kSealDeskPasswordTemporary,
       error: kSealDeskInvalidInput,
     );
   }
   if (SealDeskPairing.isPairingCode(text)) {
     try {
       final pairing = SealDeskPairing.parse(text, now: now);
-      final temporary =
-          pairing.password != null && pairing.password!.isNotEmpty;
       return SealDeskConnectTarget(
         id: pairing.address,
         password: pairing.password,
         alias: pairing.name,
         kind: 'pairing',
-        passwordKind: temporary
-            ? kSealDeskPasswordTemporary
-            : kSealDeskPasswordPermanent,
       );
     } on FormatException catch (error) {
       return SealDeskConnectTarget(
         id: '',
         kind: 'invalid',
-        passwordKind: kSealDeskPasswordTemporary,
         error: error.message,
       );
     }
@@ -92,34 +80,29 @@ SealDeskConnectTarget parseSealDeskConnectInput(String raw, {int? now}) {
       return const SealDeskConnectTarget(
         id: '',
         kind: 'invalid',
-        passwordKind: kSealDeskPasswordTemporary,
         error: kSealDeskInvalidInput,
       );
     }
     return SealDeskConnectTarget(
       id: normalized,
       kind: 'lan',
-      passwordKind: kSealDeskPasswordPermanent,
     );
   }
   if (SealDeskPairing.isAddress(text)) {
     return SealDeskConnectTarget(
       id: text,
       kind: 'tc',
-      passwordKind: kSealDeskPasswordPermanent,
     );
   }
   if (_ipAddress(text)) {
     return SealDeskConnectTarget(
       id: text,
       kind: 'ip',
-      passwordKind: kSealDeskPasswordPermanent,
     );
   }
   return const SealDeskConnectTarget(
     id: '',
     kind: 'invalid',
-    passwordKind: kSealDeskPasswordTemporary,
     error: kSealDeskInvalidInput,
   );
 }

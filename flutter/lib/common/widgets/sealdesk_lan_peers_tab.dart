@@ -40,7 +40,6 @@ class _SealDeskLanPeersTabState extends State<SealDeskLanPeersTab> {
       SealDeskConnectTarget(
         id: device.address,
         kind: 'lan',
-        passwordKind: kSealDeskPasswordPermanent,
       ),
       isFileTransfer: isFileTransfer,
       isTerminal: isTerminal,
