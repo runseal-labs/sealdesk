@@ -888,6 +888,9 @@ fn bind_unicast(ip: IpAddr, port: u16, index: u32) -> io::Result<UdpSocket> {
     Ok(socket.into())
 }
 
+// Only `open_linux` binds `ff02::1` directly. Darwin and Windows join the
+// group on a unicast socket (`bind_v6_multicast_on_reply`).
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn bind_v6_multicast(index: u32, port: u16) -> io::Result<UdpSocket> {
     let Some(index) = NonZeroU32::new(index) else {
         return Err(io::Error::new(
