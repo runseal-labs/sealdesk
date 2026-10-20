@@ -560,6 +560,7 @@ pub fn compat_addresses_json() -> String {
         if ready() && crate::tailcat::host::enabled() && rustdesk_compat_enabled() {
             let mut addresses: Vec<String> = default_net::get_interfaces()
                 .into_iter()
+                .filter(|iface| keep_discovery_iface(iface.flags))
                 .flat_map(|iface| iface.ipv4)
                 .filter(|ip| ip.addr.is_private())
                 .map(|ip| SocketAddr::new(ip.addr.into(), TCP_PORT).to_string())
@@ -1998,6 +1999,75 @@ mod tests {
         ));
         assert!(plan_has(&plan, &udp::BindKey::V4Multicast { index: 2 }));
         assert!(plan_has(&plan, &udp::BindKey::V6Multicast { index: 2 }));
+
+        let fb = udp::fallback_listen(&plan, udp::ScopeError::DeviceDenied);
+        let limited: Vec<_> = fb
+            .plan
+            .iter()
+            .filter(|target| matches!(target.key, udp::BindKey::Limited { .. }))
+            .collect();
+        assert_eq!(limited.len(), 1);
+        assert_eq!(
+            limited[0].key,
+            udp::BindKey::Limited {
+                index: 0,
+                name: String::new(),
+            }
+        );
+        assert_eq!(fb.join_v4, vec!["10.1.2.3".parse::<Ipv4Addr>().unwrap()]);
+        let two = udp::discovery_bind_plan(&[
+            lan_iface("wlan0", 3, &[("192.168.4.9", 24)], &[]),
+            lan_iface("eth0", 2, &[("10.0.0.5", 8)], &[]),
+        ]);
+        let two = udp::fallback_listen(&two, udp::ScopeError::DeviceDenied);
+        assert_eq!(
+            two.plan
+                .iter()
+                .filter(|target| matches!(target.key, udp::BindKey::Limited { .. }))
+                .count(),
+            1
+        );
+        assert_eq!(
+            two.join_v4,
+            vec![
+                "10.0.0.5".parse::<Ipv4Addr>().unwrap(),
+                "192.168.4.9".parse().unwrap(),
+            ]
+        );
+        assert!(!fb
+            .plan
+            .iter()
+            .any(|target| matches!(target.key, udp::BindKey::V4Multicast { .. })));
+        assert!(fb.plan.iter().all(|target| match &target.key {
+            udp::BindKey::Unicast(ip) => !ip.is_unspecified(),
+            udp::BindKey::Directed(ip) => !ip.is_unspecified() && *ip != Ipv4Addr::BROADCAST,
+            udp::BindKey::Limited { name, index } => name.is_empty() && *index == 0,
+            udp::BindKey::V4Multicast { .. } => false,
+            udp::BindKey::V6Multicast { .. } => true,
+        }));
+        assert!(fb.plan.iter().all(|target| !target.reply.is_unspecified()));
+        let unicast_only = udp::fallback_listen(&plan, udp::ScopeError::FreebindFailed);
+        assert!(unicast_only.join_v4.is_empty());
+        assert!(unicast_only.plan.iter().all(|target| {
+            matches!(target.key, udp::BindKey::Unicast(ip) if !ip.is_unspecified())
+        }));
+        assert!(plan_has(
+            &unicast_only.plan,
+            &udp::BindKey::Unicast("192.168.1.10".parse().unwrap())
+        ));
+        assert!(!plan_has(
+            &unicast_only.plan,
+            &udp::BindKey::Directed("192.168.1.255".parse().unwrap())
+        ));
+        assert!(udp::device_bind_denied(&std::io::Error::from_raw_os_error(
+            hbb_common::libc::EPERM
+        )));
+        assert!(udp::device_bind_denied(&std::io::Error::from_raw_os_error(
+            hbb_common::libc::EACCES
+        )));
+        assert!(!udp::device_bind_denied(
+            &std::io::Error::from_raw_os_error(hbb_common::libc::ENODEV)
+        ));
 
         let android = udp::ifaces_from_android_json(
             r#"[{"name":"wlan0","index":3,"flags":17,"addrs":["192.168.4.2/24","8.8.8.8/24","169.254.9.9/16","fe80::5/64","2001:db8::5/64"]},{"name":"lo","index":1,"flags":5,"addrs":["127.0.0.1/8"]}]"#,

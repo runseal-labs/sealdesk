@@ -4,9 +4,12 @@
 //! binds `0.0.0.0` or `::` as a global listen. On Linux a unicast bind does not
 //! receive `255.255.255.255`, so each interface also binds its directed
 //! broadcast, a device-scoped limited broadcast (`SO_BINDTODEVICE`), and the
-//! all-hosts / all-nodes multicast groups. macOS uses `IP_BOUND_IF` around an
-//! unspecified bind because that is what receives broadcasts there. Windows
-//! delivers broadcasts to the interface unicast socket.
+//! all-hosts / all-nodes multicast groups. If `SO_BINDTODEVICE` is denied, one
+//! `IP_FREEBIND` socket listens on `255.255.255.255` and `224.0.0.1` is joined
+//! on the private unicast socket. That path still does not bind `0.0.0.0` or
+//! `::`. macOS uses `IP_BOUND_IF` around an unspecified bind because that is
+//! what receives broadcasts there. Windows delivers broadcasts to the interface
+//! unicast socket.
 
 use hbb_common::tokio;
 use socket2::{Domain, SockAddr, Socket, Type};
@@ -75,6 +78,110 @@ pub(crate) struct BindTarget {
     pub name: String,
 }
 
+/// `SO_BINDTODEVICE` was denied (EPERM/EACCES), or the freebind-only listen failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ScopeError {
+    DeviceDenied,
+    FreebindFailed,
+}
+
+/// Listeners to open after [`ScopeError`]. `join_v4` is joined on the matching
+/// unicast socket; there is no second, device-scoped multicast bind.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct FallbackListen {
+    pub plan: Vec<BindTarget>,
+    pub join_v4: Vec<Ipv4Addr>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ScopeMode {
+    TryDevice,
+    Freebind,
+    UnicastOnly,
+}
+
+/// EPERM or EACCES from `SO_BINDTODEVICE`. Other errors must not widen the listen.
+pub(crate) fn device_bind_denied(error: &io::Error) -> bool {
+    matches!(
+        error.raw_os_error(),
+        Some(code) if code == hbb_common::libc::EPERM || code == hbb_common::libc::EACCES
+    )
+}
+
+fn uses_bind_device(target: &BindTarget) -> bool {
+    match &target.key {
+        BindKey::Limited { name, .. } => !name.is_empty(),
+        BindKey::V4Multicast { .. } => !target.name.is_empty(),
+        _ => false,
+    }
+}
+
+fn unspecified_key(key: &BindKey) -> bool {
+    match key {
+        BindKey::Unicast(ip) => ip.is_unspecified(),
+        BindKey::Directed(ip) => ip.is_unspecified() || *ip == Ipv4Addr::BROADCAST,
+        _ => false,
+    }
+}
+
+/// Collapse device-scoped listens.
+///
+/// `DeviceDenied` keeps a single `255.255.255.255` socket (empty interface name,
+/// not `0.0.0.0`) and records private addresses for `join_multicast_v4`.
+/// `FreebindFailed` keeps unicast sockets only.
+pub(crate) fn fallback_listen(plan: &[BindTarget], failure: ScopeError) -> FallbackListen {
+    if failure == ScopeError::FreebindFailed {
+        return FallbackListen {
+            plan: plan
+                .iter()
+                .filter(|target| matches!(target.key, BindKey::Unicast(ip) if !ip.is_unspecified()))
+                .cloned()
+                .collect(),
+            join_v4: Vec::new(),
+        };
+    }
+    let mut kept = Vec::new();
+    let mut join_v4 = Vec::new();
+    let mut limited: Option<BindTarget> = None;
+    for target in plan {
+        if unspecified_key(&target.key) || target.reply.is_unspecified() {
+            continue;
+        }
+        match &target.key {
+            BindKey::Limited { .. } => {
+                limited.get_or_insert(BindTarget {
+                    key: BindKey::Limited {
+                        index: 0,
+                        name: String::new(),
+                    },
+                    reply: target.reply,
+                    index: 0,
+                    name: String::new(),
+                });
+            }
+            BindKey::V4Multicast { .. } => {
+                if let IpAddr::V4(ip) = target.reply {
+                    if udp_ip_allowed(IpAddr::V4(ip)) {
+                        join_v4.push(ip);
+                    }
+                }
+            }
+            _ => kept.push(target.clone()),
+        }
+    }
+    if let Some(target) = limited {
+        kept.push(target);
+    }
+    kept.sort_by(|left, right| left.key.cmp(&right.key));
+    kept.dedup_by(|left, right| left.key == right.key);
+    join_v4.sort();
+    join_v4.dedup();
+    FallbackListen {
+        plan: kept,
+        join_v4,
+    }
+}
+
 pub(crate) struct Inbound {
     pub bytes: Vec<u8>,
     pub from: SocketAddr,
@@ -85,6 +192,9 @@ pub(crate) struct ListenerSet {
     pub plan: Vec<BindTarget>,
     pub sockets: BTreeMap<BindKey, Arc<tokio::net::UdpSocket>>,
     tasks: BTreeMap<BindKey, tokio::task::JoinHandle<()>>,
+    /// Stays on the freebind plan after `SO_BINDTODEVICE` is denied so the
+    /// single `255.255.255.255` socket is not closed on the next refresh.
+    scope: ScopeMode,
 }
 
 impl Drop for ListenerSet {
@@ -103,6 +213,7 @@ impl ListenerSet {
             plan: Vec::new(),
             sockets: BTreeMap::new(),
             tasks: BTreeMap::new(),
+            scope: ScopeMode::TryDevice,
         }
     }
 
@@ -134,36 +245,128 @@ impl ListenerSet {
             }
             self.sockets.remove(&key);
         }
-        let current: Vec<BindKey> = self.sockets.keys().cloned().collect();
-        let desired_keys: Vec<BindKey> = desired.iter().map(|target| target.key.clone()).collect();
-        let (close, open) = rebind_keys(&current, &desired_keys);
-        for key in close {
-            if let Some(task) = self.tasks.remove(&key) {
-                task.abort();
+        let requested = desired;
+        let mut scope = self.scope;
+        let mut device_warn: Option<String> = None;
+        let mut freebind_warn: Option<String> = None;
+        let mut joins = Vec::new();
+        let mut applied = requested.clone();
+        loop {
+            let plan = match scope {
+                ScopeMode::TryDevice => requested.clone(),
+                ScopeMode::Freebind => {
+                    let fallback = fallback_listen(&requested, ScopeError::DeviceDenied);
+                    joins = fallback.join_v4;
+                    fallback.plan
+                }
+                ScopeMode::UnicastOnly => {
+                    joins.clear();
+                    fallback_listen(&requested, ScopeError::FreebindFailed).plan
+                }
+            };
+            let current: Vec<BindKey> = self.sockets.keys().cloned().collect();
+            let desired_keys: Vec<BindKey> = plan.iter().map(|target| target.key.clone()).collect();
+            let (close, open) = rebind_keys(&current, &desired_keys);
+            for key in close {
+                if let Some(task) = self.tasks.remove(&key) {
+                    task.abort();
+                }
+                self.sockets.remove(&key);
             }
-            self.sockets.remove(&key);
-        }
-        let open: HashSet<BindKey> = open.into_iter().collect();
-        for target in &desired {
-            if !open.contains(&target.key) {
+            let open: HashSet<BindKey> = open.into_iter().collect();
+            let mut saw_denied = false;
+            let mut saw_freebind = false;
+            for target in &plan {
+                if !open.contains(&target.key) {
+                    continue;
+                }
+                match spawn_bound(target, port, tx.clone()) {
+                    Ok((socket, task)) => {
+                        self.sockets.insert(target.key.clone(), socket);
+                        self.tasks.insert(target.key.clone(), task);
+                    }
+                    Err(error) => {
+                        let denied = cfg!(any(target_os = "linux", target_os = "android"))
+                            && scope == ScopeMode::TryDevice
+                            && uses_bind_device(target)
+                            && device_bind_denied(&error);
+                        let freebind = cfg!(any(target_os = "linux", target_os = "android"))
+                            && scope == ScopeMode::Freebind
+                            && matches!(target.key, BindKey::Limited { .. });
+                        if denied {
+                            saw_denied = true;
+                            device_warn.get_or_insert(error.to_string());
+                        } else if freebind {
+                            saw_freebind = true;
+                            freebind_warn.get_or_insert(error.to_string());
+                        } else {
+                            hbb_common::throttled_log!(
+                                Duration::from_secs(30),
+                                warn,
+                                "LAN discovery bind {} skipped: {error}",
+                                target.key.label(port)
+                            );
+                        }
+                    }
+                }
+            }
+            applied = plan;
+            if saw_denied && scope == ScopeMode::TryDevice {
+                scope = ScopeMode::Freebind;
                 continue;
             }
-            match spawn_bound(target, port, tx.clone()) {
-                Ok((socket, task)) => {
-                    self.sockets.insert(target.key.clone(), socket);
-                    self.tasks.insert(target.key.clone(), task);
-                }
-                Err(error) => {
-                    hbb_common::throttled_log!(
-                        Duration::from_secs(30),
-                        warn,
-                        "LAN discovery bind {} skipped: {error}",
-                        target.key.label(port)
-                    );
-                }
+            if saw_freebind && scope == ScopeMode::Freebind {
+                scope = ScopeMode::UnicastOnly;
+                continue;
             }
+            break;
         }
-        self.plan = desired;
+        self.scope = scope;
+        self.plan = applied;
+        if let Some(error) = device_warn {
+            hbb_common::throttled_log!(
+                Duration::from_secs(30),
+                warn,
+                "LAN discovery SO_BINDTODEVICE denied ({error}); listening on 255.255.255.255 with IP_FREEBIND only"
+            );
+        }
+        if let Some(error) = freebind_warn {
+            hbb_common::throttled_log!(
+                Duration::from_secs(30),
+                warn,
+                "LAN discovery IP_FREEBIND failed ({error}); keeping unicast sockets only"
+            );
+        }
+        for iface in joins {
+            join_multicast_on_unicast(&self.sockets, iface);
+        }
+    }
+}
+
+fn join_multicast_on_unicast(
+    sockets: &BTreeMap<BindKey, Arc<tokio::net::UdpSocket>>,
+    iface: Ipv4Addr,
+) {
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    {
+        let _ = (sockets, iface);
+    }
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        let Some(socket) = sockets.get(&BindKey::Unicast(IpAddr::V4(iface))) else {
+            return;
+        };
+        let sock = socket2::SockRef::from(socket.as_ref());
+        if let Err(error) = sock.join_multicast_v4(&IPV4_ALL_HOSTS, &iface) {
+            if error.raw_os_error() == Some(hbb_common::libc::EADDRINUSE) {
+                return;
+            }
+            hbb_common::throttled_log!(
+                Duration::from_secs(30),
+                warn,
+                "LAN discovery multicast join {iface} failed: {error}"
+            );
+        }
     }
 }
 
