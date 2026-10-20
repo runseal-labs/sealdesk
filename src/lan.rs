@@ -8,7 +8,7 @@ use hbb_common::{
     protobuf::Message as _,
     rendezvous_proto::{rendezvous_message, PeerDiscovery, RendezvousMessage},
     sodiumoxide::{
-        crypto::{box_, scalarmult::curve25519, secretbox, sign},
+        crypto::{auth, box_, scalarmult::curve25519, secretbox, sign},
         randombytes,
     },
     tcp, tokio, ResultType, Stream,
@@ -120,6 +120,11 @@ pub struct Peer {
     pub platform: String,
     #[serde(default)]
     pub tailcat: String,
+    /// Hex MAC from the discovery hint. Empty when the peer did not prove a tailcat binding.
+    #[serde(default)]
+    pub mac: String,
+    #[serde(default)]
+    pub nonce: String,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Trusted {
@@ -135,8 +140,97 @@ struct Hint {
     version: u32,
     key: String,
     port: u16,
+    /// Discovery nonce covered by `mac`. Not a tailcat credential.
     #[serde(default)]
-    tailcat: String,
+    nonce: String,
+    /// PSK MAC binding `key` and `port` to the tailcat address. The address itself is never sent.
+    #[serde(default)]
+    mac: String,
+}
+
+const TAILCAT_BIND: &[u8] = b"sealdesk-lan-tailcat-bind-v1";
+
+fn advertised_tcp_port(direct: bool) -> u16 {
+    if direct {
+        TCP_PORT
+    } else {
+        0
+    }
+}
+
+fn compat_pong_id(direct: bool, ip: IpAddr) -> Option<String> {
+    if !direct {
+        return None;
+    }
+    Some(SocketAddr::new(ip, advertised_tcp_port(true)).to_string())
+}
+
+fn binding_message(lan_key_hex: &str, port: u16, nonce: &[u8]) -> Option<Vec<u8>> {
+    if port == 0 || nonce.len() != 32 {
+        return None;
+    }
+    let key = hex::decode(lan_key_hex).ok()?;
+    if key.len() != sign::PUBLICKEYBYTES {
+        return None;
+    }
+    let mut msg = Vec::with_capacity(TAILCAT_BIND.len() + key.len() + 2 + nonce.len());
+    msg.extend_from_slice(TAILCAT_BIND);
+    msg.extend_from_slice(&key);
+    msg.extend_from_slice(&port.to_be_bytes());
+    msg.extend_from_slice(nonce);
+    Some(msg)
+}
+
+/// MAC over the LAN public key, TCP port, and discovery nonce, keyed by the
+/// tailcat address the controller already holds. The address is a credential
+/// and stays off the wire.
+fn tailcat_binding_mac(tailcat: &str, lan_key_hex: &str, port: u16, nonce: &[u8]) -> String {
+    let Some(msg) = binding_message(lan_key_hex, port, nonce) else {
+        return String::new();
+    };
+    if !crate::tailcat::is_addr(tailcat) {
+        return String::new();
+    }
+    let mut state = auth::State::init(tailcat.as_bytes());
+    state.update(&msg);
+    hex::encode(state.finalize().as_ref())
+}
+
+fn tailcat_binding_ok(
+    tailcat: &str,
+    lan_key_hex: &str,
+    port: u16,
+    nonce_hex: &str,
+    mac_hex: &str,
+) -> bool {
+    if !crate::tailcat::is_addr(tailcat) {
+        return false;
+    }
+    let (Ok(nonce), Ok(presented)) = (hex::decode(nonce_hex), hex::decode(mac_hex)) else {
+        return false;
+    };
+    let (Some(msg), Some(presented)) = (
+        binding_message(lan_key_hex, port, &nonce),
+        auth::Tag::from_slice(&presented),
+    ) else {
+        return false;
+    };
+    let mut state = auth::State::init(tailcat.as_bytes());
+    state.update(&msg);
+    state.finalize() == presented
+}
+
+fn sealdesk_hint(lan_key: &str, direct: bool, tailcat: &str) -> Hint {
+    let port = advertised_tcp_port(direct);
+    let nonce = randombytes::randombytes(32);
+    let mac = tailcat_binding_mac(tailcat, lan_key, port, &nonce);
+    Hint {
+        version: 1,
+        key: lan_key.to_owned(),
+        port,
+        nonce: hex::encode(nonce),
+        mac,
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -602,12 +696,16 @@ async fn serve_round(server: crate::server::ServerPtr) -> ResultType<()> {
                 let sealdesk_ping = sealdesk_discovery(&query);
                 let (id, misc) = if sealdesk_ping {
                     let tailcat = Config::get_option(crate::tailcat::OPTION_ADDR);
-                    let tailcat = if crate::tailcat::is_addr(&tailcat) { tailcat } else { String::new() };
-                    (key.clone(), serde_json::to_string(&Hint { version: 1, key, port: TCP_PORT, tailcat })?)
+                    (key.clone(), serde_json::to_string(&sealdesk_hint(&key, direct, &tailcat))?)
+                } else if !direct {
+                    continue;
                 } else {
                     let probe = UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, 0))?;
                     probe.connect(addr)?;
-                    (SocketAddr::new(probe.local_addr()?.ip(), TCP_PORT).to_string(), String::new())
+                    let Some(id) = compat_pong_id(direct, probe.local_addr()?.ip()) else {
+                        continue;
+                    };
+                    (id, String::new())
                 };
                 let platform = discovery_platform();
                 reply.set_peer_discovery(PeerDiscovery { cmd: "pong".into(), id, hostname: crate::whoami_hostname(), platform, misc, ..Default::default() });
@@ -797,7 +895,7 @@ fn discovered_peer(reply: &PeerDiscovery, addr: SocketAddr, own: &str) -> Option
     if reply.cmd != "pong" || !private(addr.ip()) {
         return None;
     }
-    let (id, address, protocol, tailcat) = if reply.misc.is_empty() {
+    let (id, address, protocol, mac, nonce) = if reply.misc.is_empty() {
         if !crate::common::is_valid_untrusted_peer_id(&reply.id) {
             return None;
         }
@@ -807,9 +905,11 @@ fn discovered_peer(reply: &PeerDiscovery, addr: SocketAddr, own: &str) -> Option
             endpoint.to_string(),
             "rustdesk",
             String::new(),
+            String::new(),
         )
     } else {
         // A malformed SealDesk identity must never fall back to plaintext RustDesk.
+        // `tailcat` inside misc is ignored: the address is a credential and is not a binding.
         let hint = serde_json::from_str::<Hint>(&reply.misc).ok()?;
         if hint.version != 1
             || hint.key == own
@@ -825,11 +925,8 @@ fn discovered_peer(reply: &PeerDiscovery, addr: SocketAddr, own: &str) -> Option
             hint.key.clone(),
             format!("lan:{endpoint}/{}", hint.key),
             "sealdesk",
-            if crate::tailcat::is_addr(&hint.tailcat) {
-                hint.tailcat
-            } else {
-                String::new()
-            },
+            hint.mac,
+            hint.nonce,
         )
     };
     Some((
@@ -850,7 +947,9 @@ fn discovered_peer(reply: &PeerDiscovery, addr: SocketAddr, own: &str) -> Option
                 .filter(|c| !c.is_control())
                 .take(64)
                 .collect(),
-            tailcat,
+            tailcat: String::new(),
+            mac,
+            nonce,
         },
     ))
 }
@@ -926,7 +1025,9 @@ pub(crate) fn is_encrypted_lan_channel(address: &str) -> bool {
     parse_addr(address).is_ok()
 }
 
-/// Known `tc` peers discovered on the same private subnet upgrade to `lan:`.
+/// Known `tc` peers on the same private subnet upgrade to `lan:` only when the
+/// discovery MAC binds that `tc` to the advertised LAN key, port, and nonce.
+/// A forged or unsigned association is ignored so the caller stays on tailcat.
 /// A plaintext RustDesk address is never treated as that encrypted channel.
 pub(crate) fn plan_lan_upgrade(
     peer: &str,
@@ -939,13 +1040,13 @@ pub(crate) fn plan_lan_upgrade(
     }
     let found = peers.iter().find(|candidate| {
         candidate.protocol == "sealdesk"
-            && candidate.tailcat == peer
             && is_encrypted_lan_channel(&candidate.address)
             && candidate
                 .ip
                 .parse::<IpAddr>()
                 .ok()
                 .is_some_and(|ip| same_segment(ip, locals))
+            && lan_upgrade_authenticated(peer, candidate)
     })?;
     let remote_key = found.address.rsplit_once('/')?.1.to_owned();
     if remote_key.len() != 64 {
@@ -956,6 +1057,19 @@ pub(crate) fn plan_lan_upgrade(
         delay: lan_dial_delay(local_key, &remote_key),
         remote_key,
     })
+}
+
+fn lan_upgrade_authenticated(tailcat: &str, candidate: &Peer) -> bool {
+    let Ok((addr, key)) = parse_addr(&candidate.address) else {
+        return false;
+    };
+    tailcat_binding_ok(
+        tailcat,
+        &hex::encode(key.0),
+        addr.port(),
+        &candidate.nonce,
+        &candidate.mac,
+    )
 }
 
 fn same_segment(peer: IpAddr, locals: &[LocalNet]) -> bool {
@@ -1041,7 +1155,8 @@ mod tests {
                 version: 1,
                 key: key.clone(),
                 port: TCP_PORT,
-                tailcat: String::new(),
+                nonce: String::new(),
+                mac: String::new(),
             })
             .unwrap(),
             ..Default::default()
@@ -1510,6 +1625,26 @@ mod tests {
             protocol: protocol.into(),
             platform: "Linux".into(),
             tailcat: tailcat.into(),
+            mac: String::new(),
+            nonce: String::new(),
+        }
+    }
+
+    fn bound_peer(tailcat: &str, key_byte: u8, ip: &str) -> Peer {
+        let key = hex::encode([key_byte; 32]);
+        let nonce_bytes = [key_byte.wrapping_add(1); 32];
+        let nonce = hex::encode(nonce_bytes);
+        let address = format!("lan:{ip}:{TCP_PORT}/{key}");
+        let mac = tailcat_binding_mac(tailcat, &key, TCP_PORT, &nonce_bytes);
+        Peer {
+            name: "Desk".into(),
+            address,
+            ip: ip.into(),
+            protocol: "sealdesk".into(),
+            platform: "Linux".into(),
+            tailcat: String::new(),
+            mac,
+            nonce,
         }
     }
 
@@ -1523,9 +1658,9 @@ mod tests {
     #[test]
     fn known_tailcat_peer_on_the_same_segment_upgrades_then_falls_back() {
         let tc = "tcabcdefghijklmnopqrstuvwxyz0123456789ABCD";
-        let key = hex::encode([9u8; 32]);
-        let address = format!("lan:192.168.1.9:{TCP_PORT}/{key}");
-        let peers = vec![sample_peer("sealdesk", &address, "192.168.1.9", tc)];
+        let peer = bound_peer(tc, 9, "192.168.1.9");
+        let address = peer.address.clone();
+        let peers = vec![peer];
         let upgrade = plan_lan_upgrade(tc, &peers, &lan_locals(), "00").unwrap();
         assert_eq!(upgrade.address, address);
         assert!(is_encrypted_lan_channel(&upgrade.address));
@@ -1558,6 +1693,90 @@ mod tests {
         ];
         assert!(plan_lan_upgrade(tc, &peers, &lan_locals(), "00").is_none());
         assert!(plan_lan_upgrade(plain, &peers, &lan_locals(), "00").is_none());
+    }
+
+    #[test]
+    fn forged_discovery_is_rejected_and_falls_back_to_tailcat() {
+        let tc = "tcabcdefghijklmnopqrstuvwxyz0123456789ABCD";
+        let other = "tcabcdefghijklmnopqrstuvwxyz0123456789ZZZZ";
+        let mut claimed = bound_peer(other, 3, "192.168.1.9");
+        claimed.tailcat = tc.into();
+        assert!(plan_lan_upgrade(tc, &[claimed], &lan_locals(), "00").is_none());
+        let mut swapped = bound_peer(tc, 9, "192.168.1.8");
+        let attacker = hex::encode([4u8; 32]);
+        swapped.address = format!("lan:192.168.1.9:{TCP_PORT}/{attacker}");
+        swapped.ip = "192.168.1.9".into();
+        swapped.tailcat = tc.into();
+        assert!(
+            plan_lan_upgrade(tc, std::slice::from_ref(&swapped), &lan_locals(), "00").is_none()
+        );
+        let mut invented = swapped.clone();
+        invented.mac = hex::encode([0u8; 32]);
+        assert!(plan_lan_upgrade(tc, &[invented], &lan_locals(), "00").is_none());
+        assert_eq!(
+            transport_after_lan_error("LAN signature verification failed"),
+            "tailcat"
+        );
+    }
+
+    #[test]
+    fn discovery_reply_omits_the_tailcat_credential() {
+        let tc = "tcabcdefghijklmnopqrstuvwxyz0123456789ABCD";
+        let key = hex::encode([7u8; 32]);
+        let hint = sealdesk_hint(&key, true, tc);
+        let misc = serde_json::to_string(&hint).unwrap();
+        assert!(!misc.contains(tc));
+        assert!(!misc.contains("tailcat"));
+        let reply = PeerDiscovery {
+            cmd: "pong".into(),
+            id: key.clone(),
+            misc: misc.clone(),
+            ..Default::default()
+        };
+        let (_, peer) = discovered_peer(&reply, "192.168.1.8:99".parse().unwrap(), "own").unwrap();
+        let listed = serde_json::to_string(&peer).unwrap();
+        assert!(!listed.contains(tc));
+        assert!(peer.tailcat.is_empty());
+        let upgrade = plan_lan_upgrade(tc, &[peer], &lan_locals(), "00").unwrap();
+        assert!(upgrade.address.contains(&key));
+        let mut forged = serde_json::from_str::<serde_json::Value>(&misc).unwrap();
+        forged["tailcat"] = serde_json::Value::String(tc.into());
+        forged["mac"] = serde_json::Value::String(hex::encode([1u8; 32]));
+        let forged_reply = PeerDiscovery {
+            cmd: "pong".into(),
+            id: key,
+            misc: forged.to_string(),
+            ..Default::default()
+        };
+        let (_, forged_peer) =
+            discovered_peer(&forged_reply, "192.168.1.9:99".parse().unwrap(), "own").unwrap();
+        assert!(!serde_json::to_string(&forged_peer).unwrap().contains(tc));
+        assert!(plan_lan_upgrade(tc, &[forged_peer], &lan_locals(), "00").is_none());
+        assert_eq!(transport_after_lan_error("forged discovery"), "tailcat");
+    }
+
+    #[test]
+    fn direct_off_does_not_advertise_tcp_or_offer_an_upgrade() {
+        let tc = "tcabcdefghijklmnopqrstuvwxyz0123456789ABCD";
+        let key = hex::encode([8u8; 32]);
+        let hint = sealdesk_hint(&key, false, tc);
+        assert_eq!(hint.port, advertised_tcp_port(false));
+        assert!(hint.mac.is_empty());
+        let misc = serde_json::to_string(&hint).unwrap();
+        assert!(!misc.contains(tc));
+        let reply = PeerDiscovery {
+            cmd: "pong".into(),
+            id: key,
+            misc,
+            ..Default::default()
+        };
+        assert!(discovered_peer(&reply, "192.168.1.8:99".parse().unwrap(), "own").is_none());
+        assert!(plan_lan_upgrade(tc, &[], &lan_locals(), "00").is_none());
+        assert!(compat_pong_id(false, "192.168.1.8".parse().unwrap()).is_none());
+        assert_eq!(
+            compat_pong_id(true, "192.168.1.8".parse().unwrap()).as_deref(),
+            Some(format!("192.168.1.8:{TCP_PORT}").as_str())
+        );
     }
 
     #[test]
