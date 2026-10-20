@@ -495,9 +495,7 @@ class _GeneralState extends State<_General> {
     final incomingOnly = bind.isIncomingOnly();
     final outgoingOnly = bind.isOutgoingOnly();
     final showAutoUpdate = (isWindows && bind.mainIsInstalled()) ||
-        (isMacOS &&
-            bind.mainIsInstalled() &&
-            bind.mainIsInstalledDaemon(prompt: false));
+    (isMacOS && bind.mainIsInstalled() && bind.mainIsInstalledDaemon(prompt: false));
     final children = <Widget>[
       if (!isWeb && !incomingOnly)
         _OptionCheckBox(context, 'Confirm before closing multiple tabs',
@@ -833,8 +831,8 @@ class _GeneralState extends State<_General> {
       List<String> values = langsMap.values.toList();
       keys.insert(0, defaultOptionLang);
       values.insert(0, translate('Follow System'));
-      final currentKey =
-          effectiveLangOption(bind.mainGetLocalOption(key: kCommConfKeyLang));
+      final currentKey = effectiveLangOption(
+          bind.mainGetLocalOption(key: kCommConfKeyLang));
       final isOptFixed = isOptionFixed(kCommConfKeyLang);
       return ComboBox(
         keys: keys,
@@ -2104,11 +2102,18 @@ Widget _optionCombo({
   required String initialKey,
   required Function(String value)? onChanged,
 }) {
-  final selected = keys.contains(initialKey) ? initialKey : keys.first;
+  // A stored value may no longer be offered (h264/h265 dropped by hardware,
+  // scrolledge kept on web). Keep it selected so choosing another item writes.
+  final optionKeys = List<String>.of(keys);
+  final optionLabels = List<String>.of(labels);
+  if (initialKey.isNotEmpty && !optionKeys.contains(initialKey)) {
+    optionKeys.add(initialKey);
+    optionLabels.add(initialKey);
+  }
   return ComboBox(
-    keys: keys,
-    values: labels.map(translate).toList(),
-    initialKey: selected,
+    keys: optionKeys,
+    values: optionLabels.map(translate).toList(),
+    initialKey: optionKeys.contains(initialKey) ? initialKey : optionKeys.first,
     enabled: onChanged != null,
     onChanged: onChanged ?? (_) {},
   ).marginOnly(left: _kContentHMargin);

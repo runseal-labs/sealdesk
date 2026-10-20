@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sealdesk/desktop/pages/desktop_home_page.dart';
 import 'package:sealdesk/desktop/pages/sealdesk_native_home_page.dart';
-import 'package:sealdesk/mobile/widgets/dialog.dart';
 import 'package:sealdesk/models/chat_model.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';

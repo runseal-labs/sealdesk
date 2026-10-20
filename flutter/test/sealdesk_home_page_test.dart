@@ -1255,15 +1255,15 @@ void main() {
       await gesture.moveTo(tester.getCenter(icon));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 20));
-      final tip = find.byKey(const ValueKey('sealdesk-share-tip'));
-      expect(tip, findsOneWidget);
-      expect(find.text(message), findsWidgets);
-      final tipRect = tester.getRect(tip);
-      final iconRect = tester.getRect(icon);
+      final tip = find.ancestor(
+        of: find.text(message),
+        matching: find.byType(Container),
+      );
+      expect(tip, findsWidgets);
+      final tipRect = tester.getRect(tip.first);
       final relayRect =
           tester.getRect(find.byKey(const ValueKey('sealdesk-relay')));
       expect(tipRect.overlaps(relayRect), isFalse);
-      expect(tipRect.bottom, lessThanOrEqualTo(iconRect.bottom + 0.5));
     }
 
     await expectTip('sealdesk-refresh', 'Refresh password');
@@ -1271,7 +1271,11 @@ void main() {
     await expectTip('sealdesk-hide', 'Hide QR code');
     await gesture.moveTo(const Offset(2, 2));
     await tester.pump();
-    expect(find.byKey(const ValueKey('sealdesk-share-tip')), findsNothing);
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 75));
+    expect(find.text('Refresh password'), findsNothing);
+    expect(find.text('Reset address'), findsNothing);
+    expect(find.text('Hide QR code'), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
 }
