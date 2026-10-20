@@ -1067,33 +1067,11 @@ class FfiModel with ChangeNotifier {
   /// Show a message box with [type], [title] and [text].
   showMsgBox(SessionID sessionId, String type, String title, String text,
       String link, bool hasRetry, OverlayDialogManager dialogManager,
-      {bool? hasCancel}) async {
-    final noteAllowed = parent.target != null &&
-        allowAskForNoteAtEndOfConnection(parent.target, false) &&
-        (title == "Connection Error" || type == "restarting");
-    final showNoteEdit = noteAllowed && !hasRetry;
-    if (showNoteEdit) {
-      await showConnEndAuditDialogCloseCanceled(
-          ffi: parent.target!, type: type, title: title, text: text);
-      closeConnection();
-    } else {
-      VoidCallback? onSubmit;
-      if (noteAllowed && hasRetry) {
-        final ffi = parent.target!;
-        onSubmit = () async {
-          _timer?.cancel();
-          _timer = null;
-          await showConnEndAuditDialogCloseCanceled(
-              ffi: ffi, type: type, title: title, text: text);
-          closeConnection();
-        };
-      }
-      msgBox(sessionId, type, title, text, link, dialogManager,
-          hasCancel: hasCancel,
-          reconnect: hasRetry ? reconnect : null,
-          reconnectTimeout: hasRetry ? _reconnects : null,
-          onSubmit: onSubmit);
-    }
+      {bool? hasCancel}) {
+    msgBox(sessionId, type, title, text, link, dialogManager,
+        hasCancel: hasCancel,
+        reconnect: hasRetry ? reconnect : null,
+        reconnectTimeout: hasRetry ? _reconnects : null);
     _timer?.cancel();
     if (hasRetry) {
       _timer = Timer(Duration(seconds: _reconnects), () {
@@ -1129,29 +1107,13 @@ class FfiModel with ChangeNotifier {
         onCancel: closeConnection);
   }
 
-  Future<void> showRelayHintDialog(
-      SessionID sessionId,
-      String type,
-      String title,
-      String text,
-      OverlayDialogManager dialogManager,
-      String peerId) async {
+  void showRelayHintDialog(SessionID sessionId, String type, String title,
+      String text, OverlayDialogManager dialogManager, String peerId) {
     var hint = "\n\n${translate('relay_hint_tip')}";
     if (text.contains("10054") || text.contains("104")) {
       hint = "";
     }
     final text2 = "${translate(text)}$hint";
-
-    if (parent.target != null &&
-        allowAskForNoteAtEndOfConnection(parent.target, false) &&
-        pi.isSet.isTrue) {
-      if (await showConnEndAuditDialogCloseCanceled(
-          ffi: parent.target!, type: type, title: title, text: text2)) {
-        return;
-      }
-      closeConnection();
-      return;
-    }
 
     dialogManager.show(tag: '$sessionId-$type', (setState, close, context) {
       onClose() {

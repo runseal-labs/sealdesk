@@ -1519,9 +1519,6 @@ showSetOSPassword(
   });
 }
 
-bool allowAskForNoteAtEndOfConnection(FFI? ffi, bool closedByControlling) => false;
-
-
 // return value: close canceled
 //  true: return
 //  false: go on
