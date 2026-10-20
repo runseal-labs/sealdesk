@@ -1161,7 +1161,8 @@ fn discovery_interface_flags(flags: u32) -> bool {
 
 /// Unix TCP 21118 and UDP 21119 share this filter. A TUN subnet broadcast uses
 /// the local routing table even outside a VPN's app allowlist. Windows flags
-/// are not Unix IFF bits; Wintun/TAP filtering is out of scope.
+/// are not Unix IFF bits; that path uses `windows_discovery_adapter_allowed`
+/// from the same `interfaces_from_default_net` enumeration.
 #[cfg(unix)]
 fn keep_discovery_iface(flags: u32) -> bool {
     discovery_interface_flags(flags)
@@ -1170,6 +1171,77 @@ fn keep_discovery_iface(flags: u32) -> bool {
 #[cfg(not(unix))]
 fn keep_discovery_iface(_flags: u32) -> bool {
     true
+}
+
+/// `IF_OPER_STATUS.IfOperStatusUp`.
+#[cfg(any(windows, test))]
+pub(crate) const IF_OPER_STATUS_UP: u32 = 1;
+#[cfg(any(windows, test))]
+pub(crate) const IF_TYPE_ETHERNET_CSMACD: u32 = 6;
+#[cfg(any(windows, test))]
+pub(crate) const IF_TYPE_PROP_POINT2POINT_SERIAL: u32 = 22;
+#[cfg(any(windows, test))]
+pub(crate) const IF_TYPE_PPP: u32 = 23;
+#[cfg(any(windows, test))]
+pub(crate) const IF_TYPE_SLIP: u32 = 28;
+#[cfg(any(windows, test))]
+pub(crate) const IF_TYPE_PROP_VIRTUAL: u32 = 53;
+#[cfg(any(windows, test))]
+pub(crate) const IF_TYPE_FASTETHER: u32 = 62;
+#[cfg(any(windows, test))]
+pub(crate) const IF_TYPE_IEEE80211: u32 = 71;
+#[cfg(any(windows, test))]
+pub(crate) const IF_TYPE_PPPMULTILINKBUNDLE: u32 = 108;
+#[cfg(any(windows, test))]
+pub(crate) const IF_TYPE_GIGABITETHERNET: u32 = 117;
+#[cfg(any(windows, test))]
+pub(crate) const IF_TYPE_TUNNEL: u32 = 131;
+#[cfg(any(windows, test))]
+pub(crate) const IF_TYPE_MPLS_TUNNEL: u32 = 150;
+#[cfg(any(windows, test))]
+pub(crate) const IF_TYPE_IEEE8023AD_LAG: u32 = 161;
+
+#[cfg(any(windows, test))]
+pub(crate) struct WindowsDiscoveryAdapter<'a> {
+    pub if_type: u32,
+    pub oper_status: u32,
+    pub name: &'a str,
+    pub friendly_name: &'a str,
+    pub description: &'a str,
+}
+
+/// Shared Windows gate for UDP 21119 (query and listen) and TCP 21118 bind.
+/// `OperStatus` must be Up. PPP, TUNNEL, and the other tunnel / virtual
+/// `IfType`s are out, as are Wintun, TAP, and WireGuard names or descriptions.
+#[cfg(any(windows, test))]
+pub(crate) fn windows_discovery_adapter_allowed(adapter: &WindowsDiscoveryAdapter<'_>) -> bool {
+    adapter.oper_status == IF_OPER_STATUS_UP
+        && !windows_tunnel_if_type(adapter.if_type)
+        && !windows_virtual_adapter_text(adapter.name)
+        && !windows_virtual_adapter_text(adapter.friendly_name)
+        && !windows_virtual_adapter_text(adapter.description)
+}
+
+#[cfg(any(windows, test))]
+fn windows_tunnel_if_type(if_type: u32) -> bool {
+    matches!(
+        if_type,
+        IF_TYPE_PROP_POINT2POINT_SERIAL
+            | IF_TYPE_PPP
+            | IF_TYPE_SLIP
+            | IF_TYPE_PROP_VIRTUAL
+            | IF_TYPE_PPPMULTILINKBUNDLE
+            | IF_TYPE_TUNNEL
+            | IF_TYPE_MPLS_TUNNEL
+    )
+}
+
+#[cfg(any(windows, test))]
+fn windows_virtual_adapter_text(text: &str) -> bool {
+    let text = text.to_ascii_lowercase();
+    ["wintun", "wireguard", "tap-windows", "tap-win32", "tapwin"]
+        .iter()
+        .any(|marker| text.contains(marker))
 }
 
 fn discover() -> ResultType<DiscoveryRound> {
@@ -1537,6 +1609,240 @@ mod tests {
 
         assert!(discovery_interface_flags((IFF_UP | IFF_BROADCAST) as u32));
         assert!(!discovery_interface_flags(IFF_BROADCAST as u32));
+    }
+
+    fn windows_adapter<'a>(
+        if_type: u32,
+        oper_status: u32,
+        name: &'a str,
+        friendly_name: &'a str,
+        description: &'a str,
+    ) -> WindowsDiscoveryAdapter<'a> {
+        WindowsDiscoveryAdapter {
+            if_type,
+            oper_status,
+            name,
+            friendly_name,
+            description,
+        }
+    }
+
+    #[test]
+    fn windows_discovery_keeps_ethernet_and_wifi_and_drops_vpn_adapters() {
+        let keep = [
+            windows_adapter(
+                IF_TYPE_ETHERNET_CSMACD,
+                IF_OPER_STATUS_UP,
+                "{ETH}",
+                "Ethernet",
+                "Intel(R) Ethernet Connection (7) I219-V",
+            ),
+            windows_adapter(
+                IF_TYPE_IEEE80211,
+                IF_OPER_STATUS_UP,
+                "{WIFI}",
+                "Wi-Fi",
+                "Intel(R) Wi-Fi 6 AX201",
+            ),
+            windows_adapter(
+                IF_TYPE_FASTETHER,
+                IF_OPER_STATUS_UP,
+                "{FE}",
+                "Ethernet 2",
+                "Realtek PCIe FE Family Controller",
+            ),
+            windows_adapter(
+                IF_TYPE_GIGABITETHERNET,
+                IF_OPER_STATUS_UP,
+                "{GBE}",
+                "Ethernet 3",
+                "Realtek Gaming GbE Family Controller",
+            ),
+            windows_adapter(
+                IF_TYPE_IEEE8023AD_LAG,
+                IF_OPER_STATUS_UP,
+                "{TEAM}",
+                "Ethernet Team",
+                "Microsoft Network Adapter Multiplexor Driver",
+            ),
+            windows_adapter(
+                IF_TYPE_ETHERNET_CSMACD,
+                IF_OPER_STATUS_UP,
+                "{VETH}",
+                "vEthernet (Default Switch)",
+                "Hyper-V Virtual Ethernet Adapter",
+            ),
+            windows_adapter(
+                IF_TYPE_IEEE80211,
+                IF_OPER_STATUS_UP,
+                "{DIRECT}",
+                "Local Area Connection* 1",
+                "Microsoft Wi-Fi Direct Virtual Adapter",
+            ),
+        ];
+        for adapter in &keep {
+            assert!(
+                windows_discovery_adapter_allowed(adapter),
+                "dropped {} / {}",
+                adapter.friendly_name,
+                adapter.description
+            );
+        }
+
+        let drop = [
+            windows_adapter(
+                IF_TYPE_PPP,
+                IF_OPER_STATUS_UP,
+                "{PPP}",
+                "VPN",
+                "WAN Miniport (PPTP)",
+            ),
+            windows_adapter(
+                IF_TYPE_TUNNEL,
+                IF_OPER_STATUS_UP,
+                "{TUN}",
+                "Teredo",
+                "Microsoft Teredo Tunneling Adapter",
+            ),
+            windows_adapter(
+                IF_TYPE_PROP_VIRTUAL,
+                IF_OPER_STATUS_UP,
+                "{VIRT}",
+                "Tailscale",
+                "Wintun Userspace Tunnel",
+            ),
+            windows_adapter(IF_TYPE_SLIP, IF_OPER_STATUS_UP, "{SLIP}", "SLIP", "SLIP"),
+            windows_adapter(
+                IF_TYPE_PROP_POINT2POINT_SERIAL,
+                IF_OPER_STATUS_UP,
+                "{P2P}",
+                "Serial",
+                "Point-to-point serial",
+            ),
+            windows_adapter(
+                IF_TYPE_PPPMULTILINKBUNDLE,
+                IF_OPER_STATUS_UP,
+                "{ML}",
+                "PPP",
+                "PPP Multilink",
+            ),
+            windows_adapter(
+                IF_TYPE_MPLS_TUNNEL,
+                IF_OPER_STATUS_UP,
+                "{MPLS}",
+                "MPLS",
+                "MPLS tunnel",
+            ),
+            windows_adapter(
+                IF_TYPE_ETHERNET_CSMACD,
+                IF_OPER_STATUS_UP,
+                "{TAP}",
+                "Ethernet 4",
+                "TAP-Windows Adapter V9",
+            ),
+            windows_adapter(
+                IF_TYPE_ETHERNET_CSMACD,
+                IF_OPER_STATUS_UP,
+                "{TAP32}",
+                "Local Area Connection 2",
+                "TAP-Win32 Adapter OAS",
+            ),
+            windows_adapter(
+                IF_TYPE_ETHERNET_CSMACD,
+                IF_OPER_STATUS_UP,
+                "tapwin0",
+                "Ethernet 5",
+                "Realtek",
+            ),
+            windows_adapter(
+                IF_TYPE_IEEE80211,
+                IF_OPER_STATUS_UP,
+                "{WG}",
+                "WireGuard",
+                "WireGuard Tunnel",
+            ),
+            windows_adapter(
+                IF_TYPE_GIGABITETHERNET,
+                IF_OPER_STATUS_UP,
+                "WiNtUn",
+                "Office",
+                "Intel(R) Ethernet Connection",
+            ),
+            windows_adapter(
+                IF_TYPE_ETHERNET_CSMACD,
+                2,
+                "{DOWN}",
+                "Ethernet",
+                "Intel(R) Ethernet Connection",
+            ),
+            windows_adapter(
+                IF_TYPE_IEEE80211,
+                5,
+                "{DORMANT}",
+                "Wi-Fi",
+                "Intel(R) Wi-Fi 6 AX201",
+            ),
+            windows_adapter(
+                IF_TYPE_ETHERNET_CSMACD,
+                7,
+                "{LL}",
+                "Ethernet",
+                "Intel(R) Ethernet Connection",
+            ),
+            windows_adapter(
+                IF_TYPE_FASTETHER,
+                4,
+                "{UNK}",
+                "Ethernet",
+                "Realtek PCIe FE Family Controller",
+            ),
+            windows_adapter(
+                IF_TYPE_ETHERNET_CSMACD,
+                3,
+                "{TEST}",
+                "Ethernet",
+                "Intel(R) Ethernet Connection",
+            ),
+            windows_adapter(
+                IF_TYPE_GIGABITETHERNET,
+                6,
+                "{NP}",
+                "Ethernet 3",
+                "Realtek Gaming GbE Family Controller",
+            ),
+            windows_adapter(
+                IF_TYPE_ETHERNET_CSMACD,
+                0,
+                "{NONE}",
+                "Ethernet",
+                "Intel(R) Ethernet Connection",
+            ),
+        ];
+        for adapter in &drop {
+            assert!(
+                !windows_discovery_adapter_allowed(adapter),
+                "kept {} / {} type {}",
+                adapter.friendly_name,
+                adapter.description,
+                adapter.if_type
+            );
+        }
+
+        let lan = "192.168.1.20".parse::<Ipv4Addr>().unwrap();
+        assert!(windows_discovery_adapter_allowed(&keep[0]));
+        let iface = udp::LanIface {
+            name: "Ethernet".into(),
+            index: 4,
+            v4: vec![(lan, 24)],
+            v6: vec![],
+        };
+        let plan = udp::discovery_bind_plan(std::slice::from_ref(&iface));
+        assert!(plan_has(&plan, &udp::BindKey::Unicast(IpAddr::V4(lan))));
+        assert_eq!(
+            tcp_bind_addrs(&[IpAddr::V4(lan)], &[]),
+            vec![SocketAddr::new(IpAddr::V4(lan), TCP_PORT)]
+        );
+        assert!(!windows_discovery_adapter_allowed(&drop[2]));
     }
 
     #[test]

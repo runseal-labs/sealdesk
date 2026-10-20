@@ -51,7 +51,7 @@ static ANDROID_INTERFACES: Mutex<String> = Mutex::new(String::new());
 #[cfg(target_os = "android")]
 pub(crate) fn set_android_interfaces(payload: &std::ffi::CStr) {
     if let Ok(text) = payload.to_str() {
-        *ANDROID_INTERFACES.lock().unwrap() = text.to_owned();
+        *ANDROID_INTERFACES.lock().unwrap() = android_lan_interface_json(text);
     }
     unsafe { TcSetAndroidInterfaces(payload.as_ptr()) }
 }
@@ -74,12 +74,36 @@ pub(crate) fn android_private_nets() -> Vec<(Ipv4Addr, u8)> {
 }
 
 /// Go `net.Flags` in the Android interface JSON: 1 up, 4 loopback, 8 point-to-point.
-/// `tun*`, `ppp*`, and `wg*` are VPN names. Java also drops `TRANSPORT_VPN`.
+/// `tun*`, `ppp*`, and `wg*` are VPN names. Other `TRANSPORT_VPN` interfaces are
+/// tagged `vpn: true` and removed by `android_lan_interface_json`.
 pub(crate) fn android_iface_usable(name: &str, flags: u64) -> bool {
     if flags & 1 == 0 || flags & 4 != 0 || flags & 8 != 0 {
         return false;
     }
     !android_vpn_iface_name(name)
+}
+
+/// Copy stored for LAN discovery. `TcSetAndroidInterfaces` keeps the original
+/// payload so netmon still sees VPN up/down.
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn android_lan_interface_json(payload: &str) -> String {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) else {
+        return payload.to_owned();
+    };
+    let Some(list) = value.as_array() else {
+        return payload.to_owned();
+    };
+    let kept: Vec<serde_json::Value> = list
+        .iter()
+        .filter(|iface| {
+            let name = iface.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let flags = iface.get("flags").and_then(|v| v.as_u64()).unwrap_or(0);
+            android_iface_usable(name, flags)
+                && !iface.get("vpn").and_then(|v| v.as_bool()).unwrap_or(false)
+        })
+        .cloned()
+        .collect();
+    serde_json::to_string(&kept).unwrap_or_else(|_| payload.to_owned())
 }
 
 pub(crate) fn android_vpn_iface_name(name: &str) -> bool {
@@ -745,5 +769,25 @@ mod tests {
         assert!(super::android_vpn_iface_name("Wg0"));
         assert!(!super::android_vpn_iface_name("wlan0"));
         assert!(!super::android_iface_usable("wlan0", 0));
+    }
+
+    #[test]
+    fn android_lan_interface_json_drops_transport_vpn_and_point_to_point() {
+        let payload = r#"[
+            {"name":"wlan0","flags":17,"addrs":["192.168.4.2/24"]},
+            {"name":"tun0","flags":1,"vpn":true,"addrs":["10.8.0.2/24"]},
+            {"name":"ipsec0","flags":17,"vpn":true,"addrs":["10.66.0.8/24"]},
+            {"name":"rmnet0","flags":9,"addrs":["10.1.1.2/30"]},
+            {"name":"lo","flags":5,"addrs":["127.0.0.1/8"]},
+            {"name":"down0","flags":0,"addrs":["192.168.9.2/24"]}
+        ]"#;
+        let stored = super::android_lan_interface_json(payload);
+        assert_eq!(
+            super::private_nets_from_interface_json(&stored),
+            vec![("192.168.4.2".parse::<std::net::Ipv4Addr>().unwrap(), 24)]
+        );
+        assert!(!stored.contains("ipsec0"));
+        assert!(!stored.contains("tun0"));
+        assert!(!stored.contains("rmnet0"));
     }
 }

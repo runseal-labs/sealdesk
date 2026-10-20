@@ -37,9 +37,9 @@ object FFI {
     external fun isServiceClipboardEnabled(): Boolean
 
     // Android denies netlink to app UIDs, so the Go netmon cannot list interfaces itself.
-    // Drop loopback, point-to-point, and down interfaces here. VPN tunnels
-    // (tun*/ppp*/wg*, or a ConnectivityManager TRANSPORT_VPN network) must not
-    // become TCP bind or same-subnet fallbacks.
+    // This payload is the full list, including VPN up/down. Rust keeps a LAN copy
+    // that still drops down, loopback, point-to-point, tun/ppp/wg, and any
+    // interface tagged from a ConnectivityManager TRANSPORT_VPN network.
     fun pushTailcatInterfaces(context: Context) {
         val interfaces = try {
             NetworkInterface.getNetworkInterfaces()?.toList() ?: return
@@ -51,24 +51,26 @@ object FFI {
         val array = JSONArray()
         for (nif in interfaces) {
             val name = nif.name ?: continue
-            if (!nif.isUp || nif.isLoopback || nif.isPointToPoint) continue
-            if (isVpnInterfaceName(name) || vpnNames.contains(name)) continue
             var flags = 0
             if (nif.isUp) flags = flags or 1
             if (nif.supportsMulticast()) flags = flags or 16
+            if (nif.isLoopback) flags = flags or 4
+            if (nif.isPointToPoint) flags = flags or 8
             val addrs = JSONArray()
             for (addr in nif.interfaceAddresses) {
                 val host = addr.address.hostAddress?.substringBefore('%') ?: continue
                 addrs.put("$host/${addr.networkPrefixLength}")
             }
-            array.put(
-                JSONObject()
-                    .put("name", name)
-                    .put("index", nif.index)
-                    .put("mtu", nif.mtu)
-                    .put("flags", flags)
-                    .put("addrs", addrs)
-            )
+            val obj = JSONObject()
+                .put("name", name)
+                .put("index", nif.index)
+                .put("mtu", nif.mtu)
+                .put("flags", flags)
+                .put("addrs", addrs)
+            if (isVpnInterfaceName(name) || vpnNames.contains(name)) {
+                obj.put("vpn", true)
+            }
+            array.put(obj)
         }
         setTailcatInterfaces(array.toString())
     }
