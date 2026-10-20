@@ -18,7 +18,6 @@ Peer _peer({
     tags: [],
     hash: '',
     password: '',
-    forceAlwaysRelay: false,
     rdpPort: '',
     rdpUsername: '',
     loginName: '',
