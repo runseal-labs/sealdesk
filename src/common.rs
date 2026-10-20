@@ -903,11 +903,7 @@ pub fn is_setup(name: &str) -> bool {
 }
 
 pub fn get_local_option(key: &str) -> String {
-    let v = LocalConfig::get_option(key);
-    if key == "lang" && (v == "pt" || v == "br") {
-        return "pt-br".to_owned();
-    }
-    v
+    LocalConfig::get_option(key)
 }
 
 #[inline]
