@@ -14,7 +14,6 @@ class Peer {
   String platform;
   String alias;
   List<dynamic> tags;
-  bool forceAlwaysRelay = false;
   String rdpPort;
   String rdpUsername;
   bool online = false;
@@ -39,7 +38,6 @@ class Peer {
         platform = json['platform'] ?? '',
         alias = json['alias'] ?? '',
         tags = json['tags'] ?? [],
-        forceAlwaysRelay = json['forceAlwaysRelay'] == 'true',
         rdpPort = json['rdpPort'] ?? '',
         rdpUsername = json['rdpUsername'] ?? '',
         loginName = json['loginName'] ?? '',
@@ -57,7 +55,6 @@ class Peer {
       "platform": platform,
       "alias": alias,
       "tags": tags,
-      "forceAlwaysRelay": forceAlwaysRelay.toString(),
       "rdpPort": rdpPort,
       "rdpUsername": rdpUsername,
       'loginName': loginName,
@@ -102,7 +99,6 @@ class Peer {
     required this.platform,
     required this.alias,
     required this.tags,
-    required this.forceAlwaysRelay,
     required this.rdpPort,
     required this.rdpUsername,
     required this.loginName,
@@ -121,7 +117,6 @@ class Peer {
           platform: '...',
           alias: '',
           tags: [],
-          forceAlwaysRelay: false,
           rdpPort: '',
           rdpUsername: '',
           loginName: '',
@@ -137,7 +132,6 @@ class Peer {
         platform == other.platform &&
         alias == other.alias &&
         tags.equals(other.tags) &&
-        forceAlwaysRelay == other.forceAlwaysRelay &&
         rdpPort == other.rdpPort &&
         rdpUsername == other.rdpUsername &&
         device_group_name == other.device_group_name &&
@@ -155,7 +149,6 @@ class Peer {
         platform: other.platform,
         alias: other.alias,
         tags: other.tags.toList(),
-        forceAlwaysRelay: other.forceAlwaysRelay,
         rdpPort: other.rdpPort,
         rdpUsername: other.rdpUsername,
         loginName: other.loginName,

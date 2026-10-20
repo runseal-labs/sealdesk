@@ -558,12 +558,13 @@ pub fn forget(key: &str) -> ResultType<()> {
 pub fn compat_addresses_json() -> String {
     let addresses: Vec<String> =
         if ready() && crate::tailcat::host::enabled() && rustdesk_compat_enabled() {
-            let mut addresses: Vec<String> = default_net::get_interfaces()
+            // Same interface set as discovery and TCP 21118. On Windows that
+            // set drops down adapters and IfType/TAP/Wintun/WireGuard tunnels.
+            let mut addresses: Vec<String> = udp::interfaces_from_default_net()
                 .into_iter()
-                .filter(|iface| keep_discovery_iface(iface.flags))
-                .flat_map(|iface| iface.ipv4)
-                .filter(|ip| ip.addr.is_private())
-                .map(|ip| SocketAddr::new(ip.addr.into(), TCP_PORT).to_string())
+                .flat_map(|iface| iface.v4)
+                .filter(|(ip, _)| ip.is_private())
+                .map(|(ip, _)| SocketAddr::new(IpAddr::V4(ip), TCP_PORT).to_string())
                 .collect();
             // Android denies netlink, so default_net is empty. The UI already
             // pushed interface addresses for Tailcat; reuse those for the share list.

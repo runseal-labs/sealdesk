@@ -633,35 +633,6 @@ abstract class BasePeerCard extends StatelessWidget {
     );
   }
 
-  // Issue #75: the tunnel does not read force-always-relay yet.
-  bool get _showForceAlwaysRelayMenu => false;
-
-  @protected
-  Future<bool> _isForceAlwaysRelay(String id) async {
-    return option2bool(kOptionForceAlwaysRelay,
-        (await bind.mainGetPeerOption(id: id, key: kOptionForceAlwaysRelay)));
-  }
-
-  @protected
-  Future<MenuEntryBase<String>> _forceAlwaysRelayAction(String id) async {
-    return MenuEntrySwitch<String>(
-      switchType: SwitchType.scheckbox,
-      text: translate('Always connect via relay'),
-      getter: () async {
-        return await _isForceAlwaysRelay(id);
-      },
-      setter: (bool v) async {
-        await bind.mainSetPeerOption(
-            id: id,
-            key: kOptionForceAlwaysRelay,
-            value: bool2option(kOptionForceAlwaysRelay, v));
-        showToast(translate('Successful'));
-      },
-      padding: menuPadding,
-      dismissOnClicked: true,
-    );
-  }
-
   @protected
   MenuEntryBase<String> _renameAction(String id) {
     return MenuEntryButton<String>(
@@ -833,10 +804,6 @@ class RecentPeerCard extends BasePeerCard {
       menuItems.add(_tcpTunnelingAction(context));
     }
     // menuItems.add(await _openNewConnInOptAction(peer.id));
-    // Issue #75: hide until the tunnel honors force-always-relay. The option stays.
-    if (_showForceAlwaysRelayMenu && !isWeb) {
-      menuItems.add(await _forceAlwaysRelayAction(peer.id));
-    }
     if (isWindows && peer.platform == kPeerPlatformWindows) {
       menuItems.add(_rdpAction(context, peer.id));
     }
@@ -890,10 +857,6 @@ class FavoritePeerCard extends BasePeerCard {
       menuItems.add(_tcpTunnelingAction(context));
     }
     // menuItems.add(await _openNewConnInOptAction(peer.id));
-    // Issue #75: hide until the tunnel honors force-always-relay. The option stays.
-    if (_showForceAlwaysRelayMenu && !isWeb) {
-      menuItems.add(await _forceAlwaysRelayAction(peer.id));
-    }
     if (isWindows && peer.platform == kPeerPlatformWindows) {
       menuItems.add(_rdpAction(context, peer.id));
     }
