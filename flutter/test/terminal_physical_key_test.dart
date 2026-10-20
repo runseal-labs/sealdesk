@@ -217,6 +217,47 @@ void main() {
     });
   });
 
+  testWidgets('macOS Ctrl+C reaches the terminal during IME composition',
+      (tester) async {
+    final output = <String>[];
+    final terminal = Terminal(platform: TerminalTargetPlatform.macos)
+      ..onOutput = output.add;
+    final controller = TerminalController();
+    final focus = FocusNode();
+    KeyEventResult handle(KeyEvent event) =>
+        terminalFocusedDesktopKeyEvent(terminal, controller, focus, event);
+    FocusManager.instance.addEarlyKeyEventHandler(handle);
+    addTearDown(() {
+      FocusManager.instance.removeEarlyKeyEventHandler(handle);
+      focus.dispose();
+      controller.dispose();
+    });
+    await tester.pumpWidget(MaterialApp(
+      home: TerminalMouseInteraction(terminal,
+          controller: controller,
+          focusNode: focus,
+          autofocus: true,
+          onKeyEvent: terminalDesktopKeyHandler(terminal, controller)),
+    ));
+    await tester.pump();
+    expect(focus.hasPrimaryFocus, isTrue);
+    tester.testTextInput.updateEditingValue(const TextEditingValue(
+      text: 'c',
+      composing: TextRange(start: 0, end: 1),
+    ));
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyC);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    expect(output, ['\x03']);
+    output.clear();
+    focus.unfocus();
+    await tester.pump();
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyC);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    expect(output, isEmpty);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
+
   testWidgets('desktop terminal view passes physical chords through',
       (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.linux;
