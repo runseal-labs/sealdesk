@@ -1388,15 +1388,81 @@ fn is_flatpak() -> bool {
     std::path::PathBuf::from("/.flatpak-info").exists()
 }
 
+/// Whether the seat is still at a greeter.
+///
+/// `active_username` comes from `get_active_username()`. That lookup skips
+/// Wayland gdm/sddm sessions, so an empty name means either "no graphical
+/// session" (loginctl failed, or seat0 has none) or "the only session is a
+/// Wayland greeter". `wayland_greeter` separates those two. `passwd_entry` is
+/// `getent passwd <name>` for a non-empty name, or `None` if that command
+/// failed; it is ignored when the name is empty, because `getent passwd` with
+/// no argument lists every account and matches nologin shells.
+fn is_prelogin_decision(
+    active_username: &str,
+    wayland_greeter: bool,
+    passwd_entry: Option<&str>,
+) -> bool {
+    if active_username.is_empty() {
+        return wayland_greeter;
+    }
+    passwd_entry
+        .map(|res| res.contains("/bin/false") || res.contains("/usr/sbin/nologin"))
+        .unwrap_or(false)
+}
+
 pub fn is_prelogin() -> bool {
     if is_flatpak() {
         return false;
     }
     let name = get_active_username();
-    if let Ok(res) = run_cmds(&format!("getent passwd {}", name)) {
-        return res.contains("/bin/false") || res.contains("/usr/sbin/nologin");
+    if name.is_empty() {
+        // `is_login_screen_wayland` is the existing seat0 check that still sees
+        // the gdm/sddm Wayland session `get_values_of_seat0` filtered out.
+        return is_prelogin_decision("", is_login_screen_wayland(), None);
     }
-    false
+    let entry = run_cmds(&format!("getent passwd {}", name)).ok();
+    is_prelogin_decision(&name, false, entry.as_deref())
+}
+
+#[cfg(test)]
+mod prelogin_decision_tests {
+    use super::is_prelogin_decision;
+
+    #[test]
+    fn no_seat_is_not_prelogin() {
+        // loginctl failed or seat0 has no session. A full passwd listing still
+        // contains nologin shells; that must not count as pre-login.
+        let listing = "nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin\n";
+        assert!(!is_prelogin_decision("", false, Some(listing)));
+        assert!(!is_prelogin_decision("", false, None));
+    }
+
+    #[test]
+    fn wayland_greeter_stays_prelogin() {
+        assert!(is_prelogin_decision("", true, None));
+        assert!(is_prelogin_decision("", true, Some("")));
+    }
+
+    #[test]
+    fn named_user_keeps_shell_check() {
+        assert!(!is_prelogin_decision(
+            "alice",
+            false,
+            Some("alice:x:1000:1000:Alice:/home/alice:/bin/bash\n"),
+        ));
+        assert!(is_prelogin_decision(
+            "gdm",
+            false,
+            Some("gdm:x:120:125::/var/lib/gdm3:/usr/sbin/nologin\n"),
+        ));
+        assert!(is_prelogin_decision(
+            "sddm",
+            false,
+            Some("sddm:x:121:126::/var/lib/sddm:/bin/false\n"),
+        ));
+        // getent failure stays not-prelogin, same as before.
+        assert!(!is_prelogin_decision("alice", false, None));
+    }
 }
 
 // Check "Lock".
