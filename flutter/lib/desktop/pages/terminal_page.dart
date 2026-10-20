@@ -77,6 +77,9 @@ class _TerminalPageState extends State<TerminalPage>
 
     // Create terminal model with specific terminal ID
     _terminalModel = TerminalModel(_ffi, widget.terminalId);
+    if (isMacOS) {
+      FocusManager.instance.addEarlyKeyEventHandler(_handleEarlyKeyEvent);
+    }
     _terminalModel.onClipboardWriteBlocked = widget.onClipboardWriteBlocked;
     _terminalModel.onClipboardWriteSucceeded = widget.onClipboardWriteSucceeded;
     debugPrint(
@@ -134,6 +137,9 @@ class _TerminalPageState extends State<TerminalPage>
 
   @override
   void dispose() {
+    if (isMacOS) {
+      FocusManager.instance.removeEarlyKeyEventHandler(_handleEarlyKeyEvent);
+    }
     // Cancel tab state subscription to prevent memory leak
     _tabStateSubscription?.cancel();
     // Unregister terminal model from FFI
@@ -153,6 +159,16 @@ class _TerminalPageState extends State<TerminalPage>
         _requestFocusIfSelected();
       }
     }
+  }
+
+  KeyEventResult _handleEarlyKeyEvent(KeyEvent event) {
+    // xterm skips its onKeyEvent callback while an IME composition is active.
+    return terminalFocusedDesktopKeyEvent(
+      _terminalModel.terminal,
+      _terminalModel.terminalController,
+      _terminalFocusNode,
+      event,
+    );
   }
 
   void _requestFocusIfSelected() {
