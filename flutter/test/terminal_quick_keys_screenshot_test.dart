@@ -9,20 +9,39 @@ import 'package:sealdesk/mobile/widgets/terminal_quick_key_bar.dart';
 import 'package:xterm/xterm.dart';
 
 const _shotFont = 'DejaVuSans';
+const _shotMonoFont = 'DejaVuSansMono';
 
-Future<void> _loadShotFonts() async {
-  Future<void> load(String family, String path) async {
-    final bytes = File(path).readAsBytesSync();
+const _sansFontPaths = <String>[
+  '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+  '/usr/share/fonts/dejavu/DejaVuSans.ttf',
+  '/usr/share/fonts/TTF/DejaVuSans.ttf',
+  '/Library/Fonts/Arial.ttf',
+  '/System/Library/Fonts/Supplemental/Arial.ttf',
+  r'C:\Windows\Fonts\arial.ttf',
+];
+
+const _monoFontPaths = <String>[
+  '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf',
+  '/usr/share/fonts/dejavu/DejaVuSansMono.ttf',
+  '/usr/share/fonts/TTF/DejaVuSansMono.ttf',
+  '/Library/Fonts/Courier New.ttf',
+  '/System/Library/Fonts/Supplemental/Courier New.ttf',
+  r'C:\Windows\Fonts\cour.ttf',
+];
+
+/// Loads the first font file that exists. Missing platform fonts are skipped
+/// so `flutter test` can run without a Linux font directory.
+Future<String?> _loadFirstFont(String family, List<String> paths) async {
+  for (final path in paths) {
+    final file = File(path);
+    if (!file.existsSync()) continue;
+    final bytes = file.readAsBytesSync();
     final loader = FontLoader(family)
       ..addFont(Future.value(ByteData.sublistView(bytes)));
     await loader.load();
+    return family;
   }
-
-  await load(_shotFont, '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf');
-  await load(
-    'DejaVuSansMono',
-    '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf',
-  );
+  return null;
 }
 
 void main() {
@@ -40,7 +59,8 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
-      await _loadShotFonts();
+      final sansFont = await _loadFirstFont(_shotFont, _sansFontPaths);
+      final monoFont = await _loadFirstFont(_shotMonoFont, _monoFontPaths);
       final terminal = Terminal()..write('SealDesk\r\n\$ ');
       final controller = TerminalController();
       addTearDown(controller.dispose);
@@ -49,7 +69,7 @@ void main() {
         theme: ThemeData(
           useMaterial3: true,
           brightness: Brightness.dark,
-          fontFamily: _shotFont,
+          fontFamily: sansFont,
           scaffoldBackgroundColor: const Color(0xFF101114),
         ),
         home: MediaQuery(
@@ -70,8 +90,8 @@ void main() {
                         terminal,
                         controller: controller,
                         autofocus: false,
-                        textStyle: const TerminalStyle(
-                          fontFamily: 'DejaVuSansMono',
+                        textStyle: TerminalStyle(
+                          fontFamily: monoFont ?? 'monospace',
                           fontSize: 14,
                         ),
                         backgroundOpacity: 1,
