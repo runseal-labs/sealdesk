@@ -187,18 +187,11 @@ const String kOptionAllowMonitorSwitchMinToolbar = "allow-monitor-switch-min-too
 const String kOptionEnableShowTerminalExtraKeys = "enable-show-terminal-extra-keys";
 const String kOptionShowTerminalCtrlKeys = "show-terminal-extra-ctrl-keys";
 
-// network options
-const String kOptionEnableFlutterHttpOnRust = "enable-flutter-http-on-rust";
-
 // builtin options
-const String kOptionHideServerSetting = "hide-server-settings";
-const String kOptionHideProxySetting = "hide-proxy-settings";
-const String kOptionHideWebSocketSetting = "hide-websocket-settings";
 const String kOptionHideStopService = "hide-stop-service";
 const String kOptionHideRemotePrinterSetting = "hide-remote-printer-settings";
 const String kOptionHideGeneralSetting = "hide-general-settings";
 const String kOptionHideSecuritySetting = "hide-security-settings";
-const String kOptionHideNetworkSetting = "hide-network-settings";
 const String kOptionRemovePresetPasswordWarning =
     "remove-preset-password-warning";
 const String kOptionDisableChangePermanentPassword =

@@ -1739,11 +1739,6 @@ class SealdeskImpl {
     return mainGetHardOption(key: "disable-settings", hint: hint) == "Y";
   }
 
-  bool isDisableGroupPanel({dynamic hint}) {
-    // Checks LocalConfig::get_option("disable-group-panel") == "Y"
-    return mainGetLocalOption(key: "disable-group-panel", hint: hint) == "Y";
-  }
-
   bool isDisableInstallation({dynamic hint}) {
     return false;
   }
