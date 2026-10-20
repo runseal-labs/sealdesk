@@ -221,4 +221,33 @@ mod test {
             Some("\u{5c40}\u{57df}\u{7f51}")
         );
     }
+
+    #[test]
+    fn scroll_about_and_2fa_copy() {
+        assert_eq!(super::en::T.get("ScrollAuto").copied(), Some("Auto scroll"));
+        assert_eq!(super::en::T.get("Scrollbar").copied(), Some("Scroll bar"));
+        assert_eq!(super::en::T.get("ScrollEdge").copied(), Some("Edge scroll"));
+        assert_eq!(
+            super::cn::T.get("ScrollAuto").copied(),
+            Some("\u{81ea}\u{52a8}\u{6eda}\u{52a8}")
+        );
+        assert_eq!(
+            super::cn::T.get("Scrollbar").copied(),
+            Some("\u{6eda}\u{52a8}\u{6761}")
+        );
+        assert_eq!(
+            super::cn::T.get("ScrollEdge").copied(),
+            Some("\u{8fb9}\u{7f18}\u{6eda}\u{52a8}")
+        );
+        assert_eq!(
+            super::cn::T.get("About SealDesk").copied(),
+            Some("\u{5173}\u{4e8e} SealDesk")
+        );
+        assert!(super::en::T.get("About SealDesk").is_none());
+        assert_eq!(
+            super::cn::T.get("2FA").copied(),
+            Some("\u{53cc}\u{91cd}\u{8ba4}\u{8bc1}")
+        );
+        assert!(super::en::T.get("2FA").is_none());
+    }
 }

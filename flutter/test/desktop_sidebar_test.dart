@@ -254,7 +254,7 @@ Widget _sharePane() {
       onApprove: (_) async {},
       onVerification: (_) async {},
       onSetPermanent: () {},
-      onSetOtpLength: () {},
+      onOtpLength: (_) {},
       onToggleNumeric: () {},
     ),
   );

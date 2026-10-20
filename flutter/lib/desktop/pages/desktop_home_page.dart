@@ -9,7 +9,6 @@ import 'package:sealdesk/common.dart';
 import 'package:sealdesk/common/sealdesk_share_settings.dart';
 import 'package:sealdesk/common/sealdesk_startup.dart';
 import 'package:sealdesk/common/widgets/animated_rotation_widget.dart';
-import 'package:sealdesk/mobile/widgets/dialog.dart';
 import 'package:sealdesk/common/widgets/custom_password.dart';
 import 'package:sealdesk/consts.dart';
 import 'package:sealdesk/desktop/macos_permission_guide.dart';
@@ -185,8 +184,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       shareSettings: sealDeskShareSettingsAllowed()
           ? SealDeskShareSettings(
               openSetPassword: setPasswordDialog,
-              openOtpLength: () =>
-                  setTemporaryPasswordLengthDialog(gFFI.dialogManager),
             )
           : null,
     );
