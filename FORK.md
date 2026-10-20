@@ -89,6 +89,5 @@ See [BUILDING.md](BUILDING.md) for the supported build recipe and
 A successful library build does not establish GUI, mobile-device, or cross-NAT
 acceptance. Keep those results tied to the tested platform and source revision.
 
-The old multilingual `docs/README-*.md` files are inherited RustDesk references.
 The maintained SealDesk guides are [README.md](README.md) and
 [README.zh-CN.md](README.zh-CN.md).
