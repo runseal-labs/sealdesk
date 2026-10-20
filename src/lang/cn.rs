@@ -467,7 +467,6 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("verify_rustdesk_password_tip", "验证 RustDesk 密码"),
         ("No need to elevate", "无需提升权限"),
         ("System Sound", "系统音频"),
-        ("Default", "默认"),
         ("New RDP", "新 RDP 连接"),
         ("Fingerprint", "指纹"),
         ("Copy Fingerprint", "复制指纹"),
