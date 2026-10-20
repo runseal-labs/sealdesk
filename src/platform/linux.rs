@@ -730,6 +730,21 @@ fn suggest_best_term() -> String {
     TERM_XTERM.to_string()
 }
 
+/// `TERM` for a remote terminal PTY.
+///
+/// The PTY is drawn by the client's xterm emulator, not by a terminal on this
+/// host, so the host's own `TERM` (inherited, or found in the user's shells,
+/// e.g. `xterm-kitty`) does not describe it, and a server started without a
+/// desktop session has no `TERM` at all. An empty `TERM` breaks line editing:
+/// the shell redraws each keystroke.
+pub fn terminal_pty_term() -> &'static str {
+    if term_supports_256_colors(TERM_XTERM_256COLOR) {
+        TERM_XTERM_256COLOR
+    } else {
+        TERM_XTERM
+    }
+}
+
 fn is_running_in_tmux() -> bool {
     std::env::var("TMUX").is_ok()
 }

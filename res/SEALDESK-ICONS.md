@@ -1,28 +1,25 @@
-# SealDesk approved raster icons
+# SealDesk icons
 
-The approved artwork is the original front-facing seal hugging a mint cat with whiskers and a gold lock. No vector redraw or generative reinterpretation is used.
+The SealDesk icon is a front-facing white seal hugging a mint cat that wears a cord collar with a gold padlock, on a rounded teal plate.
 
-- `res/sealdesk-icon-approved-sheet.png`: original approved presentation sheet.
-- `res/sealdesk-icon-approved.png`: transparent square master, with original artwork proportions retained. The artwork crop is `(158, 80, 848, 742)`, 690 x 662 pixels, centered on a 722 x 722 transparent canvas. Only background alpha edges are cleaned; interior RGB pixels are unchanged.
-- `res/sealdesk-icon-monochrome.png`: luminance-derived platform template.
-- `res/sealdesk-icon.svg` and other existing SVG names: compatibility wrappers embedding the approved PNG, not vector artwork.
+- `res/sealdesk-icon.svg`: the vector master and single source of truth. Its `plate` group is the rounded teal plate; its `subject` group is the seal, the cat and the lock. It is traced from the original approved raster artwork.
+- `res/sealdesk-icon-approved.png` and `res/sealdesk-icon-approved-sheet.png`: the original approved raster artwork, kept as the reference the vector was traced from. No asset is built from them any more.
+- Every other icon file is generated. Do not edit them by hand.
 
-Regenerate all platform assets with Pillow and NumPy:
-
-```sh
-uv run --with pillow --with numpy res/generate_sealdesk_icons.py
-```
-
-To reproduce the master from the approved sheet first:
+Regenerate all platform assets:
 
 ```sh
-uv run --with pillow res/extract_sealdesk_icon.py
+uv run --with resvg-py==0.5.0 --with pillow --with numpy res/generate_sealdesk_icons.py
 ```
 
-All color sizes use Lanczos resizing of the same master, preserving the original face, whiskers, lock and shading. 1024 px exports are upscaled from the original raster and do not add image detail. Windows ICO and macOS ICNS include multiple native frame sizes. iOS and Android store icons use an opaque matching teal matte. Android adaptive foregrounds keep only the seal and cat: the rounded-square plate is cleared to transparency (including its pale rim against the fur) and the seal and cat RGB are not redrawn. The plate's teal gradient is a full-bleed background image. The subject is a uniform scale about 72dp wide. Its wide lower body is seated on the bottom edge of the 108dp canvas, so the seal reads as emerging from the mask; the tapered point below that row is cropped and no pixels are invented. The lower body may also be clipped by the launcher mask. Legacy `ic_launcher` / `ic_launcher_round` are the same composite scaled into the 48dp slot. After scaling, isolated alpha leftovers from the plate cut (specks beside the arms) are cleared without rewriting subject RGB. The monochrome layer is that silhouette with dark features — eyes, nose, cat and arm edges — punched out, and fragments smaller than the eyes removed. Monochrome/notification and macOS template images derive from the approved artwork. `tmp/sealdesk-final-preview.png` shows actual export sizes.
+Every export is rasterized from the SVG at its exact pixel size with resvg, so no slot is an upscale and every edge is clean antialiasing. The generator derives these variants from the master:
 
-Remote desktop connection logic is unchanged. The Linux window icon lookup and title use SealDesk branding; rebuild the application to pick up updated resources.
+- Tile (the master as drawn, plate with a small transparent margin): Windows `res/icon.ico`, `flutter/windows/runner/resources/app_icon.ico` and `res/tray-icon.ico` (16 to 256 px), macOS `AppIcon.icns` (16 to 1024 px), `res/icon.png`, `res/mac-icon.png`, `flutter/assets/icon.png`, and the legacy Android `ic_launcher`.
+- Linux theme PNGs at 32, 64, 128 and 256 px and `res/scalable.svg` crop the plate tight, square it and keep a 1px transparent margin. Linux icon theme entries use `com.runseal.sealdesk`.
+- Full-bleed (plate made square and edge to edge; the OS applies the corner mask): iOS `AppIcon.appiconset` and the fastlane store icon, both opaque.
+- Android adaptive icons: the background layer is the full-bleed plate; the foreground layer is the whole seal and cat, scaled so its farthest pixel is 39dp from the center of the 108dp canvas. Rounded-square and squircle launcher masks show all of it; a circle mask only trims the bottom edge of the flippers. `ic_launcher_round` is the visible 72dp of that composite under a circle mask.
+- Monochrome (subject in white with the faces, the cat outline, the flipper outlines and the lock punched out): `res/sealdesk-icon-monochrome.png`, the Android themed `ic_launcher_monochrome` layer (same geometry as the foreground), the Android notification `ic_stat_logo`, and the macOS menu bar templates `res/mac-tray-dark-x2.png` (white) and `res/mac-tray-light-x2.png` (black).
 
-Linux icon theme entries use `com.runseal.sealdesk` consistently in desktop launchers, the GTK runner and packaging recipes, avoiding the previously cached generic icon name.
+`res/logo.svg`, `res/logo-header.svg`, `flutter/assets/icon.svg`, `res/scalable.svg` and `res/sealdesk-icon-small.svg` wrap a PNG render instead of copying the vector, because flutter_svg and older librsvg do not draw SVG filters, and an element whose filter is unsupported is not drawn at all. `tmp/sealdesk-final-preview.png` shows actual export sizes.
 
-Linux theme PNGs at 32, 64, 128 and 256 px each keep a 1px transparent margin, and the scalable compatibility image does the same. Other platforms retain their existing export layout.
+Remote desktop connection logic is unchanged. Rebuild the application to pick up updated resources.

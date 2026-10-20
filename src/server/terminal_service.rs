@@ -1196,7 +1196,7 @@ impl TerminalServiceProxy {
         // 2. Set TERM environment variable for proper terminal behavior
         //    This fixes issues with control sequences (e.g., Delete/Backspace keys)
         //    macOS terminfo uses hex naming: '78' = 'x' for xterm entries
-        // Note: For Linux, `TERM` is set in src/platform/linux.rs try_start_server_()
+        // Note: Linux sets `TERM` on the PTY command below.
         #[cfg(target_os = "macos")]
         {
             // Start as login shell to load user environment (PATH, etc.)
@@ -1217,6 +1217,9 @@ impl TerminalServiceProxy {
                 log::debug!("Set LC_CTYPE=en_US.UTF-8 for macOS PTY");
             }
         }
+
+        #[cfg(target_os = "linux")]
+        cmd.env("TERM", crate::platform::linux::terminal_pty_term());
 
         // Note: On Windows with user_token, we use helper mode (handle_open_with_helper)
         // which is dispatched earlier in this function. This code path is only reached

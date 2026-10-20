@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="res/sealdesk-icon-approved.png" width="160" alt="SealDesk — a seal hugging a cat">
+  <img src="res/icon.png" width="160" alt="SealDesk — a seal hugging a cat">
 </p>
 
 # SealDesk
