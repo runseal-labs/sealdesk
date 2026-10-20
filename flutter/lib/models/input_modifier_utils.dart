@@ -1,6 +1,8 @@
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import 'terminal_copy_shortcut.dart';
+
 /// Identifies where terminal input originated so paste data can bypass all
 /// keyboard-only transformations.
 enum TerminalInputSource {
@@ -120,6 +122,8 @@ String prepareTerminalInputPayload(
 /// xterm already handles each platform's paste shortcut in the common case.
 /// Only intercept while a virtual Ctrl/Alt lock is active, because xterm can
 /// emit a one-character paste as normal text when bracketed paste mode is off.
+/// Apple platforms paste with Command+V. Other platforms paste with
+/// Ctrl+Shift+V so Ctrl+V can reach the PTY.
 bool shouldHandleTerminalPasteShortcut({
   required TargetPlatform platform,
   required LogicalKeyboardKey logicalKey,
@@ -133,19 +137,14 @@ bool shouldHandleTerminalPasteShortcut({
 }) {
   if (!modifierLockActive) return false;
   if (!isKeyDown && !isKeyRepeat) return false;
-  if (logicalKey != LogicalKeyboardKey.keyV) return false;
-  if (altPressed) return false;
-  switch (platform) {
-    case TargetPlatform.linux:
-      return controlPressed && !metaPressed && shiftPressed;
-    case TargetPlatform.iOS:
-    case TargetPlatform.macOS:
-      return !controlPressed && metaPressed && !shiftPressed;
-    case TargetPlatform.android:
-    case TargetPlatform.fuchsia:
-    case TargetPlatform.windows:
-      return controlPressed && !metaPressed && !shiftPressed;
-  }
+  return isTerminalPasteChord(
+    platform: platform,
+    key: logicalKey,
+    control: controlPressed,
+    meta: metaPressed,
+    alt: altPressed,
+    shift: shiftPressed,
+  );
 }
 
 /// Returns true when collapsing Row3 should also clear hidden modifier state.

@@ -187,7 +187,7 @@ void main() {
       );
     });
 
-    test('handles Ctrl+V and Meta+V when a virtual modifier lock is active',
+    test('pastes with Ctrl+Shift+V or Command+V while a modifier is locked',
         () {
       expect(
         shouldHandleTerminalPasteShortcut(
@@ -199,6 +199,34 @@ void main() {
           metaPressed: false,
           altPressed: false,
           shiftPressed: false,
+          modifierLockActive: true,
+        ),
+        isFalse,
+      );
+      expect(
+        shouldHandleTerminalPasteShortcut(
+          platform: TargetPlatform.windows,
+          logicalKey: LogicalKeyboardKey.keyV,
+          isKeyDown: true,
+          isKeyRepeat: false,
+          controlPressed: true,
+          metaPressed: false,
+          altPressed: false,
+          shiftPressed: true,
+          modifierLockActive: true,
+        ),
+        isTrue,
+      );
+      expect(
+        shouldHandleTerminalPasteShortcut(
+          platform: TargetPlatform.android,
+          logicalKey: LogicalKeyboardKey.keyV,
+          isKeyDown: true,
+          isKeyRepeat: false,
+          controlPressed: true,
+          metaPressed: false,
+          altPressed: false,
+          shiftPressed: true,
           modifierLockActive: true,
         ),
         isTrue,
@@ -216,6 +244,20 @@ void main() {
           modifierLockActive: true,
         ),
         isTrue,
+      );
+      expect(
+        shouldHandleTerminalPasteShortcut(
+          platform: TargetPlatform.iOS,
+          logicalKey: LogicalKeyboardKey.keyV,
+          isKeyDown: true,
+          isKeyRepeat: false,
+          controlPressed: true,
+          metaPressed: false,
+          altPressed: false,
+          shiftPressed: false,
+          modifierLockActive: true,
+        ),
+        isFalse,
       );
     });
   });

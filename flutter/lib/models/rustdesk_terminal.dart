@@ -6,9 +6,27 @@ import 'package:xterm/xterm.dart';
 
 enum TerminalClipboardWritePermission { denied, unconfigured, allowed }
 
+TerminalTargetPlatform sealDeskTerminalPlatform([TargetPlatform? platform]) {
+  switch (platform ?? defaultTargetPlatform) {
+    case TargetPlatform.android:
+      return TerminalTargetPlatform.android;
+    case TargetPlatform.fuchsia:
+      return TerminalTargetPlatform.fuchsia;
+    case TargetPlatform.iOS:
+      return TerminalTargetPlatform.ios;
+    case TargetPlatform.linux:
+      return TerminalTargetPlatform.linux;
+    case TargetPlatform.macOS:
+      return TerminalTargetPlatform.macos;
+    case TargetPlatform.windows:
+      return TerminalTargetPlatform.windows;
+  }
+}
+
 class SealDeskTerminal extends Terminal {
   SealDeskTerminal({
-    super.maxLines,
+    int maxLines = 1000,
+    TerminalTargetPlatform? platform,
     required TerminalClipboardWritePermission Function()
         clipboardWritePermission,
     required Future<bool> Function(String) onClipboardWrite,
@@ -17,7 +35,11 @@ class SealDeskTerminal extends Terminal {
   })  : _clipboardWritePermission = clipboardWritePermission,
         _onClipboardWrite = onClipboardWrite,
         _onClipboardWriteBlocked = onClipboardWriteBlocked,
-        _onClipboardWriteSucceeded = onClipboardWriteSucceeded {
+        _onClipboardWriteSucceeded = onClipboardWriteSucceeded,
+        super(
+          maxLines: maxLines,
+          platform: platform ?? sealDeskTerminalPlatform(),
+        ) {
     onPrivateOSC = _handlePrivateOsc;
   }
 

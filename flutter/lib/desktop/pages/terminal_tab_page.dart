@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sealdesk/common.dart';
@@ -13,6 +14,7 @@ import 'package:sealdesk/utils/multi_window_manager.dart';
 import 'package:sealdesk/models/model.dart';
 import 'package:sealdesk/models/terminal_copy_shortcut.dart';
 import 'package:sealdesk/models/terminal_model.dart';
+import 'package:sealdesk/models/terminal_tab_shortcuts.dart';
 import 'package:get/get.dart';
 
 import '../../models/platform_model.dart';
@@ -608,6 +610,22 @@ class _TerminalTabPageState extends State<TerminalTabPage> {
   }
 
   bool _handleKeyEvent(KeyEvent event) {
+    if (event is KeyDownEvent || event is KeyRepeatEvent) {
+      final keyboard = HardwareKeyboard.instance;
+      final tabShortcut = matchTerminalTabShortcut(
+        platform: defaultTargetPlatform,
+        key: event.logicalKey,
+        isDown: true,
+        control: keyboard.isControlPressed,
+        alt: keyboard.isAltPressed,
+        meta: keyboard.isMetaPressed,
+        shift: keyboard.isShiftPressed,
+      );
+      if (tabShortcut != null) {
+        _applyTerminalTabShortcut(tabShortcut);
+        return true;
+      }
+    }
     if (event is KeyDownEvent) {
       // Use Cmd+T on macOS, Ctrl+Shift+T on other platforms
       if (event.logicalKey == LogicalKeyboardKey.keyT) {
@@ -648,51 +666,30 @@ class _TerminalTabPageState extends State<TerminalTabPage> {
           }
         }
       }
-
-      // Use Alt+Left/Right for tab navigation (avoids conflicts)
-      if (HardwareKeyboard.instance.isAltPressed) {
-        if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-          // Previous tab
-          final currentIndex = tabController.state.value.selected;
-          if (currentIndex > 0) {
-            tabController.jumpTo(currentIndex - 1);
-          }
-          return true;
-        } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-          // Next tab
-          final currentIndex = tabController.state.value.selected;
-          if (currentIndex < tabController.length - 1) {
-            tabController.jumpTo(currentIndex + 1);
-          }
-          return true;
-        }
-      }
-
-      // Check for Cmd/Ctrl + Number (switch to specific tab)
-      final numberKeys = [
-        LogicalKeyboardKey.digit1,
-        LogicalKeyboardKey.digit2,
-        LogicalKeyboardKey.digit3,
-        LogicalKeyboardKey.digit4,
-        LogicalKeyboardKey.digit5,
-        LogicalKeyboardKey.digit6,
-        LogicalKeyboardKey.digit7,
-        LogicalKeyboardKey.digit8,
-        LogicalKeyboardKey.digit9,
-      ];
-
-      for (int i = 0; i < numberKeys.length; i++) {
-        if (event.logicalKey == numberKeys[i] &&
-            ((isMacOS && HardwareKeyboard.instance.isMetaPressed) ||
-                (!isMacOS && HardwareKeyboard.instance.isControlPressed))) {
-          if (i < tabController.length) {
-            tabController.jumpTo(i);
-            return true;
-          }
-        }
-      }
     }
     return false;
+  }
+
+  void _applyTerminalTabShortcut(TerminalTabShortcutMatch match) {
+    final tabs = tabController.state.value.tabs;
+    final length = tabs.length;
+    if (length <= 0) return;
+    final current = tabController.state.value.selected;
+    switch (match.action) {
+      case TerminalTabShortcutAction.next:
+        if (current >= 0 && current < length - 1) {
+          tabController.jumpTo(current + 1);
+        }
+      case TerminalTabShortcutAction.previous:
+        if (current > 0) {
+          tabController.jumpTo(current - 1);
+        }
+      case TerminalTabShortcutAction.select:
+        final index = match.index;
+        if (index != null && index >= 0 && index < length) {
+          tabController.jumpTo(index);
+        }
+    }
   }
 
   void _addNewTerminal(String peerId, {int? terminalId}) {
