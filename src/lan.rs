@@ -125,14 +125,11 @@ pub struct Peer {
     pub platform: String,
     #[serde(default)]
     pub tailcat: String,
-    /// Hex possession proof from the discovery hint. Empty when the peer did not prove node-key possession.
+    /// Hex possession proof from the discovery hint. Empty for a plaintext RustDesk reply.
     #[serde(default)]
     pub proof: String,
     #[serde(default)]
     pub nonce: String,
-    /// Version 2 only. A version-1 reply is listed during a rolling upgrade and is not an identity check.
-    #[serde(default)]
-    pub identity_checked: bool,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Trusted {
@@ -154,10 +151,12 @@ struct Hint {
     /// Possession proof sealed to this request. The tailcat address itself is never sent.
     #[serde(default)]
     proof: String,
+    /// Hex node public key. The controller opens `proof` with it; the address stays off the wire.
+    #[serde(default)]
+    node: String,
 }
 
 const HINT_VERSION: u32 = 2;
-const HINT_VERSION_LEGACY: u32 = 1;
 const PROTO_SEALDESK: &str = "sealdesk";
 const PROTO_COMPAT: &str = "compat";
 const POSSESSION_LABEL: &[u8] = b"sealdesk-lan-possession-v1";
@@ -413,13 +412,18 @@ fn sealdesk_hint(
     node_secret: Option<&[u8; 32]>,
 ) -> Hint {
     let port = advertised_tcp_port(direct);
-    let (nonce, proof) = match (request, node_secret, decode32(lan_key_hex)) {
+    let (nonce, proof, node) = match (request, node_secret, decode32(lan_key_hex)) {
         (Some((eph, nonce)), Some(secret), Some(lan_public)) if port != 0 => {
             let proof = seal_possession(secret, eph, nonce, &lan_public, port, PROTO_SEALDESK)
                 .unwrap_or_default();
-            (hex::encode(nonce), proof)
+            let node = x25519_public(secret).map(hex::encode).unwrap_or_default();
+            if proof.is_empty() || node.is_empty() {
+                (String::new(), String::new(), String::new())
+            } else {
+                (hex::encode(nonce), proof, node)
+            }
         }
-        _ => (String::new(), String::new()),
+        _ => (String::new(), String::new(), String::new()),
     };
     Hint {
         version: HINT_VERSION,
@@ -427,6 +431,7 @@ fn sealdesk_hint(
         port,
         nonce,
         proof,
+        node,
     }
 }
 
@@ -796,9 +801,11 @@ pub async fn serve(server: crate::server::ServerPtr) {
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
 }
-/// Node secret used to seal a possession proof. Loaded before the reply loop
-/// and read again only when `tailcat-server.json` changes, so one peer cannot
-/// stall discovery by forcing a parse on every ping.
+/// Node secret used to seal a possession proof. Stat and read run on a
+/// blocking thread. The async loop only receives `Option<Zeroizing<[u8; 32]>>`.
+/// `tailcat-server.json` is reread only when its mtime or length changes, so one
+/// peer cannot stall discovery by forcing a parse on every ping. The key and
+/// the file contents are never logged.
 struct NodeSecretCache {
     path: String,
     seen: bool,
@@ -834,6 +841,41 @@ impl NodeSecretCache {
             None
         };
     }
+}
+
+/// Loads and refreshes the node secret on `spawn_blocking`. Only the key is
+/// sent back; an unchanged mtime and length does not read the file.
+fn watch_node_secret() -> (
+    tokio::sync::mpsc::Receiver<Option<Zeroizing<[u8; 32]>>>,
+    tokio::task::JoinHandle<()>,
+) {
+    let (tx, rx) = tokio::sync::mpsc::channel(1);
+    let task = tokio::spawn(async move {
+        let mut cache = match tokio::task::spawn_blocking(NodeSecretCache::load).await {
+            Ok(cache) => cache,
+            Err(_) => return,
+        };
+        if tx.send(cache.key.clone()).await.is_err() {
+            return;
+        }
+        loop {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let before = cache.stamp;
+            cache = match tokio::task::spawn_blocking(move || {
+                cache.refresh_if_changed();
+                cache
+            })
+            .await
+            {
+                Ok(cache) => cache,
+                Err(_) => return,
+            };
+            if cache.stamp != before && tx.send(cache.key.clone()).await.is_err() {
+                return;
+            }
+        }
+    });
+    (rx, task)
 }
 
 async fn serve_round(server: crate::server::ServerPtr) -> ResultType<()> {
@@ -891,13 +933,21 @@ async fn serve_round(server: crate::server::ServerPtr) -> ResultType<()> {
         }
         READY.store(true, Ordering::SeqCst);
     }
+    let (mut node_key_rx, mut watch_node_key) = if discovery {
+        let (rx, task) = watch_node_secret();
+        tasks.push(task);
+        (rx, true)
+    } else {
+        let (_tx, rx) = tokio::sync::mpsc::channel(1);
+        (rx, false)
+    };
+    let mut node_key: Option<Zeroizing<[u8; 32]>> = None;
     let _abort = AbortOnDrop(tasks);
     let (udp_tx, mut udp_rx) = tokio::sync::mpsc::channel(32);
     let mut listeners = udp::ListenerSet::empty();
     let mut scanned: Option<Instant> = None;
     let mut last = Instant::now();
     let mut replies = 0;
-    let mut node_secret = discovery.then(NodeSecretCache::load);
     loop {
         if !crate::tailcat::host::enabled()
             || direct_server_enabled() != direct
@@ -932,9 +982,11 @@ async fn serve_round(server: crate::server::ServerPtr) -> ResultType<()> {
             }
         }
         tokio::select! {
-            _ = tokio::time::sleep(Duration::from_millis(100)) => {
-                if let Some(cache) = node_secret.as_mut() {
-                    cache.refresh_if_changed();
+            _ = tokio::time::sleep(Duration::from_millis(100)) => {}
+            loaded = node_key_rx.recv(), if watch_node_key => {
+                match loaded {
+                    Some(key) => node_key = key,
+                    None => watch_node_key = false,
                 }
             },
             incoming = rx.recv(), if direct => {
@@ -964,16 +1016,16 @@ async fn serve_round(server: crate::server::ServerPtr) -> ResultType<()> {
                 let sealdesk_ping = sealdesk_discovery(&query);
                 let (id, misc) = if sealdesk_ping {
                     let request = parse_ping_challenge(&query);
-                    let secret = node_secret.as_ref().and_then(|cache| cache.key.as_deref());
-                    (
-                        key.clone(),
-                        serde_json::to_string(&sealdesk_hint(
-                            &key,
-                            direct,
-                            request.as_ref(),
-                            secret,
-                        ))?,
-                    )
+                    let hint = sealdesk_hint(
+                        &key,
+                        direct,
+                        request.as_ref(),
+                        node_key.as_deref(),
+                    );
+                    if hint.proof.is_empty() {
+                        continue;
+                    }
+                    (key.clone(), serde_json::to_string(&hint)?)
                 } else if !direct {
                     continue;
                 } else {
@@ -1169,8 +1221,8 @@ fn discover() -> ResultType<DiscoveryRound> {
                 let Some(rendezvous_message::Union::PeerDiscovery(reply)) = msg.union else {
                     continue;
                 };
-                if let Some((id, peer)) = discovered_peer(&reply, addr, &own, &challenge.nonce) {
-                    store_discovered(&mut peers, id, peer);
+                if let Some((id, peer)) = discovered_peer(&reply, addr, &own, &challenge) {
+                    peers.insert(id, peer);
                 }
             }
         }
@@ -1185,31 +1237,16 @@ fn discover() -> ResultType<DiscoveryRound> {
     })
 }
 
-fn store_discovered(peers: &mut BTreeMap<String, Peer>, id: String, peer: Peer) {
-    if let Some(existing) = peers.get(&id) {
-        if existing.identity_checked && !peer.identity_checked {
-            return;
-        }
-    }
-    peers.insert(id, peer);
-}
-
-/// A manual `lan:` connect from the discovery list needs a confirmation when
-/// the only reply is version 1. Version 2 already carries a possession proof.
-pub(crate) fn manual_lan_connect_needs_confirmation(peer: &Peer) -> bool {
-    peer.protocol == PROTO_SEALDESK && !peer.identity_checked
-}
-
 fn discovered_peer(
     reply: &PeerDiscovery,
     addr: SocketAddr,
     own: &str,
-    expect_nonce: &[u8; 32],
+    challenge: &PossessionChallenge,
 ) -> Option<(String, Peer)> {
     if reply.cmd != "pong" || !private(addr.ip()) {
         return None;
     }
-    let (id, address, protocol, proof, nonce, identity_checked) = if reply.misc.is_empty() {
+    let (id, address, protocol, proof, nonce) = if reply.misc.is_empty() {
         if !crate::common::is_valid_untrusted_peer_id(&reply.id) {
             return None;
         }
@@ -1220,16 +1257,15 @@ fn discovered_peer(
             "rustdesk",
             String::new(),
             String::new(),
-            false,
         )
     } else {
         // A malformed SealDesk identity must never fall back to plaintext RustDesk.
         // A tailcat address inside misc is ignored: the address is a credential,
-        // not a possession proof. Version 2 replies for any other nonce are discarded.
-        // Version 1 is kept for the list only: its mac is ignored and its nonce is not
-        // this challenge, so it is not an identity check and cannot drive an upgrade.
+        // not a possession proof. Version-1 replies, other nonces, and proofs that
+        // do not open are discarded.
         let hint = serde_json::from_str::<Hint>(&reply.misc).ok()?;
-        if hint.key == own
+        if hint.version != HINT_VERSION
+            || hint.key == own
             || hint.port == 0
             || hex::decode(&hint.key)
                 .map(|b| b.len() != 32)
@@ -1237,33 +1273,31 @@ fn discovered_peer(
         {
             return None;
         }
-        let identity_checked = if hint.version == HINT_VERSION {
-            let nonce = decode32(&hint.nonce)?;
-            if nonce != *expect_nonce {
-                return None;
-            }
-            true
-        } else if hint.version == HINT_VERSION_LEGACY {
-            false
-        } else {
+        let nonce = decode32(&hint.nonce)?;
+        if nonce != challenge.nonce {
             return None;
-        };
+        }
+        let lan_public = decode32(&hint.key)?;
+        let node_public = decode32(&hint.node)?;
+        if !open_possession(
+            &node_public,
+            &challenge.secret,
+            &challenge.eph_public,
+            &challenge.nonce,
+            &lan_public,
+            hint.port,
+            PROTO_SEALDESK,
+            &hint.proof,
+        ) {
+            return None;
+        }
         let endpoint = SocketAddr::new(addr.ip(), hint.port);
         (
             hint.key.clone(),
             format!("lan:{endpoint}/{}", hint.key),
             PROTO_SEALDESK,
-            if identity_checked {
-                hint.proof
-            } else {
-                String::new()
-            },
-            if identity_checked {
-                hint.nonce
-            } else {
-                String::new()
-            },
-            identity_checked,
+            hint.proof,
+            hint.nonce,
         )
     };
     Some((
@@ -1287,7 +1321,6 @@ fn discovered_peer(
             tailcat: String::new(),
             proof,
             nonce,
-            identity_checked,
         },
     ))
 }
@@ -1363,11 +1396,11 @@ pub(crate) fn is_encrypted_lan_channel(address: &str) -> bool {
     parse_addr(address).is_ok()
 }
 
-/// Known `tc` peers on the same private subnet upgrade to `lan:` only when a
-/// version-2 possession proof opens with that address's node public key and this
-/// request's ephemeral key. A version-1 reply, a forged reply, or one from
-/// another request is ignored so the caller stays on tailcat. A plaintext
-/// RustDesk address is never treated as that encrypted channel.
+/// Known `tc` peers on the same private subnet upgrade to `lan:` only when the
+/// reply's possession proof opens with that address's node public key and this
+/// request's ephemeral key. A forged reply, or one from another request, is
+/// ignored so the caller stays on tailcat. A plaintext RustDesk address is
+/// never treated as that encrypted channel.
 pub(crate) fn plan_lan_upgrade(
     peer: &str,
     node_public: &[u8; 32],
@@ -1381,7 +1414,6 @@ pub(crate) fn plan_lan_upgrade(
     }
     let found = peers.iter().find(|candidate| {
         candidate.protocol == PROTO_SEALDESK
-            && candidate.identity_checked
             && is_encrypted_lan_channel(&candidate.address)
             && candidate
                 .ip
@@ -1514,8 +1546,9 @@ mod tests {
             id: "123456789".into(),
             ..Default::default()
         };
+        let challenge = fresh_challenge();
         for address in ["100.64.1.7:21119", "169.254.1.7:21119", "8.8.8.8:21119"] {
-            assert!(discovered_peer(&reply, address.parse().unwrap(), "own", &[0u8; 32]).is_none());
+            assert!(discovered_peer(&reply, address.parse().unwrap(), "own", &challenge).is_none());
         }
     }
     #[test]
@@ -1527,39 +1560,34 @@ mod tests {
             ..Default::default()
         };
         let source = "192.168.1.7:45678".parse().unwrap();
-        let (_, peer) = discovered_peer(&reply, source, "own", &[0u8; 32]).unwrap();
+        let challenge = fresh_challenge();
+        let (_, peer) = discovered_peer(&reply, source, "own", &challenge).unwrap();
         assert_eq!(peer.address, "192.168.1.7:21118");
         assert_eq!(peer.protocol, "rustdesk");
         reply.id = "bad/id".into();
-        assert!(discovered_peer(&reply, source, "own", &[0u8; 32]).is_none());
+        assert!(discovered_peer(&reply, source, "own", &challenge).is_none());
         reply.id = "123456789".into();
-        assert!(discovered_peer(&reply, "8.8.8.8:1234".parse().unwrap(), "own", &[0u8; 32]).is_none());
+        assert!(discovered_peer(&reply, "8.8.8.8:1234".parse().unwrap(), "own", &challenge).is_none());
     }
     #[test]
     fn sealdesk_discovery_preserves_identity_and_never_downgrades() {
         let key = hex::encode([7u8; 32]);
-        let nonce = [3u8; 32];
+        let (_public, secret) = node_keypair();
+        let challenge = fresh_challenge();
+        let request = (challenge.eph_public, challenge.nonce);
+        let hint = sealdesk_hint(&key, true, Some(&request), Some(&secret));
         let mut reply = PeerDiscovery {
             cmd: "pong".into(),
             id: key.clone(),
-            misc: serde_json::to_string(&Hint {
-                version: HINT_VERSION,
-                key: key.clone(),
-                port: TCP_PORT,
-                nonce: hex::encode(nonce),
-                proof: String::new(),
-            })
-            .unwrap(),
+            misc: serde_json::to_string(&hint).unwrap(),
             ..Default::default()
         };
         let source = "192.168.1.8:1234".parse().unwrap();
-        let (_, peer) = discovered_peer(&reply, source, "own", &nonce).unwrap();
+        let (_, peer) = discovered_peer(&reply, source, "own", &challenge).unwrap();
         assert_eq!(peer.address, format!("lan:192.168.1.8:{TCP_PORT}/{key}"));
         assert_eq!(peer.protocol, "sealdesk");
-        assert!(peer.identity_checked);
-        assert!(!manual_lan_connect_needs_confirmation(&peer));
-        assert!(discovered_peer(&reply, source, &key, &nonce).is_none());
-        assert!(discovered_peer(&reply, source, "own", &[4u8; 32]).is_none());
+        assert!(discovered_peer(&reply, source, &key, &challenge).is_none());
+        assert!(discovered_peer(&reply, source, "own", &fresh_challenge()).is_none());
         for misc in [
             "{",
             "{}",
@@ -1567,7 +1595,7 @@ mod tests {
             r#"{"version":3,"key":"bad","port":21118}"#,
         ] {
             reply.misc = misc.into();
-            assert!(discovered_peer(&reply, source, "own", &nonce).is_none());
+            assert!(discovered_peer(&reply, source, "own", &challenge).is_none());
         }
     }
 
@@ -1586,83 +1614,49 @@ mod tests {
     }
 
     #[test]
-    fn version_1_replies_are_listed_without_an_identity_check_and_lose_to_version_2() {
+    fn version_1_and_unproved_replies_are_discarded() {
         let key = hex::encode([7u8; 32]);
-        let challenge_nonce = [9u8; 32];
-        let source = "192.168.1.8:1234".parse().unwrap();
-        let (id, legacy) =
-            discovered_peer(&legacy_version_1_reply(&key), source, "own", &challenge_nonce)
-                .unwrap();
-        assert_eq!(legacy.protocol, PROTO_SEALDESK);
-        assert!(!legacy.identity_checked);
-        assert!(legacy.proof.is_empty());
-        assert!(legacy.nonce.is_empty());
-        assert!(manual_lan_connect_needs_confirmation(&legacy));
-        assert_eq!(
-            serde_json::to_value(&legacy).unwrap()["identity_checked"],
-            false
-        );
-        let plain = sample_peer("rustdesk", "192.168.1.8:21118", "192.168.1.8", "");
-        assert!(!manual_lan_connect_needs_confirmation(&plain));
-
         let (public, secret) = node_keypair();
         let challenge = fresh_challenge();
-        let proved = proved_peer(
-            &secret,
-            &challenge,
-            7,
-            "192.168.1.8",
-            TCP_PORT,
-            PROTO_SEALDESK,
-        );
-        let mut stolen = legacy.clone();
-        stolen.proof = proved.proof.clone();
-        stolen.nonce = proved.nonce.clone();
-        stolen.address = proved.address.clone();
+        let source = "192.168.1.8:1234".parse().unwrap();
+        assert!(discovered_peer(&legacy_version_1_reply(&key), source, "own", &challenge).is_none());
+        let request = (challenge.eph_public, challenge.nonce);
+        let mut hint = sealdesk_hint(&key, true, Some(&request), Some(&secret));
+        assert_eq!(hint.version, HINT_VERSION);
+        assert_eq!(hint.node, hex::encode(public));
+        let proved = PeerDiscovery {
+            cmd: "pong".into(),
+            hostname: "Desk".into(),
+            misc: serde_json::to_string(&hint).unwrap(),
+            ..Default::default()
+        };
+        let (_, peer) = discovered_peer(&proved, source, "own", &challenge).unwrap();
+        assert_eq!(peer.protocol, PROTO_SEALDESK);
+        assert!(!peer.proof.is_empty());
         assert!(plan_lan_upgrade(
             tc_addr(),
             &public,
-            std::slice::from_ref(&stolen),
-            &lan_locals(),
-            "00",
-            &challenge
-        )
-        .is_none());
-        assert!(plan_lan_upgrade(
-            tc_addr(),
-            &public,
-            std::slice::from_ref(&proved),
+            std::slice::from_ref(&peer),
             &lan_locals(),
             "00",
             &challenge
         )
         .is_some());
-
-        let current_reply = PeerDiscovery {
+        hint.proof.clear();
+        let unproved = PeerDiscovery {
             cmd: "pong".into(),
-            hostname: "New host".into(),
-            misc: serde_json::to_string(&Hint {
-                version: HINT_VERSION,
-                key: key.clone(),
-                port: TCP_PORT,
-                nonce: hex::encode(challenge_nonce),
-                proof: "proof".into(),
-            })
-            .unwrap(),
+            misc: serde_json::to_string(&hint).unwrap(),
             ..Default::default()
         };
-        let (_, current) =
-            discovered_peer(&current_reply, source, "own", &challenge_nonce).unwrap();
-        assert!(current.identity_checked);
-        assert!(!manual_lan_connect_needs_confirmation(&current));
-        let mut peers = BTreeMap::new();
-        store_discovered(&mut peers, id.clone(), legacy.clone());
-        store_discovered(&mut peers, id.clone(), current);
-        assert!(peers.get(&id).unwrap().identity_checked);
-        assert_eq!(peers.get(&id).unwrap().name, "New host");
-        store_discovered(&mut peers, id.clone(), legacy);
-        assert!(peers.get(&id).unwrap().identity_checked);
-        assert_eq!(peers.get(&id).unwrap().name, "New host");
+        assert!(discovered_peer(&unproved, source, "own", &challenge).is_none());
+        hint.proof = proved_peer(&secret, &challenge, 7, "192.168.1.8", TCP_PORT, PROTO_SEALDESK).proof;
+        hint.node = hex::encode([9u8; 32]);
+        let wrong_node = PeerDiscovery {
+            cmd: "pong".into(),
+            misc: serde_json::to_string(&hint).unwrap(),
+            ..Default::default()
+        };
+        assert!(discovered_peer(&wrong_node, source, "own", &challenge).is_none());
     }
 
     #[test]
@@ -2121,7 +2115,6 @@ mod tests {
             tailcat: tailcat.into(),
             proof: String::new(),
             nonce: String::new(),
-            identity_checked: false,
         }
     }
 
@@ -2167,7 +2160,6 @@ mod tests {
             tailcat: String::new(),
             proof,
             nonce: hex::encode(challenge.nonce),
-            identity_checked: true,
         }
     }
 
@@ -2416,7 +2408,7 @@ mod tests {
             ..Default::default()
         };
         let (_, peer) =
-            discovered_peer(&reply, "192.168.1.8:99".parse().unwrap(), "own", &challenge.nonce)
+            discovered_peer(&reply, "192.168.1.8:99".parse().unwrap(), "own", &challenge)
                 .unwrap();
         let listed = serde_json::to_string(&peer).unwrap();
         assert!(!listed.contains(tc));
@@ -2433,15 +2425,14 @@ mod tests {
             misc: forged.to_string(),
             ..Default::default()
         };
-        let (_, forged_peer) = discovered_peer(
+        assert!(discovered_peer(
             &forged_reply,
             "192.168.1.9:99".parse().unwrap(),
             "own",
-            &challenge.nonce,
+            &challenge,
         )
-        .unwrap();
-        assert!(!serde_json::to_string(&forged_peer).unwrap().contains(tc));
-        assert!(plan_lan_upgrade(tc, &public, &[forged_peer], &lan_locals(), "00", &challenge).is_none());
+        .is_none());
+        assert!(plan_lan_upgrade(tc, &public, &[], &lan_locals(), "00", &challenge).is_none());
         assert_eq!(transport_after_lan_error("forged discovery"), "tailcat");
     }
 
@@ -2467,7 +2458,7 @@ mod tests {
             &reply,
             "192.168.1.8:99".parse().unwrap(),
             "own",
-            &challenge.nonce
+            &challenge
         )
         .is_none());
         assert!(plan_lan_upgrade(tc, &public, &[], &lan_locals(), "00", &challenge).is_none());

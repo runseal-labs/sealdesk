@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sealdesk/common/sealdesk_connect.dart';
 import 'package:sealdesk/common/sealdesk_connect_target.dart';
 import 'package:sealdesk/common/widgets/sealdesk_lan_peers_tab.dart';
 import 'package:sealdesk/generated_bridge.dart';
@@ -39,28 +38,6 @@ class _LanTabBinding extends Fake implements SealdeskImpl {
 }
 
 void main() {
-  test('version 1 is unmarked and version 2 does not need confirmation', () {
-    final legacy = SealDeskLanDevice.fromJson({
-      'name': 'Old',
-      'protocol': 'sealdesk',
-      'identity_checked': false,
-    });
-    final current = SealDeskLanDevice.fromJson({
-      'name': 'New',
-      'protocol': 'sealdesk',
-      'identity_checked': true,
-    });
-    final omitted = SealDeskLanDevice.fromJson({
-      'protocol': 'sealdesk',
-    });
-    expect(legacy.needsIdentityConfirmation, isTrue);
-    expect(sealDeskLanNeedsIdentityConfirmation('sealdesk', false), isTrue);
-    expect(current.needsIdentityConfirmation, isFalse);
-    expect(omitted.needsIdentityConfirmation, isFalse);
-    expect(
-        sealDeskLanNeedsIdentityConfirmation('rustdesk', false), isFalse);
-  });
-
   final binding = _LanTabBinding();
 
   setUp(() {
@@ -120,39 +97,6 @@ void main() {
     expect(find.byKey(ValueKey('sealdesk-lan-terminal-$android')), findsNothing);
     await tester.tap(find.byKey(ValueKey('sealdesk-lan-terminal-$desktop')));
     await tester.pump();
-    tester.takeException();
-    await tester.pumpWidget(const SizedBox());
-    await tester.pump();
-  });
-
-  testWidgets('version 1 is labeled unverified and connect waits for confirmation',
-      (tester) async {
-    final address = 'lan:192.168.1.6:21118/${'aa' * 32}';
-    binding.peers.add({
-      'name': 'Old host',
-      'ip': '192.168.1.6',
-      'address': address,
-      'protocol': 'sealdesk',
-      'identity_checked': false,
-    });
-    await tester.pumpWidget(const MaterialApp(
-        home: Scaffold(body: SealDeskLanPeersTab())));
-    await tester.pumpAndSettle();
-    expect(find.text(kSealDeskUnverifiedIdentity), findsOneWidget);
-    expect(find.text(kSealDeskEncryptedChip), findsNothing);
-    await tester.tap(find.byKey(ValueKey('sealdesk-lan-connect-$address')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('sealdesk-unverified-lan')), findsOneWidget);
-    expect(binding.options[address], isNull);
-    await tester.tap(find.text('Cancel'));
-    await tester.pumpAndSettle();
-    expect(binding.options[address], isNull);
-    await tester.tap(find.byKey(ValueKey('sealdesk-lan-connect-$address')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('sealdesk-unverified-lan-continue')));
-    await tester.pump();
-    expect(binding.options[address]?[kSealDeskPasswordKind],
-        kSealDeskPasswordPermanent);
     tester.takeException();
     await tester.pumpWidget(const SizedBox());
     await tester.pump();

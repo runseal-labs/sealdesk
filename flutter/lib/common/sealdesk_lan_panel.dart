@@ -3,8 +3,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../common.dart';
 import '../models/platform_model.dart';
-import 'sealdesk_connect.dart';
-import 'sealdesk_connect_target.dart';
 
 class SealDeskLanPanel extends StatefulWidget {
   final bool host;
@@ -78,12 +76,6 @@ class _SealDeskLanPanelState extends State<SealDeskLanPanel> {
   }
 
   Future<void> _connectDiscovered(Map<String, dynamic> peer) async {
-    final protocol = peer['protocol'] as String? ?? 'sealdesk';
-    final checked = peer['identity_checked'] != false;
-    if (sealDeskLanNeedsIdentityConfirmation(protocol, checked)) {
-      final accepted = await confirmSealDeskUnverifiedLan(context);
-      if (!accepted || !mounted) return;
-    }
     await widget.connectPeer(peer['address'] as String);
   }
 
@@ -142,11 +134,7 @@ class _SealDeskLanPanelState extends State<SealDeskLanPanel> {
                   ? (item['key'] as String).substring(0, 12)
                   : item['protocol'] == 'rustdesk'
                       ? translate('Compatible with RustDesk · Unencrypted')
-                      : sealDeskLanNeedsIdentityConfirmation(
-                              item['protocol'] as String? ?? 'sealdesk',
-                              item['identity_checked'] != false)
-                          ? translate(kSealDeskUnverifiedIdentity)
-                          : translate('Encrypted direct connection')),
+                      : translate('Encrypted direct connection')),
               trailing: TextButton(
                   onPressed: () async {
                     if (widget.host) {

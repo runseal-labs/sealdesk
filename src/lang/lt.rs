@@ -935,7 +935,5 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Arrow right", ""),
         ("Page down", ""),
         ("Long press", ""),
-        ("Identity not verified", "Tapatybė nepatikrinta"),
-        ("This device did not complete an identity check. Connect only if you trust it on this network.", "Šis įrenginys nebaigė tapatybės patikros. Jungkitės tik jei juo pasitikite šiame tinkle."),
     ].iter().cloned().collect();
 }
