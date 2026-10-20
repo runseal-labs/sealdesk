@@ -1145,15 +1145,35 @@ fn ipv6_same(left: Ipv6Addr, right: Ipv6Addr, prefix: u8) -> bool {
     (u128::from(left) & mask) == (u128::from(right) & mask)
 }
 
+pub(crate) fn plan_tailcat_lan_upgrade(
+    peer: &str,
+    peers: &[Peer],
+    locals: &[LocalNet],
+    local_key: &str,
+    force_relay: bool,
+) -> Option<LanUpgrade> {
+    if force_relay {
+        return None;
+    }
+    plan_lan_upgrade(peer, peers, locals, local_key)
+}
+
 pub(crate) async fn prepare_tailcat_lan_upgrade(peer: &str) -> Option<LanUpgrade> {
     if !lan_discovery_enabled() || !crate::tailcat::is_addr(peer) {
         return None;
     }
+    let force_relay = crate::tailcat::peer_force_relay(peer);
     let peer = peer.to_owned();
     let peers = tokio::task::spawn_blocking(|| discover().unwrap_or_default())
         .await
         .unwrap_or_default();
-    plan_lan_upgrade(&peer, &peers, &local_segments(), &local_identity_hex())
+    plan_tailcat_lan_upgrade(
+        &peer,
+        &peers,
+        &local_segments(),
+        &local_identity_hex(),
+        force_relay,
+    )
 }
 #[cfg(test)]
 mod tests {
@@ -1742,6 +1762,18 @@ mod tests {
             prefix: 24,
         };
         assert!(plan_lan_upgrade(tc, &peers, &[other], "00").is_none());
+    }
+
+    #[test]
+    fn forced_relay_skips_lan_upgrade_for_that_peer_only() {
+        let forced = "tcabcdefghijklmnopqrstuvwxyz0123456789ABCD";
+        let other = "tcabcdefghijklmnopqrstuvwxyz0123456789WXYZ";
+        let forced_peer = bound_peer(forced, 9, "192.168.1.9");
+        let other_peer = bound_peer(other, 8, "192.168.1.8");
+        let peers = vec![forced_peer, other_peer];
+        assert!(plan_tailcat_lan_upgrade(forced, &peers, &lan_locals(), "00", true).is_none());
+        assert!(plan_tailcat_lan_upgrade(other, &peers, &lan_locals(), "00", false).is_some());
+        assert!(plan_tailcat_lan_upgrade(forced, &peers, &lan_locals(), "00", false).is_some());
     }
 
     #[test]

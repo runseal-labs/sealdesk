@@ -301,8 +301,47 @@ func clientFor(ctx context.Context, addr, keyPath, source string) (tunnelClient,
 			}
 			cl.Key = k
 		}
+		if peerRelayOnlyEnabled(addr) {
+			cl.SetPeerRelayOnly(true)
+		}
 		return &configuredClient{Client: cl}, nil
 	})
+}
+
+var (
+	relayMu sync.Mutex
+	relayOn = map[string]bool{}
+)
+
+func peerRelayOnlyEnabled(addr string) bool {
+	relayMu.Lock()
+	defer relayMu.Unlock()
+	return relayOn[addr]
+}
+
+func setPeerForceRelay(addr string, on bool) {
+	relayMu.Lock()
+	if on {
+		relayOn[addr] = true
+	} else {
+		delete(relayOn, addr)
+	}
+	relayMu.Unlock()
+	clients.setRelayOnly(addr, on)
+}
+
+// TcSetPeerForceRelay keeps addr on DERP when on is non-zero. The choice is
+// remembered for the next tunnel to that address and applied immediately to a
+// tunnel that is already up. Other addresses are unchanged.
+//
+//export TcSetPeerForceRelay
+func TcSetPeerForceRelay(addr *C.char, on C.int) *C.char {
+	peer := strings.TrimSpace(C.GoString(addr))
+	if peer == "" {
+		return cerr(errors.New("missing peer"))
+	}
+	setPeerForceRelay(peer, on != 0)
+	return cstr("")
 }
 
 type clientKeyFile struct {

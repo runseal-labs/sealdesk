@@ -1,0 +1,7 @@
+go.mod filter=go-mod
+*.go  diff=golang
+
+# Keep LF even on core.autocrlf=true checkouts (like GitHub's Windows
+# CI runners): a CRLF build-tags.txt would put a stray carriage return
+# in the last build tag for anyone using $(cat build-tags.txt).
+build-tags.txt text eol=lf

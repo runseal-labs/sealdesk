@@ -1,0 +1,26 @@
+# This Dockerfile is used by GoReleaser to build the release container
+# image. It is not a conventional standalone Dockerfile: it expects
+# prebuilt tailcat binaries in per-platform subdirectories of the build
+# context rather than building from source, so building it directly
+# from a repo checkout will not work. See .goreleaser.yaml and
+# RELEASING.md.
+#
+# The distroless static base image provides CA certificates (needed to
+# dial DERP relays over TLS) and a writable home directory for the
+# nonroot user (used for the cached DERP map and generated keys).
+#
+# All state lives under the nonroot user's home directory: identity
+# keys in ~/.config/tailcat and the cached DERP map in ~/.cache/tailcat.
+# To persist it across runs, mount a volume over the home directory,
+# which a fresh named volume inherits nonroot ownership of:
+#
+#   docker run -v tailcat-state:/home/nonroot ghcr.io/tailscale/tailcat
+#
+# Alternatively, --key accepts an explicit path to a key file mounted
+# anywhere in the container.
+FROM gcr.io/distroless/static-debian12:nonroot
+
+ARG TARGETPLATFORM
+COPY $TARGETPLATFORM/tailcat /usr/local/bin/tailcat
+
+ENTRYPOINT ["/usr/local/bin/tailcat"]

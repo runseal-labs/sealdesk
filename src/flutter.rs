@@ -2047,6 +2047,16 @@ pub(super) fn session_update_virtual_display(session: &FlutterSession, index: i3
     }
 }
 
+/// Publish DERP for every live session to this peer. Used when force-relay
+/// drops an existing direct path without waiting for the next probe.
+pub(crate) fn publish_peer_relay_path(peer_id: &str) {
+    for session in sessions::get_sessions() {
+        if session.get_id() == peer_id {
+            session.update_tailcat_path(false);
+        }
+    }
+}
+
 // sessions mod is used to avoid the big lock of sessions' map.
 pub mod sessions {
 

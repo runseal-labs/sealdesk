@@ -172,6 +172,15 @@ fn build_tailcat() -> Result<(), Box<dyn std::error::Error>> {
     ] {
         println!("cargo:rerun-if-changed=libs/tailcat-ffi/{f}");
     }
+    for f in [
+        "third_party/tailscale/wgengine/magicsock/magicsock.go",
+        "third_party/tailscale/wgengine/magicsock/endpoint.go",
+        "third_party/tailscale/wgengine/magicsock/relayonly.go",
+        "third_party/tailcat/tailcat.go",
+        "third_party/tailcat/go.mod",
+    ] {
+        println!("cargo:rerun-if-changed={f}");
+    }
     println!("cargo:rerun-if-changed=src/tailcat/build_target.rs");
     Ok(())
 }

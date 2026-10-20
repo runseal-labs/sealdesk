@@ -67,6 +67,23 @@ func (cache *clientCache) acquire(ctx context.Context, id string, create func() 
 	}
 }
 
+func (cache *clientCache) setRelayOnly(addr string, on bool) {
+	cache.mu.Lock()
+	prefix := addr + "\x00"
+	targets := make([]tunnelClient, 0, 1)
+	for id, entry := range cache.entries {
+		if id == addr || strings.HasPrefix(id, prefix) {
+			targets = append(targets, entry.client)
+		}
+	}
+	cache.mu.Unlock()
+	for _, client := range targets {
+		if relay, ok := client.(interface{ SetPeerRelayOnly(bool) }); ok {
+			relay.SetPeerRelayOnly(on)
+		}
+	}
+}
+
 func (cache *clientCache) acquireExisting(prefix string) (tunnelClient, func(), error) {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()

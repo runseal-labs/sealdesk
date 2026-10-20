@@ -1097,6 +1097,15 @@ class SealdeskImpl {
     return Future.value();
   }
 
+  Future<void> mainSetPeerForceRelay(
+      {required String id, required bool on, dynamic hint}) {
+    return mainSetPeerOption(
+        id: id,
+        key: kOptionForceAlwaysRelay,
+        value: on ? 'Y' : 'N',
+        hint: hint);
+  }
+
   bool mainSetPeerOptionSync(
       {required String id,
       required String key,

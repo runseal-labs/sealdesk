@@ -1,0 +1,93 @@
+// Copyright (c) Tailscale Inc & contributors
+// SPDX-License-Identifier: BSD-3-Clause
+
+package safesocket
+
+import (
+	"fmt"
+	"testing"
+)
+
+// TestExpectedWindowsTypes is a copy of TestBasics specialized for Windows with
+// type assertions about the types of listeners and conns we expect.
+func TestExpectedWindowsTypes(t *testing.T) {
+	const sock = `\\.\pipe\tailscale-test`
+	ln, err := Listen(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := fmt.Sprintf("%T", ln), "*safesocket.winIOPipeListener"; got != want {
+		t.Errorf("got listener type %q; want %q", got, want)
+	}
+
+	errs := make(chan error, 2)
+
+	go func() {
+		s, err := ln.Accept()
+		if err != nil {
+			errs <- err
+			return
+		}
+		ln.Close()
+
+		wcc, ok := s.(*WindowsClientConn)
+		if !ok {
+			s.Close()
+			errs <- fmt.Errorf("accepted type %T; want WindowsClientConn", s)
+			return
+		}
+		if wcc.winioPipeConn.Fd() == 0 {
+			t.Error("accepted conn had unexpected zero fd")
+		}
+		tok, err := wcc.Token()
+		if err != nil {
+			t.Errorf("failed to retrieve client token: %v", err)
+		}
+		if tok == 0 {
+			t.Error("accepted conn had unexpected zero token")
+		}
+		tok.Close()
+
+		s.Write([]byte("hello"))
+
+		b := make([]byte, 1024)
+		n, err := s.Read(b)
+		if err != nil {
+			errs <- err
+			return
+		}
+		t.Logf("server read %d bytes.", n)
+		if string(b[:n]) != "world" {
+			errs <- fmt.Errorf("got %#v, expected %#v\n", string(b[:n]), "world")
+			return
+		}
+		s.Close()
+		errs <- nil
+	}()
+
+	go func() {
+		c, err := Connect(sock)
+		if err != nil {
+			errs <- err
+			return
+		}
+		c.Write([]byte("world"))
+		b := make([]byte, 1024)
+		n, err := c.Read(b)
+		if err != nil {
+			errs <- err
+			return
+		}
+		if string(b[:n]) != "hello" {
+			errs <- fmt.Errorf("got %#v, expected %#v\n", string(b[:n]), "hello")
+		}
+		c.Close()
+		errs <- nil
+	}()
+
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+}

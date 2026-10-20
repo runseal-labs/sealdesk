@@ -1356,6 +1356,24 @@ pub fn main_set_peer_option(id: String, key: String, value: String) {
     set_peer_option(id, key, value)
 }
 
+pub fn main_set_peer_force_relay(id: String, on: bool) {
+    let value = if on { "Y" } else { "N" };
+    set_peer_option(
+        id.clone(),
+        crate::tailcat::OPTION_FORCE_RELAY.to_owned(),
+        value.to_owned(),
+    );
+    if !crate::tailcat::is_addr(&id) {
+        return;
+    }
+    if let Err(error) = crate::tailcat::apply_peer_force_relay(&id, on) {
+        log::debug!("failed to apply per-peer relay: {error}");
+    }
+    if on {
+        crate::flutter::publish_peer_relay_path(&id);
+    }
+}
+
 pub fn main_set_peer_option_sync(id: String, key: String, value: String) -> SyncReturn<bool> {
     set_peer_option(id, key, value);
     SyncReturn(true)

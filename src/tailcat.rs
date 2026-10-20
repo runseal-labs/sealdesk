@@ -195,6 +195,7 @@ extern "C" {
     ) -> *mut c_char;
     fn TcCloseForward(addr: *const c_char);
     fn TcPath(addr: *const c_char, timeout_ms: c_int) -> *mut c_char;
+    fn TcSetPeerForceRelay(addr: *const c_char, on: c_int) -> *mut c_char;
     fn TcQR(s: *const c_char) -> *mut c_char;
     fn TcSetProbeUi(share: c_int, background: c_int, screen: c_int);
     fn TcSetProbeIncoming(incoming: c_int);
@@ -326,6 +327,27 @@ fn secure_key_file(path: &str) -> ResultType<()> {
     use std::os::unix::fs::PermissionsExt;
 
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    Ok(())
+}
+
+/// Peer option that keeps this peer on DERP. Missing or any value other than
+/// `Y` / `true` stays off.
+pub const OPTION_FORCE_RELAY: &str = "force-always-relay";
+
+pub(crate) fn force_relay_enabled(value: &str) -> bool {
+    value == "Y" || value == "true"
+}
+
+pub(crate) fn peer_force_relay(id: &str) -> bool {
+    hbb_common::config::PeerConfig::load(id)
+        .options
+        .get(OPTION_FORCE_RELAY)
+        .is_some_and(|value| force_relay_enabled(value))
+}
+
+pub(crate) fn apply_peer_force_relay(addr: &str, on: bool) -> ResultType<()> {
+    let address = cstring(addr)?;
+    take(unsafe { TcSetPeerForceRelay(address.as_ptr(), c_int::from(on)) })?;
     Ok(())
 }
 
@@ -634,6 +656,15 @@ mod tests {
         assert_eq!(path_is_direct("direct "), None);
         assert_eq!(path_is_direct(""), None);
         assert_eq!(path_is_direct("ERR:no active tunnel"), None);
+    }
+
+    #[test]
+    fn force_relay_option_defaults_off() {
+        assert!(!super::force_relay_enabled(""));
+        assert!(!super::force_relay_enabled("N"));
+        assert!(!super::force_relay_enabled("false"));
+        assert!(super::force_relay_enabled("Y"));
+        assert!(super::force_relay_enabled("true"));
     }
 
     #[test]

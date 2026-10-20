@@ -224,6 +224,10 @@ impl Client {
         if !crate::tailcat::is_addr(peer) {
             bail!("Unsupported peer {peer:?}: connect with the peer's tailcat address (tc...)");
         }
+        let force_relay = crate::tailcat::peer_force_relay(peer);
+        if let Err(error) = crate::tailcat::apply_peer_force_relay(peer, force_relay) {
+            log::debug!("failed to apply per-peer relay: {error}");
+        }
         if let Some(upgrade) = crate::lan::prepare_tailcat_lan_upgrade(peer).await {
             if !upgrade.delay.is_zero() {
                 hbb_common::tokio::time::sleep(upgrade.delay).await;
