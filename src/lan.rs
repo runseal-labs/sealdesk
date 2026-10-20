@@ -8,12 +8,15 @@ use hbb_common::{
     protobuf::Message as _,
     rendezvous_proto::{rendezvous_message, PeerDiscovery, RendezvousMessage},
     sodiumoxide::{
-        crypto::{auth, box_, scalarmult::curve25519, secretbox, sign},
+        crypto::{
+            aead::xchacha20poly1305_ietf, box_, scalarmult::curve25519, secretbox, sign,
+        },
         randombytes,
     },
     tcp, tokio, ResultType, Stream,
 };
 use serde::{Deserialize, Serialize};
+use zeroize::{Zeroize, Zeroizing};
 use std::{
     collections::BTreeMap,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket},
@@ -21,7 +24,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Mutex,
     },
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 #[path = "lan_udp.rs"]
 mod udp;
@@ -122,9 +125,9 @@ pub struct Peer {
     pub platform: String,
     #[serde(default)]
     pub tailcat: String,
-    /// Hex MAC from the discovery hint. Empty when the peer did not prove a tailcat binding.
+    /// Hex possession proof from the discovery hint. Empty for a plaintext RustDesk reply.
     #[serde(default)]
-    pub mac: String,
+    pub proof: String,
     #[serde(default)]
     pub nonce: String,
 }
@@ -142,15 +145,21 @@ struct Hint {
     version: u32,
     key: String,
     port: u16,
-    /// Discovery nonce covered by `mac`. Not a tailcat credential.
+    /// Discovery nonce covered by `proof`. Not a tailcat credential.
     #[serde(default)]
     nonce: String,
-    /// PSK MAC binding `key` and `port` to the tailcat address. The address itself is never sent.
+    /// Possession proof sealed to this request. The tailcat address itself is never sent.
     #[serde(default)]
-    mac: String,
+    proof: String,
+    /// Hex node public key. The controller opens `proof` with it; the address stays off the wire.
+    #[serde(default)]
+    node: String,
 }
 
-const TAILCAT_BIND: &[u8] = b"sealdesk-lan-tailcat-bind-v1";
+const HINT_VERSION: u32 = 2;
+const PROTO_SEALDESK: &str = "sealdesk";
+const PROTO_COMPAT: &str = "compat";
+const POSSESSION_LABEL: &[u8] = b"sealdesk-lan-possession-v1";
 
 fn advertised_tcp_port(direct: bool) -> u16 {
     if direct {
@@ -167,71 +176,262 @@ fn compat_pong_id(direct: bool, ip: IpAddr) -> Option<String> {
     Some(SocketAddr::new(ip, advertised_tcp_port(true)).to_string())
 }
 
-fn binding_message(lan_key_hex: &str, port: u16, nonce: &[u8]) -> Option<Vec<u8>> {
-    if port == 0 || nonce.len() != 32 {
-        return None;
-    }
-    let key = hex::decode(lan_key_hex).ok()?;
-    if key.len() != sign::PUBLICKEYBYTES {
-        return None;
-    }
-    let mut msg = Vec::with_capacity(TAILCAT_BIND.len() + key.len() + 2 + nonce.len());
-    msg.extend_from_slice(TAILCAT_BIND);
-    msg.extend_from_slice(&key);
-    msg.extend_from_slice(&port.to_be_bytes());
-    msg.extend_from_slice(nonce);
-    Some(msg)
+/// One discovery request's ephemeral X25519 secret and nonce. Dropped, and the
+/// secret zeroized, when the request is finished. Only replies to this nonce
+/// are accepted.
+struct PossessionChallenge {
+    eph_public: [u8; 32],
+    nonce: [u8; 32],
+    secret: Zeroizing<[u8; 32]>,
 }
 
-/// MAC over the LAN public key, TCP port, and discovery nonce, keyed by the
-/// tailcat address the controller already holds. The address is a credential
-/// and stays off the wire.
-fn tailcat_binding_mac(tailcat: &str, lan_key_hex: &str, port: u16, nonce: &[u8]) -> String {
-    let Some(msg) = binding_message(lan_key_hex, port, nonce) else {
-        return String::new();
-    };
-    if !crate::tailcat::is_addr(tailcat) {
-        return String::new();
-    }
-    let mut state = auth::State::init(tailcat.as_bytes());
-    state.update(&msg);
-    hex::encode(state.finalize().as_ref())
+#[derive(Serialize, Deserialize)]
+struct PingBody {
+    domain: String,
+    eph: String,
+    nonce: String,
 }
 
-fn tailcat_binding_ok(
-    tailcat: &str,
-    lan_key_hex: &str,
+struct DiscoveryRound {
+    peers: Vec<Peer>,
+    challenge: PossessionChallenge,
+}
+
+fn ensure_sodium() -> bool {
+    hbb_common::sodiumoxide::init().is_ok()
+}
+
+fn decode32(hex_key: &str) -> Option<[u8; 32]> {
+    let bytes = hex::decode(hex_key).ok()?;
+    if bytes.len() != 32 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&bytes);
+    Some(out)
+}
+
+impl PossessionChallenge {
+    fn generate() -> Option<Self> {
+        if !ensure_sodium() {
+            return None;
+        }
+        let (public, mut secret) = box_::gen_keypair();
+        let kept = Zeroizing::new(secret.0);
+        secret.0.zeroize();
+        let mut nonce = [0u8; 32];
+        randombytes::randombytes_into(&mut nonce);
+        Some(Self {
+            eph_public: public.0,
+            nonce,
+            secret: kept,
+        })
+    }
+
+    fn ping_misc(&self) -> String {
+        serde_json::to_string(&PingBody {
+            domain: String::from_utf8_lossy(DOMAIN).into_owned(),
+            eph: hex::encode(self.eph_public),
+            nonce: hex::encode(self.nonce),
+        })
+        .unwrap_or_default()
+    }
+}
+
+fn parse_ping_challenge(query: &PeerDiscovery) -> Option<([u8; 32], [u8; 32])> {
+    let body: PingBody = serde_json::from_str(&query.misc).ok()?;
+    if body.domain.as_bytes() != DOMAIN {
+        return None;
+    }
+    Some((decode32(&body.eph)?, decode32(&body.nonce)?))
+}
+
+fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    const BLOCK: usize = 64;
+    let mut k = [0u8; BLOCK];
+    if key.len() > BLOCK {
+        let digest = Sha256::digest(key);
+        k[..32].copy_from_slice(&digest);
+    } else {
+        k[..key.len()].copy_from_slice(key);
+    }
+    let mut ipad = [0x36u8; BLOCK];
+    let mut opad = [0x5cu8; BLOCK];
+    for i in 0..BLOCK {
+        ipad[i] ^= k[i];
+        opad[i] ^= k[i];
+    }
+    let mut inner = Sha256::new();
+    inner.update(ipad);
+    inner.update(data);
+    let inner = inner.finalize();
+    let mut outer = Sha256::new();
+    outer.update(opad);
+    outer.update(inner);
+    let digest = outer.finalize();
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&digest);
+    k.zeroize();
+    ipad.zeroize();
+    opad.zeroize();
+    out
+}
+
+fn hkdf_sha256(salt: &[u8], ikm: &[u8], info: &[u8]) -> [u8; 32] {
+    let mut prk = hmac_sha256(salt, ikm);
+    let mut labeled = Vec::with_capacity(info.len() + 1);
+    labeled.extend_from_slice(info);
+    labeled.push(1);
+    let okm = hmac_sha256(&prk, &labeled);
+    prk.zeroize();
+    labeled.zeroize();
+    okm
+}
+
+fn x25519_public(secret: &[u8; 32]) -> Option<[u8; 32]> {
+    let scalar = curve25519::Scalar::from_slice(secret)?;
+    Some(curve25519::scalarmult_base(&scalar).0)
+}
+
+fn x25519_shared(secret: &[u8; 32], public: &[u8; 32]) -> Option<Zeroizing<[u8; 32]>> {
+    let scalar = curve25519::Scalar::from_slice(secret)?;
+    let point = curve25519::GroupElement(*public);
+    let shared = curve25519::scalarmult(&scalar, &point).ok()?;
+    Some(Zeroizing::new(shared.0))
+}
+
+fn possession_key(
+    our_secret: &[u8; 32],
+    their_public: &[u8; 32],
+    eph_public: &[u8; 32],
+    node_public: &[u8; 32],
+) -> Option<Zeroizing<[u8; 32]>> {
+    let shared = x25519_shared(our_secret, their_public)?;
+    let mut info = Vec::with_capacity(POSSESSION_LABEL.len() + 64);
+    info.extend_from_slice(POSSESSION_LABEL);
+    info.extend_from_slice(eph_public);
+    info.extend_from_slice(node_public);
+    let okm = hkdf_sha256(POSSESSION_LABEL, shared.as_ref(), &info);
+    info.zeroize();
+    Some(Zeroizing::new(okm))
+}
+
+/// Plaintext and AAD. Both cover the ephemeral public key, nonce, LAN public
+/// key, port, and protocol id (`sealdesk` or `compat`).
+fn possession_binding(
+    eph_public: &[u8; 32],
+    nonce: &[u8; 32],
+    lan_public: &[u8; 32],
     port: u16,
-    nonce_hex: &str,
-    mac_hex: &str,
-) -> bool {
-    if !crate::tailcat::is_addr(tailcat) {
-        return false;
+    protocol: &str,
+) -> Option<Vec<u8>> {
+    if port == 0 || (protocol != PROTO_SEALDESK && protocol != PROTO_COMPAT) {
+        return None;
     }
-    let (Ok(nonce), Ok(presented)) = (hex::decode(nonce_hex), hex::decode(mac_hex)) else {
-        return false;
-    };
-    let (Some(msg), Some(presented)) = (
-        binding_message(lan_key_hex, port, &nonce),
-        auth::Tag::from_slice(&presented),
-    ) else {
-        return false;
-    };
-    let mut state = auth::State::init(tailcat.as_bytes());
-    state.update(&msg);
-    state.finalize() == presented
+    let mut body = Vec::with_capacity(POSSESSION_LABEL.len() + 98 + protocol.len());
+    body.extend_from_slice(POSSESSION_LABEL);
+    body.extend_from_slice(eph_public);
+    body.extend_from_slice(nonce);
+    body.extend_from_slice(lan_public);
+    body.extend_from_slice(&port.to_be_bytes());
+    body.push(u8::try_from(protocol.len()).ok()?);
+    body.extend_from_slice(protocol.as_bytes());
+    Some(body)
 }
 
-fn sealdesk_hint(lan_key: &str, direct: bool, tailcat: &str) -> Hint {
+/// Seal a possession proof to the controller's ephemeral key with the tailcat
+/// node secret. X25519, then HKDF-SHA256, then XChaCha20-Poly1305. The binding
+/// is both the plaintext and the AAD.
+fn seal_possession(
+    node_secret: &[u8; 32],
+    eph_public: &[u8; 32],
+    nonce: &[u8; 32],
+    lan_public: &[u8; 32],
+    port: u16,
+    protocol: &str,
+) -> Option<String> {
+    if !ensure_sodium() {
+        return None;
+    }
+    let node_public = x25519_public(node_secret)?;
+    let key = possession_key(node_secret, eph_public, eph_public, &node_public)?;
+    let body = possession_binding(eph_public, nonce, lan_public, port, protocol)?;
+    let aead_nonce = xchacha20poly1305_ietf::gen_nonce();
+    let mut aead_key = xchacha20poly1305_ietf::Key(*key);
+    let ciphertext = xchacha20poly1305_ietf::seal(&body, Some(&body), &aead_nonce, &aead_key);
+    aead_key.0.zeroize();
+    let mut packed = Vec::with_capacity(aead_nonce.0.len() + ciphertext.len());
+    packed.extend_from_slice(&aead_nonce.0);
+    packed.extend_from_slice(&ciphertext);
+    Some(hex::encode(packed))
+}
+
+fn open_possession(
+    node_public: &[u8; 32],
+    eph_secret: &[u8; 32],
+    eph_public: &[u8; 32],
+    nonce: &[u8; 32],
+    lan_public: &[u8; 32],
+    port: u16,
+    protocol: &str,
+    proof_hex: &str,
+) -> bool {
+    if !ensure_sodium() || proof_hex.len() > 1024 {
+        return false;
+    }
+    let Ok(packed) = hex::decode(proof_hex) else {
+        return false;
+    };
+    if packed.len() < xchacha20poly1305_ietf::NONCEBYTES + xchacha20poly1305_ietf::TAGBYTES {
+        return false;
+    }
+    let (nonce_bytes, ciphertext) = packed.split_at(xchacha20poly1305_ietf::NONCEBYTES);
+    let Some(aead_nonce) = xchacha20poly1305_ietf::Nonce::from_slice(nonce_bytes) else {
+        return false;
+    };
+    let Some(body) = possession_binding(eph_public, nonce, lan_public, port, protocol) else {
+        return false;
+    };
+    let Some(key) = possession_key(eph_secret, node_public, eph_public, node_public) else {
+        return false;
+    };
+    let mut aead_key = xchacha20poly1305_ietf::Key(*key);
+    let opened = xchacha20poly1305_ietf::open(ciphertext, Some(&body), &aead_nonce, &aead_key);
+    aead_key.0.zeroize();
+    let Ok(clear) = opened else {
+        return false;
+    };
+    clear.len() == body.len() && hbb_common::sodiumoxide::utils::memcmp(&clear, &body)
+}
+
+fn sealdesk_hint(
+    lan_key_hex: &str,
+    direct: bool,
+    request: Option<&([u8; 32], [u8; 32])>,
+    node_secret: Option<&[u8; 32]>,
+) -> Hint {
     let port = advertised_tcp_port(direct);
-    let nonce = randombytes::randombytes(32);
-    let mac = tailcat_binding_mac(tailcat, lan_key, port, &nonce);
+    let (nonce, proof, node) = match (request, node_secret, decode32(lan_key_hex)) {
+        (Some((eph, nonce)), Some(secret), Some(lan_public)) if port != 0 => {
+            let proof = seal_possession(secret, eph, nonce, &lan_public, port, PROTO_SEALDESK)
+                .unwrap_or_default();
+            let node = x25519_public(secret).map(hex::encode).unwrap_or_default();
+            if proof.is_empty() || node.is_empty() {
+                (String::new(), String::new(), String::new())
+            } else {
+                (hex::encode(nonce), proof, node)
+            }
+        }
+        _ => (String::new(), String::new(), String::new()),
+    };
     Hint {
-        version: 1,
-        key: lan_key.to_owned(),
+        version: HINT_VERSION,
+        key: lan_key_hex.to_owned(),
         port,
-        nonce: hex::encode(nonce),
-        mac,
+        nonce,
+        proof,
+        node,
     }
 }
 
@@ -602,6 +802,83 @@ pub async fn serve(server: crate::server::ServerPtr) {
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
 }
+/// Node secret used to seal a possession proof. Stat and read run on a
+/// blocking thread. The async loop only receives `Option<Zeroizing<[u8; 32]>>`.
+/// `tailcat-server.json` is reread only when its mtime or length changes, so one
+/// peer cannot stall discovery by forcing a parse on every ping. The key and
+/// the file contents are never logged.
+struct NodeSecretCache {
+    path: String,
+    seen: bool,
+    stamp: Option<(Option<SystemTime>, u64)>,
+    key: Option<Zeroizing<[u8; 32]>>,
+}
+
+impl NodeSecretCache {
+    fn load() -> Self {
+        let mut cache = Self {
+            path: crate::tailcat::server_key_path(),
+            seen: false,
+            stamp: None,
+            key: None,
+        };
+        cache.refresh_if_changed();
+        cache
+    }
+
+    fn refresh_if_changed(&mut self) {
+        let meta = std::fs::metadata(&self.path).ok();
+        let stamp = meta
+            .as_ref()
+            .map(|meta| (meta.modified().ok(), meta.len()));
+        if self.seen && stamp == self.stamp {
+            return;
+        }
+        self.stamp = stamp;
+        self.seen = true;
+        self.key = if meta.is_some() {
+            crate::tailcat::node_private_key()
+        } else {
+            None
+        };
+    }
+}
+
+/// Loads and refreshes the node secret on `spawn_blocking`. Only the key is
+/// sent back; an unchanged mtime and length does not read the file.
+fn watch_node_secret() -> (
+    tokio::sync::mpsc::Receiver<Option<Zeroizing<[u8; 32]>>>,
+    tokio::task::JoinHandle<()>,
+) {
+    let (tx, rx) = tokio::sync::mpsc::channel(1);
+    let task = tokio::spawn(async move {
+        let mut cache = match tokio::task::spawn_blocking(NodeSecretCache::load).await {
+            Ok(cache) => cache,
+            Err(_) => return,
+        };
+        if tx.send(cache.key.clone()).await.is_err() {
+            return;
+        }
+        loop {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let before = cache.stamp;
+            cache = match tokio::task::spawn_blocking(move || {
+                cache.refresh_if_changed();
+                cache
+            })
+            .await
+            {
+                Ok(cache) => cache,
+                Err(_) => return,
+            };
+            if cache.stamp != before && tx.send(cache.key.clone()).await.is_err() {
+                return;
+            }
+        }
+    });
+    (rx, task)
+}
+
 async fn serve_round(server: crate::server::ServerPtr) -> ResultType<()> {
     let direct = direct_server_enabled();
     let discovery = lan_discovery_enabled();
@@ -657,6 +934,15 @@ async fn serve_round(server: crate::server::ServerPtr) -> ResultType<()> {
         }
         READY.store(true, Ordering::SeqCst);
     }
+    let (mut node_key_rx, mut watch_node_key) = if discovery {
+        let (rx, task) = watch_node_secret();
+        tasks.push(task);
+        (rx, true)
+    } else {
+        let (_tx, rx) = tokio::sync::mpsc::channel(1);
+        (rx, false)
+    };
+    let mut node_key: Option<Zeroizing<[u8; 32]>> = None;
     let _abort = AbortOnDrop(tasks);
     let (udp_tx, mut udp_rx) = tokio::sync::mpsc::channel(32);
     let mut listeners = udp::ListenerSet::empty();
@@ -697,7 +983,13 @@ async fn serve_round(server: crate::server::ServerPtr) -> ResultType<()> {
             }
         }
         tokio::select! {
-            _ = tokio::time::sleep(Duration::from_millis(100)) => {},
+            _ = tokio::time::sleep(Duration::from_millis(100)) => {}
+            loaded = node_key_rx.recv(), if watch_node_key => {
+                match loaded {
+                    Some(key) => node_key = key,
+                    None => watch_node_key = false,
+                }
+            },
             incoming = rx.recv(), if direct => {
                 let Some((socket, addr)) = incoming else { return Ok(()); };
                 let local = socket.local_addr()?;
@@ -724,8 +1016,17 @@ async fn serve_round(server: crate::server::ServerPtr) -> ResultType<()> {
                 let mut reply = RendezvousMessage::new();
                 let sealdesk_ping = sealdesk_discovery(&query);
                 let (id, misc) = if sealdesk_ping {
-                    let tailcat = Config::get_option(crate::tailcat::OPTION_ADDR);
-                    (key.clone(), serde_json::to_string(&sealdesk_hint(&key, direct, &tailcat))?)
+                    let request = parse_ping_challenge(&query);
+                    let hint = sealdesk_hint(
+                        &key,
+                        direct,
+                        request.as_ref(),
+                        node_key.as_deref(),
+                    );
+                    if hint.proof.is_empty() {
+                        continue;
+                    }
+                    (key.clone(), serde_json::to_string(&hint)?)
                 } else if !direct {
                     continue;
                 } else {
@@ -844,14 +1145,13 @@ fn discovery_source_ok(ip: IpAddr) -> bool {
 }
 pub fn discover_json() -> String {
     match discover() {
-        Ok(peers) => serde_json::to_string(&peers).unwrap_or_else(|_| "[]".into()),
+        Ok(round) => serde_json::to_string(&round.peers).unwrap_or_else(|_| "[]".into()),
         Err(e) => {
             log::trace!("LAN discovery: {e}");
             "[]".into()
         }
     }
 }
-
 #[cfg(unix)]
 fn discovery_interface_flags(flags: u32) -> bool {
     use hbb_common::libc::{IFF_BROADCAST, IFF_LOOPBACK, IFF_POINTOPOINT, IFF_UP};
@@ -945,14 +1245,16 @@ fn windows_virtual_adapter_text(text: &str) -> bool {
         .any(|marker| text.contains(marker))
 }
 
-fn discover() -> ResultType<Vec<Peer>> {
+fn discover() -> ResultType<DiscoveryRound> {
     let (key, _) = identity()?;
     let own = hex::encode(key.0);
+    let challenge =
+        PossessionChallenge::generate().context("LAN discovery challenge unavailable")?;
     let mut query = RendezvousMessage::new();
     query.set_peer_discovery(PeerDiscovery {
         cmd: "ping".into(),
         id: own.clone(),
-        misc: String::from_utf8_lossy(DOMAIN).into_owned(),
+        misc: challenge.ping_misc(),
         ..Default::default()
     });
     let bytes = query.write_to_bytes()?;
@@ -992,7 +1294,7 @@ fn discover() -> ResultType<Vec<Peer>> {
                 let Some(rendezvous_message::Union::PeerDiscovery(reply)) = msg.union else {
                     continue;
                 };
-                if let Some((id, peer)) = discovered_peer(&reply, addr, &own) {
+                if let Some((id, peer)) = discovered_peer(&reply, addr, &own, &challenge) {
                     peers.insert(id, peer);
                 }
             }
@@ -1002,14 +1304,22 @@ fn discover() -> ResultType<Vec<Peer>> {
         }
         std::thread::sleep(Duration::from_millis(5));
     }
-    Ok(peers.into_values().collect())
+    Ok(DiscoveryRound {
+        peers: peers.into_values().collect(),
+        challenge,
+    })
 }
 
-fn discovered_peer(reply: &PeerDiscovery, addr: SocketAddr, own: &str) -> Option<(String, Peer)> {
+fn discovered_peer(
+    reply: &PeerDiscovery,
+    addr: SocketAddr,
+    own: &str,
+    challenge: &PossessionChallenge,
+) -> Option<(String, Peer)> {
     if reply.cmd != "pong" || !private(addr.ip()) {
         return None;
     }
-    let (id, address, protocol, mac, nonce) = if reply.misc.is_empty() {
+    let (id, address, protocol, proof, nonce) = if reply.misc.is_empty() {
         if !crate::common::is_valid_untrusted_peer_id(&reply.id) {
             return None;
         }
@@ -1023,9 +1333,11 @@ fn discovered_peer(reply: &PeerDiscovery, addr: SocketAddr, own: &str) -> Option
         )
     } else {
         // A malformed SealDesk identity must never fall back to plaintext RustDesk.
-        // `tailcat` inside misc is ignored: the address is a credential and is not a binding.
+        // A tailcat address inside misc is ignored: the address is a credential,
+        // not a possession proof. Version-1 replies, other nonces, and proofs that
+        // do not open are discarded.
         let hint = serde_json::from_str::<Hint>(&reply.misc).ok()?;
-        if hint.version != 1
+        if hint.version != HINT_VERSION
             || hint.key == own
             || hint.port == 0
             || hex::decode(&hint.key)
@@ -1034,12 +1346,30 @@ fn discovered_peer(reply: &PeerDiscovery, addr: SocketAddr, own: &str) -> Option
         {
             return None;
         }
+        let nonce = decode32(&hint.nonce)?;
+        if nonce != challenge.nonce {
+            return None;
+        }
+        let lan_public = decode32(&hint.key)?;
+        let node_public = decode32(&hint.node)?;
+        if !open_possession(
+            &node_public,
+            &challenge.secret,
+            &challenge.eph_public,
+            &challenge.nonce,
+            &lan_public,
+            hint.port,
+            PROTO_SEALDESK,
+            &hint.proof,
+        ) {
+            return None;
+        }
         let endpoint = SocketAddr::new(addr.ip(), hint.port);
         (
             hint.key.clone(),
             format!("lan:{endpoint}/{}", hint.key),
-            "sealdesk",
-            hint.mac,
+            PROTO_SEALDESK,
+            hint.proof,
             hint.nonce,
         )
     };
@@ -1062,7 +1392,7 @@ fn discovered_peer(reply: &PeerDiscovery, addr: SocketAddr, own: &str) -> Option
                 .take(64)
                 .collect(),
             tailcat: String::new(),
-            mac,
+            proof,
             nonce,
         },
     ))
@@ -1129,7 +1459,7 @@ pub(crate) fn lan_dial_delay(local_key: &str, remote_key: &str) -> Duration {
     }
 }
 
-/// Any LAN failure, including a signature or identity mismatch, uses tailcat.
+/// Any LAN failure, including an identity-check mismatch, uses tailcat.
 pub(crate) fn transport_after_lan_error(message: &str) -> &'static str {
     let _ = message;
     "tailcat"
@@ -1140,27 +1470,30 @@ pub(crate) fn is_encrypted_lan_channel(address: &str) -> bool {
 }
 
 /// Known `tc` peers on the same private subnet upgrade to `lan:` only when the
-/// discovery MAC binds that `tc` to the advertised LAN key, port, and nonce.
-/// A forged or unsigned association is ignored so the caller stays on tailcat.
-/// A plaintext RustDesk address is never treated as that encrypted channel.
+/// reply's possession proof opens with that address's node public key and this
+/// request's ephemeral key. A forged reply, or one from another request, is
+/// ignored so the caller stays on tailcat. A plaintext RustDesk address is
+/// never treated as that encrypted channel.
 pub(crate) fn plan_lan_upgrade(
     peer: &str,
+    node_public: &[u8; 32],
     peers: &[Peer],
     locals: &[LocalNet],
     local_key: &str,
+    challenge: &PossessionChallenge,
 ) -> Option<LanUpgrade> {
     if !crate::tailcat::is_addr(peer) {
         return None;
     }
     let found = peers.iter().find(|candidate| {
-        candidate.protocol == "sealdesk"
+        candidate.protocol == PROTO_SEALDESK
             && is_encrypted_lan_channel(&candidate.address)
             && candidate
                 .ip
                 .parse::<IpAddr>()
                 .ok()
                 .is_some_and(|ip| same_segment(ip, locals))
-            && lan_upgrade_authenticated(peer, candidate)
+            && lan_upgrade_authenticated(node_public, candidate, challenge)
     })?;
     let remote_key = found.address.rsplit_once('/')?.1.to_owned();
     if remote_key.len() != 64 {
@@ -1173,16 +1506,32 @@ pub(crate) fn plan_lan_upgrade(
     })
 }
 
-fn lan_upgrade_authenticated(tailcat: &str, candidate: &Peer) -> bool {
+fn lan_upgrade_authenticated(
+    node_public: &[u8; 32],
+    candidate: &Peer,
+    challenge: &PossessionChallenge,
+) -> bool {
+    if candidate.protocol != PROTO_SEALDESK {
+        return false;
+    }
     let Ok((addr, key)) = parse_addr(&candidate.address) else {
         return false;
     };
-    tailcat_binding_ok(
-        tailcat,
-        &hex::encode(key.0),
+    let Some(nonce) = decode32(&candidate.nonce) else {
+        return false;
+    };
+    if nonce != challenge.nonce {
+        return false;
+    }
+    open_possession(
+        node_public,
+        &challenge.secret,
+        &challenge.eph_public,
+        &challenge.nonce,
+        &key.0,
         addr.port(),
-        &candidate.nonce,
-        &candidate.mac,
+        PROTO_SEALDESK,
+        &candidate.proof,
     )
 }
 
@@ -1223,10 +1572,20 @@ pub(crate) async fn prepare_tailcat_lan_upgrade(peer: &str) -> Option<LanUpgrade
         return None;
     }
     let peer = peer.to_owned();
-    let peers = tokio::task::spawn_blocking(|| discover().unwrap_or_default())
-        .await
-        .unwrap_or_default();
-    plan_lan_upgrade(&peer, &peers, &local_segments(), &local_identity_hex())
+    let Ok(Ok(round)) = tokio::task::spawn_blocking(discover).await else {
+        return None;
+    };
+    let Some(node_public) = crate::tailcat::node_public(&peer) else {
+        return None;
+    };
+    plan_lan_upgrade(
+        &peer,
+        &node_public,
+        &round.peers,
+        &local_segments(),
+        &local_identity_hex(),
+        &round.challenge,
+    )
 }
 #[cfg(test)]
 mod tests {
@@ -1494,8 +1853,9 @@ mod tests {
             id: "123456789".into(),
             ..Default::default()
         };
+        let challenge = fresh_challenge();
         for address in ["100.64.1.7:21119", "169.254.1.7:21119", "8.8.8.8:21119"] {
-            assert!(discovered_peer(&reply, address.parse().unwrap(), "own").is_none());
+            assert!(discovered_peer(&reply, address.parse().unwrap(), "own", &challenge).is_none());
         }
     }
     #[test]
@@ -1507,40 +1867,105 @@ mod tests {
             ..Default::default()
         };
         let source = "192.168.1.7:45678".parse().unwrap();
-        let (_, peer) = discovered_peer(&reply, source, "own").unwrap();
+        let challenge = fresh_challenge();
+        let (_, peer) = discovered_peer(&reply, source, "own", &challenge).unwrap();
         assert_eq!(peer.address, "192.168.1.7:21118");
         assert_eq!(peer.protocol, "rustdesk");
         reply.id = "bad/id".into();
-        assert!(discovered_peer(&reply, source, "own").is_none());
+        assert!(discovered_peer(&reply, source, "own", &challenge).is_none());
         reply.id = "123456789".into();
-        assert!(discovered_peer(&reply, "8.8.8.8:1234".parse().unwrap(), "own").is_none());
+        assert!(discovered_peer(&reply, "8.8.8.8:1234".parse().unwrap(), "own", &challenge).is_none());
     }
     #[test]
     fn sealdesk_discovery_preserves_identity_and_never_downgrades() {
         let key = hex::encode([7u8; 32]);
+        let (_public, secret) = node_keypair();
+        let challenge = fresh_challenge();
+        let request = (challenge.eph_public, challenge.nonce);
+        let hint = sealdesk_hint(&key, true, Some(&request), Some(&secret));
         let mut reply = PeerDiscovery {
             cmd: "pong".into(),
             id: key.clone(),
-            misc: serde_json::to_string(&Hint {
-                version: 1,
-                key: key.clone(),
-                port: TCP_PORT,
-                nonce: String::new(),
-                mac: String::new(),
-            })
-            .unwrap(),
+            misc: serde_json::to_string(&hint).unwrap(),
             ..Default::default()
         };
         let source = "192.168.1.8:1234".parse().unwrap();
-        let (_, peer) = discovered_peer(&reply, source, "own").unwrap();
+        let (_, peer) = discovered_peer(&reply, source, "own", &challenge).unwrap();
         assert_eq!(peer.address, format!("lan:192.168.1.8:{TCP_PORT}/{key}"));
         assert_eq!(peer.protocol, "sealdesk");
-        assert!(discovered_peer(&reply, source, &key).is_none());
-        for misc in ["{", "{}", r#"{"version":2,"key":"bad","port":21118}"#] {
+        assert!(discovered_peer(&reply, source, &key, &challenge).is_none());
+        assert!(discovered_peer(&reply, source, "own", &fresh_challenge()).is_none());
+        for misc in [
+            "{",
+            "{}",
+            r#"{"version":1,"key":"bad","port":21118}"#,
+            r#"{"version":3,"key":"bad","port":21118}"#,
+        ] {
             reply.misc = misc.into();
-            assert!(discovered_peer(&reply, source, "own").is_none());
+            assert!(discovered_peer(&reply, source, "own", &challenge).is_none());
         }
     }
+
+    fn legacy_version_1_reply(key: &str) -> PeerDiscovery {
+        let mac = "ab".repeat(32);
+        PeerDiscovery {
+            cmd: "pong".into(),
+            id: key.into(),
+            hostname: "Old host".into(),
+            misc: format!(
+                r#"{{"version":1,"key":"{key}","port":{TCP_PORT},"nonce":"{}","mac":"{mac}","proof":"deadbeef"}}"#,
+                hex::encode([1u8; 32])
+            ),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn version_1_and_unproved_replies_are_discarded() {
+        let key = hex::encode([7u8; 32]);
+        let (public, secret) = node_keypair();
+        let challenge = fresh_challenge();
+        let source = "192.168.1.8:1234".parse().unwrap();
+        assert!(discovered_peer(&legacy_version_1_reply(&key), source, "own", &challenge).is_none());
+        let request = (challenge.eph_public, challenge.nonce);
+        let mut hint = sealdesk_hint(&key, true, Some(&request), Some(&secret));
+        assert_eq!(hint.version, HINT_VERSION);
+        assert_eq!(hint.node, hex::encode(public));
+        let proved = PeerDiscovery {
+            cmd: "pong".into(),
+            hostname: "Desk".into(),
+            misc: serde_json::to_string(&hint).unwrap(),
+            ..Default::default()
+        };
+        let (_, peer) = discovered_peer(&proved, source, "own", &challenge).unwrap();
+        assert_eq!(peer.protocol, PROTO_SEALDESK);
+        assert!(!peer.proof.is_empty());
+        assert!(plan_lan_upgrade(
+            tc_addr(),
+            &public,
+            std::slice::from_ref(&peer),
+            &lan_locals(),
+            "00",
+            &challenge
+        )
+        .is_some());
+        hint.proof.clear();
+        let unproved = PeerDiscovery {
+            cmd: "pong".into(),
+            misc: serde_json::to_string(&hint).unwrap(),
+            ..Default::default()
+        };
+        assert!(discovered_peer(&unproved, source, "own", &challenge).is_none());
+        hint.proof = proved_peer(&secret, &challenge, 7, "192.168.1.8", TCP_PORT, PROTO_SEALDESK).proof;
+        hint.node = hex::encode([9u8; 32]);
+        let wrong_node = PeerDiscovery {
+            cmd: "pong".into(),
+            misc: serde_json::to_string(&hint).unwrap(),
+            ..Default::default()
+        };
+        assert!(discovered_peer(&wrong_node, source, "own", &challenge).is_none());
+    }
+
     #[test]
     fn queued_remember_cannot_restore_a_revoked_authorization() {
         let key = hex::encode([0x91; 32]);
@@ -1995,26 +2420,53 @@ mod tests {
             protocol: protocol.into(),
             platform: "Linux".into(),
             tailcat: tailcat.into(),
-            mac: String::new(),
+            proof: String::new(),
             nonce: String::new(),
         }
     }
 
-    fn bound_peer(tailcat: &str, key_byte: u8, ip: &str) -> Peer {
-        let key = hex::encode([key_byte; 32]);
-        let nonce_bytes = [key_byte.wrapping_add(1); 32];
-        let nonce = hex::encode(nonce_bytes);
-        let address = format!("lan:{ip}:{TCP_PORT}/{key}");
-        let mac = tailcat_binding_mac(tailcat, &key, TCP_PORT, &nonce_bytes);
+    fn node_keypair() -> ([u8; 32], [u8; 32]) {
+        hbb_common::sodiumoxide::init().expect("sodium");
+        let (public, secret) = box_::gen_keypair();
+        (public.0, secret.0)
+    }
+
+    fn fresh_challenge() -> PossessionChallenge {
+        PossessionChallenge::generate().expect("challenge")
+    }
+
+    fn tc_addr() -> &'static str {
+        "tcabcdefghijklmnopqrstuvwxyz0123456789ABCD"
+    }
+
+    fn proved_peer(
+        node_secret: &[u8; 32],
+        challenge: &PossessionChallenge,
+        lan_byte: u8,
+        ip: &str,
+        port: u16,
+        protocol: &str,
+    ) -> Peer {
+        let lan_public = [lan_byte; 32];
+        let key = hex::encode(lan_public);
+        let proof = seal_possession(
+            node_secret,
+            &challenge.eph_public,
+            &challenge.nonce,
+            &lan_public,
+            port,
+            protocol,
+        )
+        .expect("seal");
         Peer {
             name: "Desk".into(),
-            address,
+            address: format!("lan:{ip}:{port}/{key}"),
             ip: ip.into(),
-            protocol: "sealdesk".into(),
+            protocol: protocol.into(),
             platform: "Linux".into(),
             tailcat: String::new(),
-            mac,
-            nonce,
+            proof,
+            nonce: hex::encode(challenge.nonce),
         }
     }
 
@@ -2027,11 +2479,14 @@ mod tests {
 
     #[test]
     fn known_tailcat_peer_on_the_same_segment_upgrades_then_falls_back() {
-        let tc = "tcabcdefghijklmnopqrstuvwxyz0123456789ABCD";
-        let peer = bound_peer(tc, 9, "192.168.1.9");
+        let tc = tc_addr();
+        let (public, secret) = node_keypair();
+        let challenge = fresh_challenge();
+        let peer = proved_peer(&secret, &challenge, 9, "192.168.1.9", TCP_PORT, PROTO_SEALDESK);
         let address = peer.address.clone();
         let peers = vec![peer];
-        let upgrade = plan_lan_upgrade(tc, &peers, &lan_locals(), "00").unwrap();
+        let upgrade =
+            plan_lan_upgrade(tc, &public, &peers, &lan_locals(), "00", &challenge).unwrap();
         assert_eq!(upgrade.address, address);
         assert!(is_encrypted_lan_channel(&upgrade.address));
         assert_eq!(transport_after_lan_error("connection refused"), "tailcat");
@@ -2039,21 +2494,20 @@ mod tests {
             transport_after_lan_error("LAN host identity changed"),
             "tailcat"
         );
-        assert_eq!(
-            transport_after_lan_error("LAN signature verification failed"),
-            "tailcat"
-        );
+        assert_eq!(transport_after_lan_error("identity check failed"), "tailcat");
         assert_eq!(transport_after_lan_error("timed out"), "tailcat");
         let other = LocalNet {
             addr: "10.0.0.4".parse().unwrap(),
             prefix: 24,
         };
-        assert!(plan_lan_upgrade(tc, &peers, &[other], "00").is_none());
+        assert!(plan_lan_upgrade(tc, &public, &peers, &[other], "00", &challenge).is_none());
     }
 
     #[test]
     fn plaintext_compat_is_never_an_encrypted_lan_channel() {
-        let tc = "tcabcdefghijklmnopqrstuvwxyz0123456789ABCD";
+        let tc = tc_addr();
+        let (public, _) = node_keypair();
+        let challenge = fresh_challenge();
         let plain = "192.168.1.9:21118";
         assert!(!is_encrypted_lan_channel(plain));
         assert!(!is_encrypted_lan_channel("tcp:192.168.1.9:21118"));
@@ -2061,77 +2515,244 @@ mod tests {
             sample_peer("rustdesk", plain, "192.168.1.9", tc),
             sample_peer("sealdesk", plain, "192.168.1.9", tc),
         ];
-        assert!(plan_lan_upgrade(tc, &peers, &lan_locals(), "00").is_none());
-        assert!(plan_lan_upgrade(plain, &peers, &lan_locals(), "00").is_none());
+        assert!(plan_lan_upgrade(tc, &public, &peers, &lan_locals(), "00", &challenge).is_none());
+        assert!(plan_lan_upgrade(plain, &public, &peers, &lan_locals(), "00", &challenge).is_none());
     }
 
     #[test]
-    fn forged_discovery_is_rejected_and_falls_back_to_tailcat() {
-        let tc = "tcabcdefghijklmnopqrstuvwxyz0123456789ABCD";
-        let other = "tcabcdefghijklmnopqrstuvwxyz0123456789ZZZZ";
-        let mut claimed = bound_peer(other, 3, "192.168.1.9");
-        claimed.tailcat = tc.into();
-        assert!(plan_lan_upgrade(tc, &[claimed], &lan_locals(), "00").is_none());
-        let mut swapped = bound_peer(tc, 9, "192.168.1.8");
+    fn possession_proof_rejects_a_peer_without_the_node_private_key() {
+        let tc = tc_addr();
+        let (public, secret) = node_keypair();
+        let (_other_public, other_secret) = node_keypair();
+        let challenge = fresh_challenge();
+        let forged = proved_peer(
+            &other_secret,
+            &challenge,
+            3,
+            "192.168.1.9",
+            TCP_PORT,
+            PROTO_SEALDESK,
+        );
+        assert!(plan_lan_upgrade(tc, &public, &[forged], &lan_locals(), "00", &challenge).is_none());
+        let real = proved_peer(&secret, &challenge, 9, "192.168.1.8", TCP_PORT, PROTO_SEALDESK);
+        assert!(
+            plan_lan_upgrade(tc, &public, std::slice::from_ref(&real), &lan_locals(), "00", &challenge)
+                .is_some()
+        );
+        let mut swapped = real.clone();
         let attacker = hex::encode([4u8; 32]);
         swapped.address = format!("lan:192.168.1.9:{TCP_PORT}/{attacker}");
         swapped.ip = "192.168.1.9".into();
-        swapped.tailcat = tc.into();
         assert!(
-            plan_lan_upgrade(tc, std::slice::from_ref(&swapped), &lan_locals(), "00").is_none()
+            plan_lan_upgrade(
+                tc,
+                &public,
+                std::slice::from_ref(&swapped),
+                &lan_locals(),
+                "00",
+                &challenge
+            )
+            .is_none()
         );
-        let mut invented = swapped.clone();
-        invented.mac = hex::encode([0u8; 32]);
-        assert!(plan_lan_upgrade(tc, &[invented], &lan_locals(), "00").is_none());
-        assert_eq!(
-            transport_after_lan_error("LAN signature verification failed"),
-            "tailcat"
+        let mut invented = swapped;
+        invented.proof = hex::encode([0u8; 48]);
+        assert!(plan_lan_upgrade(tc, &public, &[invented], &lan_locals(), "00", &challenge).is_none());
+        assert_eq!(transport_after_lan_error("identity check failed"), "tailcat");
+    }
+
+    #[test]
+    fn possession_proof_rejects_a_replayed_response() {
+        let tc = tc_addr();
+        let (public, secret) = node_keypair();
+        let first = fresh_challenge();
+        let second = fresh_challenge();
+        let peer = proved_peer(&secret, &first, 9, "192.168.1.9", TCP_PORT, PROTO_SEALDESK);
+        assert!(plan_lan_upgrade(tc, &public, std::slice::from_ref(&peer), &lan_locals(), "00", &second).is_none());
+        let mut rewritten = peer.clone();
+        rewritten.nonce = hex::encode(second.nonce);
+        assert!(
+            plan_lan_upgrade(
+                tc,
+                &public,
+                std::slice::from_ref(&rewritten),
+                &lan_locals(),
+                "00",
+                &second
+            )
+            .is_none()
         );
+        assert!(plan_lan_upgrade(tc, &public, std::slice::from_ref(&peer), &lan_locals(), "00", &first).is_some());
+    }
+
+    #[test]
+    fn possession_proof_rejects_a_tampered_port() {
+        let tc = tc_addr();
+        let (public, secret) = node_keypair();
+        let challenge = fresh_challenge();
+        let peer = proved_peer(&secret, &challenge, 9, "192.168.1.9", TCP_PORT, PROTO_SEALDESK);
+        let mut tampered = peer.clone();
+        tampered.address = format!("lan:192.168.1.9:21117/{}", hex::encode([9u8; 32]));
+        assert!(
+            plan_lan_upgrade(
+                tc,
+                &public,
+                std::slice::from_ref(&tampered),
+                &lan_locals(),
+                "00",
+                &challenge
+            )
+            .is_none()
+        );
+        let lan = [9u8; 32];
+        assert!(!open_possession(
+            &public,
+            &challenge.secret,
+            &challenge.eph_public,
+            &challenge.nonce,
+            &lan,
+            21117,
+            PROTO_SEALDESK,
+            &peer.proof,
+        ));
+        assert!(open_possession(
+            &public,
+            &challenge.secret,
+            &challenge.eph_public,
+            &challenge.nonce,
+            &lan,
+            TCP_PORT,
+            PROTO_SEALDESK,
+            &peer.proof,
+        ));
+    }
+
+    #[test]
+    fn possession_proof_rejects_a_tampered_protocol() {
+        let tc = tc_addr();
+        let (public, secret) = node_keypair();
+        let challenge = fresh_challenge();
+        let lan = [6u8; 32];
+        let proof = seal_possession(
+            &secret,
+            &challenge.eph_public,
+            &challenge.nonce,
+            &lan,
+            TCP_PORT,
+            PROTO_SEALDESK,
+        )
+        .expect("seal");
+        assert!(open_possession(
+            &public,
+            &challenge.secret,
+            &challenge.eph_public,
+            &challenge.nonce,
+            &lan,
+            TCP_PORT,
+            PROTO_SEALDESK,
+            &proof,
+        ));
+        assert!(!open_possession(
+            &public,
+            &challenge.secret,
+            &challenge.eph_public,
+            &challenge.nonce,
+            &lan,
+            TCP_PORT,
+            PROTO_COMPAT,
+            &proof,
+        ));
+        let compat = seal_possession(
+            &secret,
+            &challenge.eph_public,
+            &challenge.nonce,
+            &lan,
+            TCP_PORT,
+            PROTO_COMPAT,
+        )
+        .expect("seal");
+        assert!(!open_possession(
+            &public,
+            &challenge.secret,
+            &challenge.eph_public,
+            &challenge.nonce,
+            &lan,
+            TCP_PORT,
+            PROTO_SEALDESK,
+            &compat,
+        ));
+        let mut peer = proved_peer(&secret, &challenge, 6, "192.168.1.9", TCP_PORT, PROTO_SEALDESK);
+        peer.protocol = PROTO_COMPAT.into();
+        assert!(plan_lan_upgrade(tc, &public, &[peer], &lan_locals(), "00", &challenge).is_none());
+    }
+
+    #[test]
+    fn discovery_request_hides_the_ephemeral_secret() {
+        let challenge = fresh_challenge();
+        let misc = challenge.ping_misc();
+        assert!(!misc.contains(&hex::encode(*challenge.secret)));
+        assert!(misc.contains(&hex::encode(challenge.eph_public)));
+        assert!(misc.contains(&hex::encode(challenge.nonce)));
+        let parsed: PingBody = serde_json::from_str(&misc).unwrap();
+        assert_eq!(parsed.domain.as_bytes(), DOMAIN);
     }
 
     #[test]
     fn discovery_reply_omits_the_tailcat_credential() {
-        let tc = "tcabcdefghijklmnopqrstuvwxyz0123456789ABCD";
+        let tc = tc_addr();
+        let (public, secret) = node_keypair();
+        let challenge = fresh_challenge();
         let key = hex::encode([7u8; 32]);
-        let hint = sealdesk_hint(&key, true, tc);
+        let request = (challenge.eph_public, challenge.nonce);
+        let hint = sealdesk_hint(&key, true, Some(&request), Some(&secret));
         let misc = serde_json::to_string(&hint).unwrap();
         assert!(!misc.contains(tc));
         assert!(!misc.contains("tailcat"));
+        assert!(!misc.contains("privkey"));
         let reply = PeerDiscovery {
             cmd: "pong".into(),
             id: key.clone(),
             misc: misc.clone(),
             ..Default::default()
         };
-        let (_, peer) = discovered_peer(&reply, "192.168.1.8:99".parse().unwrap(), "own").unwrap();
+        let (_, peer) =
+            discovered_peer(&reply, "192.168.1.8:99".parse().unwrap(), "own", &challenge)
+                .unwrap();
         let listed = serde_json::to_string(&peer).unwrap();
         assert!(!listed.contains(tc));
         assert!(peer.tailcat.is_empty());
-        let upgrade = plan_lan_upgrade(tc, &[peer], &lan_locals(), "00").unwrap();
+        let upgrade =
+            plan_lan_upgrade(tc, &public, &[peer], &lan_locals(), "00", &challenge).unwrap();
         assert!(upgrade.address.contains(&key));
         let mut forged = serde_json::from_str::<serde_json::Value>(&misc).unwrap();
         forged["tailcat"] = serde_json::Value::String(tc.into());
-        forged["mac"] = serde_json::Value::String(hex::encode([1u8; 32]));
+        forged["proof"] = serde_json::Value::String(hex::encode([1u8; 32]));
         let forged_reply = PeerDiscovery {
             cmd: "pong".into(),
             id: key,
             misc: forged.to_string(),
             ..Default::default()
         };
-        let (_, forged_peer) =
-            discovered_peer(&forged_reply, "192.168.1.9:99".parse().unwrap(), "own").unwrap();
-        assert!(!serde_json::to_string(&forged_peer).unwrap().contains(tc));
-        assert!(plan_lan_upgrade(tc, &[forged_peer], &lan_locals(), "00").is_none());
+        assert!(discovered_peer(
+            &forged_reply,
+            "192.168.1.9:99".parse().unwrap(),
+            "own",
+            &challenge,
+        )
+        .is_none());
+        assert!(plan_lan_upgrade(tc, &public, &[], &lan_locals(), "00", &challenge).is_none());
         assert_eq!(transport_after_lan_error("forged discovery"), "tailcat");
     }
 
     #[test]
     fn direct_off_does_not_advertise_tcp_or_offer_an_upgrade() {
-        let tc = "tcabcdefghijklmnopqrstuvwxyz0123456789ABCD";
+        let tc = tc_addr();
+        let (public, secret) = node_keypair();
+        let challenge = fresh_challenge();
         let key = hex::encode([8u8; 32]);
-        let hint = sealdesk_hint(&key, false, tc);
+        let request = (challenge.eph_public, challenge.nonce);
+        let hint = sealdesk_hint(&key, false, Some(&request), Some(&secret));
         assert_eq!(hint.port, advertised_tcp_port(false));
-        assert!(hint.mac.is_empty());
+        assert!(hint.proof.is_empty());
         let misc = serde_json::to_string(&hint).unwrap();
         assert!(!misc.contains(tc));
         let reply = PeerDiscovery {
@@ -2140,8 +2761,14 @@ mod tests {
             misc,
             ..Default::default()
         };
-        assert!(discovered_peer(&reply, "192.168.1.8:99".parse().unwrap(), "own").is_none());
-        assert!(plan_lan_upgrade(tc, &[], &lan_locals(), "00").is_none());
+        assert!(discovered_peer(
+            &reply,
+            "192.168.1.8:99".parse().unwrap(),
+            "own",
+            &challenge
+        )
+        .is_none());
+        assert!(plan_lan_upgrade(tc, &public, &[], &lan_locals(), "00", &challenge).is_none());
         assert!(compat_pong_id(false, "192.168.1.8".parse().unwrap()).is_none());
         assert_eq!(
             compat_pong_id(true, "192.168.1.8".parse().unwrap()).as_deref(),
