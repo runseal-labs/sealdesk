@@ -2806,8 +2806,6 @@ impl Connection {
                 self.try_start_cm_ipc();
             }
 
-            // Remembered LAN trust still skips the prompt. A new LAN login uses the
-            // same approve-mode path as tailcat (password, click, or both).
             if let crate::lan::LanLoginDecision::AllowRemembered(permissions) = lan_decision {
                 self.apply_lan_permissions(permissions);
                 if !self.send_logon_response_and_keep_alive().await {
