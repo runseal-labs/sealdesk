@@ -657,9 +657,7 @@ final ButtonStyle flatButtonStyle = TextButton.styleFrom(
 );
 
 List<Locale> supportedLocales = const [
-  Locale('en', 'US'),
   Locale('en'),
-  Locale('zh', 'CN'),
   Locale('zh'),
 ];
 

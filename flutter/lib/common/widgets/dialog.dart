@@ -1524,19 +1524,8 @@ showSetOSPassword(
 //  false: go on
 Future<bool> desktopTryShowTabAuditDialogCloseCancelled(
     {required String id, required DesktopTabController tabController}) async {
-  try {
-    final page =
-        tabController.state.value.tabs.firstWhere((tab) => tab.key == id).page;
-    final ffi = (page as dynamic).ffi;
-    final res = await showConnEndAuditDialogCloseCanceled(ffi: ffi);
-    return res;
-  } catch (e) {
-    debugPrint('Failed to show audit dialog: $e');
-    return false;
-  }
+  return false;
 }
-
-Future<bool> showConnEndAuditDialogCloseCanceled({required FFI ffi, String? type, String? title, String? text}) async => false;
 
 void showConfirmSwitchSidesDialog(
     SessionID sessionId, String id, OverlayDialogManager dialogManager) async {
