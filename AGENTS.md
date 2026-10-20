@@ -201,7 +201,7 @@ A refactor added to cover a corner case rarely converges. Each new counter, time
 
 ## Localization (`src/lang/*.rs`)
 
-The UI language is simplified Chinese or English only. `resolve_lang` maps a `zh*` tag to `zh-cn` and every other tag to `en`. An empty or `default` setting follows the system locale with that same rule. Do not add languages, a template file, or a migration for old saved values.
+The UI language is simplified Chinese or English only. A saved `zh-cn` or `en` is used as-is. Any other saved value, including empty and `default`, follows the system locale: a `zh*` tag becomes `zh-cn` and every other tag becomes `en`. Do not add languages, a template file, or a migration for old saved values.
 
 * `en.rs` holds only the keys whose English display text differs from the key itself.
 * `cn.rs` carries the simplified Chinese text. An untranslated entry is `("key", "")`; the UI then falls back to English.

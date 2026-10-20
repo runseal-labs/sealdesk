@@ -3928,6 +3928,15 @@ bool isUnlockPinDisabled() =>
     bind.mainGetBuildinOption(key: kOptionDisableUnlockPin) == 'Y';
 
 const defaultOptionLang = 'default';
+
+/// Saved language outside `zh-cn` / `en` follows the system.
+String effectiveLangOption(String saved) {
+  final v = saved.trim().toLowerCase();
+  if (v == 'zh-cn' || v == 'en') {
+    return v;
+  }
+  return defaultOptionLang;
+}
 const defaultOptionTheme = 'system';
 const defaultOptionYes = 'Y';
 const defaultOptionNo = 'N';

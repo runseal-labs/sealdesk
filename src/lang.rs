@@ -14,14 +14,15 @@ fn is_zh(lang_or_locale: &str) -> bool {
         .eq_ignore_ascii_case("zh")
 }
 
-// Empty or "default" follows the system locale. A zh* tag, including a
-// previously saved zh-tw, uses simplified Chinese. Every other tag is English.
+// Saved "zh-cn" or "en" is used as-is. Any other value, including empty,
+// "default", and retired tags, follows the system locale: zh* -> zh-cn,
+// otherwise English.
 fn resolve_lang(saved_lang: &str, locale: &str) -> String {
     let saved = saved_lang.trim().to_lowercase();
-    let source = if saved.is_empty() || saved == "default" {
-        locale
-    } else {
+    let source = if saved == "zh-cn" || saved == "en" {
         saved.as_str()
+    } else {
+        locale
     };
     if is_zh(source) {
         "zh-cn".to_owned()
@@ -154,11 +155,17 @@ mod test {
         assert_eq!(f("zh-cn", "en-US"), "zh-cn");
         assert_eq!(f("ZH-CN", "en-US"), "zh-cn");
         assert_eq!(f("en", "zh_CN"), "en");
-        assert_eq!(f("zh-tw", "en-US"), "zh-cn");
-        assert_eq!(f("fr", "zh_CN"), "en");
-        assert_eq!(f("ja", "zh_CN"), "en");
-        assert_eq!(f("pt", "zh_CN"), "en");
-        assert_eq!(f("pt-br", "zh-CN"), "en");
+        assert_eq!(f("de", "zh_CN"), "zh-cn");
+        assert_eq!(f("de", "en-US"), "en");
+        assert_eq!(f("ja", "zh_CN"), "zh-cn");
+        assert_eq!(f("ja", "en-US"), "en");
+        assert_eq!(f("zh-tw", "en-US"), "en");
+        assert_eq!(f("zh-tw", "zh_CN"), "zh-cn");
+        assert_eq!(f("zh_TW", "en-US"), "en");
+        assert_eq!(f("zh_TW", "zh_TW"), "zh-cn");
+        assert_eq!(f("fr", "zh_CN"), "zh-cn");
+        assert_eq!(f("pt", "zh_CN"), "zh-cn");
+        assert_eq!(f("pt-br", "en-US"), "en");
         assert_eq!(f("default", "zh_CN"), "zh-cn");
         assert_eq!(f("default", "en-US"), "en");
     }
