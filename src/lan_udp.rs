@@ -9,7 +9,8 @@
 //! on the private unicast socket. That path still does not bind `0.0.0.0` or
 //! `::`. macOS uses `IP_BOUND_IF` around an unspecified bind because that is
 //! what receives broadcasts there. Windows delivers broadcasts to the interface
-//! unicast socket.
+//! unicast socket, and cannot bind the IPv6 all-nodes group (`ff02::1` returns
+//! `WSAEADDRNOTAVAIL`). That listener binds the interface address and joins the group.
 
 use hbb_common::tokio;
 use socket2::{Domain, SockAddr, Socket, Type};
@@ -501,6 +502,19 @@ pub(crate) fn discovery_bind_plan(ifaces: &[LanIface]) -> Vec<BindTarget> {
                     index: iface.index,
                     name: iface.name.clone(),
                 });
+                // Windows binds this socket to `reply` (it cannot bind ff02::1).
+                // Drop the unicast listener for that address so the port is free
+                // and multicast queries are not delivered twice.
+                #[cfg(windows)]
+                {
+                    let replaced = BindKey::Unicast(reply);
+                    if let Some(pos) = targets
+                        .iter()
+                        .rposition(|target| target.key == replaced && target.index == iface.index)
+                    {
+                        targets.remove(pos);
+                    }
+                }
             }
         }
     }
@@ -861,11 +875,11 @@ fn bind_unicast(ip: IpAddr, port: u16, index: u32) -> io::Result<UdpSocket> {
     socket.bind(&SockAddr::from(addr))?;
     #[cfg(windows)]
     {
+        // IPv4 all-hosts is joined here because Windows also rejects a bind to
+        // 224.0.0.1. IPv6 all-nodes is joined on the V6Multicast socket, which
+        // binds this interface's reply address (see `bind_v6_multicast_windows`).
         if let IpAddr::V4(iface) = ip {
             let _ = socket.join_multicast_v4(&IPV4_ALL_HOSTS, &iface);
-        }
-        if ip.is_ipv6() && index != 0 {
-            let _ = socket.join_multicast_v6(&IPV6_ALL_NODES, index);
         }
     }
     Ok(socket.into())
@@ -1042,8 +1056,47 @@ fn open_windows(target: &BindTarget, port: u16) -> io::Result<UdpSocket> {
             socket.join_multicast_v4(&IPV4_ALL_HOSTS, &iface)?;
             Ok(socket.into())
         }
-        BindKey::V6Multicast { index } => bind_v6_multicast(*index, port),
+        BindKey::V6Multicast { index } => {
+            let IpAddr::V6(ip) = target.reply else {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "IPv6 multicast needs an interface address",
+                ));
+            };
+            bind_v6_multicast_windows(ip, *index, port)
+        }
     }
+}
+
+/// Windows `bind` of `ff02::1` fails with `WSAEADDRNOTAVAIL` (10049). Winsock
+/// requires a local unicast address (not the group, and not a global `::`
+/// listen) followed by `IPV6_ADD_MEMBERSHIP` on the interface index.
+#[cfg(windows)]
+fn bind_v6_multicast_windows(ip: Ipv6Addr, index: u32, port: u16) -> io::Result<UdpSocket> {
+    if !udp_ip_allowed(IpAddr::V6(ip)) {
+        return Err(io::Error::new(
+            io::ErrorKind::AddrNotAvailable,
+            "refusing to bind discovery outside private and link-local ranges",
+        ));
+    }
+    let Some(index) = NonZeroU32::new(index) else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "IPv6 multicast needs an interface index",
+        ));
+    };
+    let socket = Socket::new(Domain::IPV6, Type::DGRAM, None)?;
+    socket.set_only_v6(true)?;
+    let scope = if ip.is_unicast_link_local() {
+        index.get()
+    } else {
+        0
+    };
+    socket.bind(&SockAddr::from(SocketAddr::V6(SocketAddrV6::new(
+        ip, port, 0, scope,
+    ))))?;
+    socket.join_multicast_v6(&IPV6_ALL_NODES, index.get())?;
+    Ok(socket.into())
 }
 
 #[cfg(not(any(
