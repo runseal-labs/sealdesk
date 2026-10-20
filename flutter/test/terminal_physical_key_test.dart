@@ -100,7 +100,8 @@ void main() {
         expect(_payload(LogicalKeyboardKey.keyC, meta: true), isNull);
         expect(_payload(LogicalKeyboardKey.keyV, meta: true), isNull);
         expect(_payload(LogicalKeyboardKey.keyA, meta: true), isNull);
-        expect(_payload(LogicalKeyboardKey.keyC, control: true), '\x03');
+        // Plain Ctrl+letter is left to xterm's own Ctrl handler on macOS.
+        expect(_payload(LogicalKeyboardKey.keyC, control: true), isNull);
         expect(
           _payload(LogicalKeyboardKey.keyC, control: true, shift: true),
           '\x03',
@@ -148,11 +149,19 @@ void main() {
       test('encodes letter chords on $platform', () {
         debugDefaultTargetPlatformOverride = platform;
         try {
-          expect(_payload(LogicalKeyboardKey.keyC, control: true), '\x03');
-          expect(_payload(LogicalKeyboardKey.keyD, control: true), '\x04');
-          expect(_payload(LogicalKeyboardKey.keyA, control: true), '\x01');
-          expect(_payload(LogicalKeyboardKey.keyR, control: true), '\x12');
-          expect(_payload(LogicalKeyboardKey.keyZ, control: true), '\x1A');
+          // macOS leaves plain Ctrl+letter to xterm; the view test below
+          // checks those still reach the PTY as C0 bytes.
+          String? plain(String byte) =>
+              platform == TargetPlatform.macOS ? null : byte;
+          for (final (key, byte) in const [
+            (LogicalKeyboardKey.keyC, '\x03'),
+            (LogicalKeyboardKey.keyD, '\x04'),
+            (LogicalKeyboardKey.keyA, '\x01'),
+            (LogicalKeyboardKey.keyR, '\x12'),
+            (LogicalKeyboardKey.keyZ, '\x1A'),
+          ]) {
+            expect(_payload(key, control: true), plain(byte));
+          }
           expect(
             _payload(LogicalKeyboardKey.keyB, control: true, shift: true),
             '\x02',
@@ -217,7 +226,7 @@ void main() {
     });
   });
 
-  testWidgets('macOS Ctrl+C reaches the terminal during IME composition',
+  testWidgets('macOS plain Ctrl+C goes through xterm and yields to the IME',
       (tester) async {
     final output = <String>[];
     final terminal = Terminal(platform: TerminalTargetPlatform.macos)
@@ -241,6 +250,13 @@ void main() {
     ));
     await tester.pump();
     expect(focus.hasPrimaryFocus, isTrue);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyC);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    expect(output, ['\x03']);
+    output.clear();
+    // While the IME has marked text, the chord belongs to the IME, as in
+    // Terminal.app and iTerm2.
     tester.testTextInput.updateEditingValue(const TextEditingValue(
       text: 'c',
       composing: TextRange(start: 0, end: 1),
@@ -248,8 +264,7 @@ void main() {
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyC);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
-    expect(output, ['\x03']);
-    output.clear();
+    expect(output, isEmpty);
     focus.unfocus();
     await tester.pump();
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);

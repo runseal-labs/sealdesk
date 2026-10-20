@@ -13,6 +13,8 @@ import 'terminal_tab_shortcuts.dart';
 /// unmodified typing, keys xterm already owns (arrows, copy, paste), or an
 /// AltGr character. Ctrl+Shift+letter uses the same C0 byte as Ctrl+letter.
 /// Ctrl+Alt is encoded unless the layout already produced a different glyph.
+/// On macOS a plain Ctrl chord also stays on xterm's path, see
+/// [_xtermOwnsPlainControl].
 String? terminalPhysicalComboPayload({
   required LogicalKeyboardKey key,
   required bool isDown,
@@ -27,6 +29,15 @@ String? terminalPhysicalComboPayload({
   if (!isDown) return null;
   if (!control && !alt && !meta) return null;
   if (_isModifierKey(key)) return null;
+  if (_xtermOwnsPlainControl(
+    key: key,
+    control: control,
+    alt: alt,
+    meta: meta,
+    shift: shift,
+  )) {
+    return null;
+  }
   // AltGr arrives as Ctrl+Alt plus a glyph the key would not produce alone
   // (for example Ctrl+Alt+Q -> '@'). A real Ctrl+Alt chord has no glyph, or
   // the same letter the key normally produces.
@@ -141,6 +152,26 @@ KeyEventResult terminalFocusedDesktopKeyEvent(
 ) {
   if (!focusNode.hasPrimaryFocus) return KeyEventResult.ignored;
   return terminalDesktopKeyHandler(terminal, controller)(focusNode, event);
+}
+
+/// Plain Ctrl+letter and Ctrl+Space (no Shift, Alt or Command) on macOS go to
+/// xterm's own Ctrl handler and keytab, the path upstream RustDesk uses.
+/// Encoding them here sent nothing on real macOS clients, while xterm already
+/// emits the right C0 byte for exactly these keys. Other keys and platforms
+/// keep the encoder.
+bool _xtermOwnsPlainControl({
+  required LogicalKeyboardKey key,
+  required bool control,
+  required bool alt,
+  required bool meta,
+  required bool shift,
+}) {
+  if (defaultTargetPlatform != TargetPlatform.macOS) return false;
+  if (!control || alt || meta || shift) return false;
+  if (key == LogicalKeyboardKey.space) return true;
+  final id = key.keyId;
+  return id >= LogicalKeyboardKey.keyA.keyId &&
+      id <= LogicalKeyboardKey.keyZ.keyId;
 }
 
 bool _isModifierKey(LogicalKeyboardKey key) {
