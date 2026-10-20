@@ -1,15 +1,18 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:xterm/xterm.dart';
 
 import 'input_modifier_utils.dart';
 import 'terminal_copy_shortcut.dart';
+import 'terminal_tab_shortcuts.dart';
 
 /// Encodes a physical Ctrl/Alt/Meta chord into terminal bytes.
 ///
 /// Returns null when the event should stay on xterm's normal path: key-up,
-/// unmodified typing, keys xterm already owns (arrows, paste, select-all),
-/// or an AltGr character reported as Ctrl+Alt plus a printable character.
+/// unmodified typing, keys xterm already owns (arrows, copy, paste), or an
+/// AltGr character. Ctrl+Shift+letter uses the same C0 byte as Ctrl+letter.
+/// Ctrl+Alt is encoded unless the layout already produced a different glyph.
 String? terminalPhysicalComboPayload({
   required LogicalKeyboardKey key,
   required bool isDown,
@@ -24,9 +27,18 @@ String? terminalPhysicalComboPayload({
   if (!isDown) return null;
   if (!control && !alt && !meta) return null;
   if (_isModifierKey(key)) return null;
-  // AltGr (and similar) arrives as Ctrl+Alt and already produced a character.
-  // Leave that character on the text-input path instead of rewriting it.
-  if (control && alt && !meta && _isPrintableCharacter(character)) {
+  // AltGr arrives as Ctrl+Alt plus a glyph the key would not produce alone
+  // (for example Ctrl+Alt+Q -> '@'). A real Ctrl+Alt chord has no glyph, or
+  // the same letter the key normally produces.
+  if (control &&
+      alt &&
+      !meta &&
+      _isAltGrCharacter(
+        key: key,
+        shift: shift,
+        capsLock: capsLock,
+        character: character,
+      )) {
     return null;
   }
   if (_matchesTerminalShortcut(
@@ -93,6 +105,34 @@ FocusOnKeyEventCallback terminalPhysicalKeyHandler(
   };
 }
 
+/// Desktop terminal keys: tab chords stay in the window, everything else uses
+/// [terminalPhysicalKeyHandler].
+FocusOnKeyEventCallback terminalDesktopKeyHandler(
+  Terminal terminal,
+  TerminalController controller, {
+  FocusOnKeyEventCallback? fallback,
+}) {
+  final encode = terminalPhysicalKeyHandler(
+    terminal,
+    controller,
+    fallback: fallback,
+  );
+  return (node, event) {
+    final keyboard = HardwareKeyboard.instance;
+    final tabShortcut = matchTerminalTabShortcut(
+      platform: defaultTargetPlatform,
+      key: event.logicalKey,
+      isDown: event is KeyDownEvent || event is KeyRepeatEvent,
+      control: keyboard.isControlPressed,
+      alt: keyboard.isAltPressed,
+      meta: keyboard.isMetaPressed,
+      shift: keyboard.isShiftPressed,
+    );
+    if (tabShortcut != null) return KeyEventResult.handled;
+    return encode(node, event);
+  };
+}
+
 bool _isModifierKey(LogicalKeyboardKey key) {
   return key == LogicalKeyboardKey.control ||
       key == LogicalKeyboardKey.controlLeft ||
@@ -116,8 +156,7 @@ bool _matchesTerminalShortcut({
   required bool shift,
   Map<ShortcutActivator, Intent>? shortcuts,
 }) {
-  final map =
-      shortcuts ?? platformTerminalShortcuts() ?? defaultTerminalShortcuts;
+  final map = shortcuts ?? platformTerminalShortcuts();
   for (final activator in map.keys) {
     if (activator is! SingleActivator) continue;
     if (activator.trigger == key &&
@@ -150,6 +189,18 @@ String? _controlCharacter(String? character) {
   final code = character!.codeUnitAt(0);
   if (code < 0x20 || code == 0x7F) return character;
   return null;
+}
+
+bool _isAltGrCharacter({
+  required LogicalKeyboardKey key,
+  required bool shift,
+  required bool capsLock,
+  required String? character,
+}) {
+  if (!_isPrintableCharacter(character)) return false;
+  final own = _baseCharacter(key, shift, capsLock: capsLock);
+  if (own == null) return true;
+  return character!.toLowerCase() != own.toLowerCase();
 }
 
 bool _isPrintableCharacter(String? character) {

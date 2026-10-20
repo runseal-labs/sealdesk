@@ -9,10 +9,27 @@ import 'package:xterm/xterm.dart';
 import 'terminal_clipboard_writer.dart'
     if (dart.library.html) 'terminal_clipboard_writer_web.dart';
 
+const _controlShiftCCopyShortcut = SingleActivator(
+  LogicalKeyboardKey.keyC,
+  control: true,
+  shift: true,
+);
 const _controlShiftVPasteShortcut = SingleActivator(
   LogicalKeyboardKey.keyV,
   control: true,
   shift: true,
+);
+const _metaCCopyShortcut = SingleActivator(
+  LogicalKeyboardKey.keyC,
+  meta: true,
+);
+const _metaVPasteShortcut = SingleActivator(
+  LogicalKeyboardKey.keyV,
+  meta: true,
+);
+const _metaASelectAllShortcut = SingleActivator(
+  LogicalKeyboardKey.keyA,
+  meta: true,
 );
 
 typedef TerminalClipboardWriter = Future<bool> Function(
@@ -129,43 +146,73 @@ Future<bool> completeTerminalClipboardWrite({
   return true;
 }
 
-Map<ShortcutActivator, Intent>? platformTerminalShortcuts() {
-  final platform = defaultTargetPlatform;
-  if (platform == TargetPlatform.linux) {
-    return {
-      for (final entry in defaultTerminalShortcuts.entries)
-        if (!_isControlShortcut(entry.key, LogicalKeyboardKey.keyV))
-          entry.key: entry.value,
-      _controlShiftVPasteShortcut:
-          const PasteTextIntent(SelectionChangedCause.keyboard),
+bool terminalShortcutsUseCommand(TargetPlatform platform) =>
+    platform == TargetPlatform.macOS || platform == TargetPlatform.iOS;
+
+/// Copy, paste, and select-all chords that must not reach the PTY.
+///
+/// Apple platforms use Command. Windows, Linux, Android, and Fuchsia use
+/// Ctrl+Shift+C / Ctrl+Shift+V and have no select-all chord, so Ctrl+A and
+/// Ctrl+V stay available to the terminal.
+Map<ShortcutActivator, Intent> platformTerminalShortcuts([
+  TargetPlatform? platform,
+]) {
+  if (terminalShortcutsUseCommand(platform ?? defaultTargetPlatform)) {
+    return const {
+      _metaCCopyShortcut: CopySelectionTextIntent.copy,
+      _metaVPasteShortcut: PasteTextIntent(SelectionChangedCause.keyboard),
+      _metaASelectAllShortcut:
+          SelectAllTextIntent(SelectionChangedCause.keyboard),
     };
   }
-  if (platform != TargetPlatform.windows &&
-      platform != TargetPlatform.android) {
-    return null;
-  }
-  return {
-    for (final entry in defaultTerminalShortcuts.entries)
-      if (!_isControlShortcut(
-        entry.key,
-        LogicalKeyboardKey.keyC,
-        shift: true,
-      ))
-        entry.key: entry.value,
+  return const {
+    _controlShiftCCopyShortcut: CopySelectionTextIntent.copy,
+    _controlShiftVPasteShortcut:
+        PasteTextIntent(SelectionChangedCause.keyboard),
   };
 }
 
-bool _isControlShortcut(
-  ShortcutActivator shortcut,
-  LogicalKeyboardKey key, {
-  bool shift = false,
-}) =>
-    shortcut is SingleActivator &&
-    shortcut.trigger == key &&
-    shortcut.control &&
-    shortcut.shift == shift &&
-    !shortcut.alt &&
-    !shortcut.meta;
+bool isTerminalCopyChord({
+  required TargetPlatform platform,
+  required LogicalKeyboardKey key,
+  required bool control,
+  required bool meta,
+  required bool alt,
+  required bool shift,
+}) {
+  if (alt || key != LogicalKeyboardKey.keyC) return false;
+  if (terminalShortcutsUseCommand(platform)) {
+    return meta && !control && !shift;
+  }
+  return control && shift && !meta;
+}
+
+bool isTerminalPasteChord({
+  required TargetPlatform platform,
+  required LogicalKeyboardKey key,
+  required bool control,
+  required bool meta,
+  required bool alt,
+  required bool shift,
+}) {
+  if (alt || key != LogicalKeyboardKey.keyV) return false;
+  if (terminalShortcutsUseCommand(platform)) {
+    return meta && !control && !shift;
+  }
+  return control && shift && !meta;
+}
+
+bool isTerminalSelectAllChord({
+  required TargetPlatform platform,
+  required LogicalKeyboardKey key,
+  required bool control,
+  required bool meta,
+  required bool alt,
+  required bool shift,
+}) {
+  if (!terminalShortcutsUseCommand(platform)) return false;
+  return key == LogicalKeyboardKey.keyA && meta && !control && !alt && !shift;
+}
 
 FocusOnKeyEventCallback terminalCopyHandler(
   Terminal terminal,
@@ -187,15 +234,14 @@ FocusOnKeyEventCallback terminalCopyHandler(
     };
 
 bool _isSelectionCopyShortcut(KeyEvent event) {
+  if (event is! KeyDownEvent && event is! KeyRepeatEvent) return false;
   final keyboard = HardwareKeyboard.instance;
-  final platform = defaultTargetPlatform;
-  final usesControlCopy =
-      platform == TargetPlatform.windows || platform == TargetPlatform.android;
-  return usesControlCopy &&
-      (event is KeyDownEvent || event is KeyRepeatEvent) &&
-      event.logicalKey == LogicalKeyboardKey.keyC &&
-      keyboard.isControlPressed &&
-      !keyboard.isShiftPressed &&
-      !keyboard.isAltPressed &&
-      !keyboard.isMetaPressed;
+  return isTerminalCopyChord(
+    platform: defaultTargetPlatform,
+    key: event.logicalKey,
+    control: keyboard.isControlPressed,
+    meta: keyboard.isMetaPressed,
+    alt: keyboard.isAltPressed,
+    shift: keyboard.isShiftPressed,
+  );
 }
