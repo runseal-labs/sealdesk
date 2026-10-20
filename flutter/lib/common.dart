@@ -657,49 +657,8 @@ final ButtonStyle flatButtonStyle = TextButton.styleFrom(
 );
 
 List<Locale> supportedLocales = const [
-  Locale('en', 'US'),
-  Locale('zh', 'CN'),
-  Locale('zh', 'TW'),
-  Locale('zh', 'SG'),
-  Locale('fr'),
-  Locale('de'),
-  Locale('it'),
-  Locale('ja'),
-  Locale('cs'),
-  Locale('pl'),
-  Locale('ko'),
-  Locale('hu'),
-  Locale('pt'),
-  Locale('ru'),
-  Locale('sk'),
-  Locale('id'),
-  Locale('da'),
-  Locale('eo'),
-  Locale('tr'),
-  Locale('kz'),
-  Locale('es'),
-  Locale('nl'),
-  Locale('nb'),
-  Locale('et'),
-  Locale('eu'),
-  Locale('bg'),
-  Locale('be'),
-  Locale('vn'),
-  Locale('uk'),
-  Locale('fa'),
-  Locale('ca'),
-  Locale('el'),
-  Locale('sv'),
-  Locale('sq'),
-  Locale('sr'),
-  Locale('th'),
-  Locale('sl'),
-  Locale('ro'),
-  Locale('lt'),
-  Locale('lv'),
-  Locale('ar'),
-  Locale('he'),
-  Locale('hr'),
+  Locale('en'),
+  Locale('zh'),
 ];
 
 String formatDurationToTime(Duration duration) {
@@ -3777,6 +3736,15 @@ bool isUnlockPinDisabled() =>
     bind.mainGetBuildinOption(key: kOptionDisableUnlockPin) == 'Y';
 
 const defaultOptionLang = 'default';
+
+/// Saved language outside `zh-cn` / `en` follows the system.
+String effectiveLangOption(String saved) {
+  final v = saved.trim().toLowerCase();
+  if (v == 'zh-cn' || v == 'en') {
+    return v;
+  }
+  return defaultOptionLang;
+}
 const defaultOptionTheme = 'system';
 const defaultOptionYes = 'Y';
 const defaultOptionNo = 'N';

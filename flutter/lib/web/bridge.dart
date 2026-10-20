@@ -982,11 +982,7 @@ class SealdeskImpl {
   }
 
   String mainGetLocalOption({required String key, dynamic hint}) {
-    final v = js.context.callMethod('getByName', ['option:local', key]);
-    if (key == 'lang' && (v == 'pt' || v == 'br')) {
-      return 'pt-br';
-    }
-    return v;
+    return js.context.callMethod('getByName', ['option:local', key]);
   }
 
   // Do not return the real environment variables.

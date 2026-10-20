@@ -839,11 +839,9 @@ class _GeneralState extends State<_General> {
       List<String> keys = langsMap.keys.toList();
       List<String> values = langsMap.values.toList();
       keys.insert(0, defaultOptionLang);
-      values.insert(0, translate('Default'));
-      String currentKey = bind.mainGetLocalOption(key: kCommConfKeyLang);
-      if (!keys.contains(currentKey)) {
-        currentKey = defaultOptionLang;
-      }
+      values.insert(0, translate('Follow System'));
+      final currentKey = effectiveLangOption(
+          bind.mainGetLocalOption(key: kCommConfKeyLang));
       final isOptFixed = isOptionFixed(kCommConfKeyLang);
       return ComboBox(
         keys: keys,

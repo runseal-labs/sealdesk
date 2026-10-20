@@ -864,7 +864,7 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
       toolbarItems.add(_VoiceCallMenu(id: widget.id, ffi: widget.ffi));
     }
     if (!isWeb) toolbarItems.add(_RecordMenu());
-    toolbarItems.add(_CloseMenu(id: widget.id, ffi: widget.ffi));
+    toolbarItems.add(_CloseMenu(id: widget.id));
     final toolbarBorderRadius = BorderRadius.all(Radius.circular(4.0));
     // innerAxis: how the toolbar icons themselves flow.
     // outerAxis: how the toolbar block and the handle stack against each other
@@ -3014,21 +3014,14 @@ class _RecordMenu extends StatelessWidget {
 
 class _CloseMenu extends StatelessWidget {
   final String id;
-  final FFI ffi;
-  const _CloseMenu({Key? key, required this.id, required this.ffi})
-      : super(key: key);
+  const _CloseMenu({Key? key, required this.id}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     return _IconMenuButton(
       assetName: 'assets/close.svg',
       tooltip: 'Close',
-      onPressed: () async {
-        if (await showConnEndAuditDialogCloseCanceled(ffi: ffi)) {
-          return;
-        }
-        closeConnection(id: id);
-      },
+      onPressed: () => closeConnection(id: id),
       color: _ToolbarTheme.redColor,
       hoverColor: _ToolbarTheme.hoverRedColor,
     );

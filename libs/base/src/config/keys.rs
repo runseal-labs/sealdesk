@@ -92,7 +92,6 @@ pub const OPTION_SHOW_VIRTUAL_MOUSE: &str = "show-virtual-mouse";
 // joystick is the virtual mouse.
 // So `OPTION_SHOW_VIRTUAL_MOUSE` should also be set if `OPTION_SHOW_VIRTUAL_JOYSTICK` is set.
 pub const OPTION_SHOW_VIRTUAL_JOYSTICK: &str = "show-virtual-joystick";
-pub const OPTION_ALLOW_ASK_FOR_NOTE: &str = "allow-ask-for-note";
 
 // built-in options
 pub const OPTION_DISPLAY_NAME: &str = "display-name";
@@ -219,7 +218,6 @@ pub const KEYS_LOCAL_SETTINGS: &[&str] = &[
     OPTION_TOUCH_MODE,
     OPTION_SHOW_VIRTUAL_MOUSE,
     OPTION_SHOW_VIRTUAL_JOYSTICK,
-    OPTION_ALLOW_ASK_FOR_NOTE,
 ];
 // DEFAULT_SETTINGS, OVERWRITE_SETTINGS
 pub const KEYS_SETTINGS: &[&str] = &[
