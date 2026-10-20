@@ -23,6 +23,8 @@ use std::{
     },
     time::{Duration, Instant},
 };
+#[path = "lan_udp.rs"]
+mod udp;
 pub(crate) const TCP_PORT: u16 = 21118;
 const DISCOVERY_PORT: u16 = 21119;
 const DOMAIN: &[u8] = b"sealdesk-lan-v1";
@@ -558,6 +560,7 @@ pub fn compat_addresses_json() -> String {
         if ready() && crate::tailcat::host::enabled() && rustdesk_compat_enabled() {
             let mut addresses: Vec<String> = default_net::get_interfaces()
                 .into_iter()
+                .filter(|iface| keep_discovery_iface(iface.flags))
                 .flat_map(|iface| iface.ipv4)
                 .filter(|ip| ip.addr.is_private())
                 .map(|ip| SocketAddr::new(ip.addr.into(), TCP_PORT).to_string())
@@ -654,12 +657,9 @@ async fn serve_round(server: crate::server::ServerPtr) -> ResultType<()> {
         READY.store(true, Ordering::SeqCst);
     }
     let _abort = AbortOnDrop(tasks);
-    let udp = if discovery {
-        Some(tokio::net::UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, DISCOVERY_PORT)).await?)
-    } else {
-        None
-    };
-    let mut buf = [0u8; 2048];
+    let (udp_tx, mut udp_rx) = tokio::sync::mpsc::channel(32);
+    let mut listeners = udp::ListenerSet::empty();
+    let mut scanned: Option<Instant> = None;
     let mut last = Instant::now();
     let mut replies = 0;
     loop {
@@ -668,6 +668,32 @@ async fn serve_round(server: crate::server::ServerPtr) -> ResultType<()> {
             || lan_discovery_enabled() != discovery
         {
             return Ok(());
+        }
+        if discovery
+            && scanned
+                .map(|at| at.elapsed() >= udp::IFACE_REFRESH)
+                .unwrap_or(true)
+        {
+            scanned = Some(Instant::now());
+            let desired = tokio::task::spawn_blocking(udp::current_bind_plan)
+                .await
+                .unwrap_or_default();
+            let before = listeners.summary(DISCOVERY_PORT);
+            listeners.reconcile(desired, DISCOVERY_PORT, udp_tx.clone());
+            let after = listeners.summary(DISCOVERY_PORT);
+            if before != after {
+                if after.is_empty() {
+                    log::info!("LAN discovery stopped listening");
+                } else {
+                    log::info!("LAN discovery listening on {after}");
+                }
+            } else if after.is_empty() {
+                hbb_common::throttled_log!(
+                    Duration::from_secs(60),
+                    info,
+                    "LAN discovery has no private address to bind"
+                );
+            }
         }
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_millis(100)) => {},
@@ -681,12 +707,14 @@ async fn serve_round(server: crate::server::ServerPtr) -> ResultType<()> {
                     }
                 });
             },
-            incoming = recv_discovery(udp.as_ref(), &mut buf), if discovery => {
-                let Ok((n, addr)) = incoming else { continue; };
-                if !private(addr.ip()) { continue; }
+            incoming = udp_rx.recv(), if discovery && !listeners.sockets.is_empty() => {
+                let Some(hit) = incoming else { continue; };
+                let Some(sock) = listeners.sockets.get(&hit.key).cloned() else { continue; };
+                let addr = hit.from;
+                if !discovery_source_ok(addr.ip()) { continue; }
                 if last.elapsed() >= Duration::from_secs(1) { replies = 0; last = Instant::now(); }
                 if replies >= 20 { continue; }
-                let Ok(msg) = RendezvousMessage::parse_from_bytes(&buf[..n]) else { continue; };
+                let Ok(msg) = RendezvousMessage::parse_from_bytes(&hit.bytes) else { continue; };
                 let Some(rendezvous_message::Union::PeerDiscovery(query)) = msg.union else { continue; };
                 if !answer_discovery_ping(&query) { continue; }
                 let (key, _) = identity()?;
@@ -709,22 +737,13 @@ async fn serve_round(server: crate::server::ServerPtr) -> ResultType<()> {
                 };
                 let platform = discovery_platform();
                 reply.set_peer_discovery(PeerDiscovery { cmd: "pong".into(), id, hostname: crate::whoami_hostname(), platform, misc, ..Default::default() });
-                if let Some(sock) = udp.as_ref() {
-                    sock.send_to(&reply.write_to_bytes()?, addr).await?;
-                    replies += 1;
+                if let Err(error) = sock.send_to(&reply.write_to_bytes()?, addr).await {
+                    log::trace!("LAN discovery reply failed: {error}");
+                    continue;
                 }
+                replies += 1;
             }
         }
-    }
-}
-
-async fn recv_discovery(
-    udp: Option<&tokio::net::UdpSocket>,
-    buf: &mut [u8],
-) -> std::io::Result<(usize, SocketAddr)> {
-    match udp {
-        Some(sock) => sock.recv_from(buf).await,
-        None => std::future::pending().await,
     }
 }
 
@@ -794,12 +813,12 @@ fn is_ula(ip: Ipv6Addr) -> bool {
 
 fn current_tcp_bind_addrs() -> Vec<SocketAddr> {
     let mut enumerated = Vec::new();
-    for iface in default_net::get_interfaces() {
-        for ip in iface.ipv4 {
-            enumerated.push(IpAddr::V4(ip.addr));
+    for iface in udp::interfaces_from_default_net() {
+        for (ip, _) in iface.v4 {
+            enumerated.push(IpAddr::V4(ip));
         }
-        for ip in iface.ipv6 {
-            enumerated.push(IpAddr::V6(ip.addr));
+        for (ip, _) in iface.v6 {
+            enumerated.push(IpAddr::V6(ip));
         }
     }
     #[cfg(target_os = "android")]
@@ -813,6 +832,14 @@ fn private(ip: IpAddr) -> bool {
         IpAddr::V4(v) => v.is_private() || v.is_loopback(),
         IpAddr::V6(v) => v.is_unique_local() || v.is_loopback(),
     }
+}
+
+fn discovery_source_ok(ip: IpAddr) -> bool {
+    udp::udp_ip_allowed(ip)
+        || match ip {
+            IpAddr::V4(ip) => ip.is_loopback(),
+            IpAddr::V6(ip) => ip.is_loopback(),
+        }
 }
 pub fn discover_json() -> String {
     match discover() {
@@ -832,6 +859,19 @@ fn discovery_interface_flags(flags: u32) -> bool {
         && flags & (IFF_LOOPBACK | IFF_POINTOPOINT) as u32 == 0
 }
 
+/// Unix TCP 21118 and UDP 21119 share this filter. A TUN subnet broadcast uses
+/// the local routing table even outside a VPN's app allowlist. Windows flags
+/// are not Unix IFF bits; Wintun/TAP filtering is out of scope.
+#[cfg(unix)]
+fn keep_discovery_iface(flags: u32) -> bool {
+    discovery_interface_flags(flags)
+}
+
+#[cfg(not(unix))]
+fn keep_discovery_iface(_flags: u32) -> bool {
+    true
+}
+
 fn discover() -> ResultType<Vec<Peer>> {
     let (key, _) = identity()?;
     let own = hex::encode(key.0);
@@ -843,41 +883,28 @@ fn discover() -> ResultType<Vec<Peer>> {
         ..Default::default()
     });
     let bytes = query.write_to_bytes()?;
-    let mut sockets = vec![];
-    for iface in default_net::get_interfaces() {
-        // A TUN subnet broadcast uses the local routing table even outside a VPN's app allowlist.
-        #[cfg(unix)]
-        if !discovery_interface_flags(iface.flags) {
-            continue;
-        }
-        for addr in iface.ipv4 {
-            if !addr.addr.is_private() {
-                continue;
-            }
-            let socket = UdpSocket::bind((addr.addr, 0));
-            let Ok(socket) = socket else {
-                continue;
-            };
-            if socket.set_broadcast(true).is_err() || socket.set_nonblocking(true).is_err() {
-                continue;
-            }
-            let broadcast =
-                std::net::Ipv4Addr::from(u32::from(addr.addr) | !u32::from(addr.netmask));
-            if socket.send_to(&bytes, (broadcast, DISCOVERY_PORT)).is_ok() {
+    let enumerated = udp::interfaces_from_default_net();
+    #[cfg(target_os = "android")]
+    let android = udp::ifaces_from_android_json(&crate::tailcat::android_interface_json());
+    #[cfg(not(target_os = "android"))]
+    let android = Vec::new();
+    let (ifaces, global_broadcast) = udp::query_targets(&enumerated, &android);
+    let mut sockets = udp::collect_query_sockets(ifaces, DISCOVERY_PORT, &bytes);
+    // Android 11+ can deny netlink, so default_net is empty or reports flags 0.
+    // Query 255.255.255.255 from an ephemeral socket instead of binding 0.0.0.0:21119.
+    #[cfg(not(target_os = "android"))]
+    let _ = global_broadcast;
+    #[cfg(target_os = "android")]
+    if global_broadcast || sockets.is_empty() {
+        if let Ok(socket) = UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, 0)) {
+            if socket.set_broadcast(true).is_ok()
+                && socket.set_nonblocking(true).is_ok()
+                && socket
+                    .send_to(&bytes, (std::net::Ipv4Addr::BROADCAST, DISCOVERY_PORT))
+                    .is_ok()
+            {
                 sockets.push(socket);
             }
-        }
-    }
-    // Like upstream discovery, Android can query even when interface enumeration is restricted.
-    #[cfg(target_os = "android")]
-    if let Ok(socket) = UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, 0)) {
-        if socket.set_broadcast(true).is_ok()
-            && socket.set_nonblocking(true).is_ok()
-            && socket
-                .send_to(&bytes, (std::net::Ipv4Addr::BROADCAST, DISCOVERY_PORT))
-                .is_ok()
-        {
-            sockets.push(socket);
         }
     }
     let mut peers = BTreeMap::new();
@@ -989,20 +1016,20 @@ pub(crate) fn local_identity_hex() -> String {
 
 pub(crate) fn local_segments() -> Vec<LocalNet> {
     let mut nets = Vec::new();
-    for iface in default_net::get_interfaces() {
-        for ip in iface.ipv4 {
-            if is_lan_bind_v4(ip.addr) && ip.prefix_len > 0 && ip.prefix_len <= 32 {
+    for iface in udp::interfaces_from_default_net() {
+        for (ip, prefix) in iface.v4 {
+            if is_lan_bind_v4(ip) && prefix > 0 && prefix <= 32 {
                 nets.push(LocalNet {
-                    addr: IpAddr::V4(ip.addr),
-                    prefix: ip.prefix_len,
+                    addr: IpAddr::V4(ip),
+                    prefix,
                 });
             }
         }
-        for ip in iface.ipv6 {
-            if is_ula(ip.addr) && ip.prefix_len > 0 && ip.prefix_len <= 128 {
+        for (ip, prefix) in iface.v6 {
+            if is_ula(ip) && prefix > 0 && prefix <= 128 {
                 nets.push(LocalNet {
-                    addr: IpAddr::V6(ip.addr),
-                    prefix: ip.prefix_len,
+                    addr: IpAddr::V6(ip),
+                    prefix,
                 });
             }
         }
@@ -1872,5 +1899,537 @@ mod tests {
         assert_eq!(serve_listeners(true, true, false), (true, false));
         assert_eq!(serve_listeners(true, false, true), (false, true));
         assert_eq!(serve_listeners(true, false, false), (false, false));
+    }
+
+    fn lan_iface(name: &str, index: u32, v4: &[(&str, u8)], v6: &[(&str, u8)]) -> udp::LanIface {
+        udp::LanIface {
+            name: name.to_owned(),
+            index,
+            v4: v4
+                .iter()
+                .map(|(ip, prefix)| (ip.parse().unwrap(), *prefix))
+                .collect(),
+            v6: v6
+                .iter()
+                .map(|(ip, prefix)| (ip.parse().unwrap(), *prefix))
+                .collect(),
+        }
+    }
+
+    fn plan_has(plan: &[udp::BindTarget], key: &udp::BindKey) -> bool {
+        plan.iter().any(|target| &target.key == key)
+    }
+
+    #[test]
+    fn udp_bind_plan_skips_public_and_keeps_private_and_link_local() {
+        let plan = udp::discovery_bind_plan(&[
+            lan_iface(
+                "eth0",
+                2,
+                &[
+                    ("10.1.2.3", 8),
+                    ("172.16.0.1", 12),
+                    ("192.168.1.10", 24),
+                    ("169.254.1.5", 16),
+                    ("100.64.1.1", 10),
+                    ("8.8.8.8", 24),
+                    ("127.0.0.1", 8),
+                    ("0.0.0.0", 0),
+                ],
+                &[
+                    ("fc00::1", 7),
+                    ("fd12::1", 64),
+                    ("fe80::1", 64),
+                    ("2001:db8::1", 64),
+                    ("::1", 128),
+                    ("::", 0),
+                ],
+            ),
+            lan_iface("lo", 1, &[("127.0.0.1", 8)], &[("::1", 128)]),
+        ]);
+        for ip in ["10.1.2.3", "172.16.0.1", "192.168.1.10", "169.254.1.5"] {
+            assert!(
+                plan_has(&plan, &udp::BindKey::Unicast(ip.parse().unwrap())),
+                "missing {ip}"
+            );
+        }
+        for ip in ["fc00::1", "fd12::1", "fe80::1"] {
+            assert!(
+                plan_has(&plan, &udp::BindKey::Unicast(ip.parse().unwrap())),
+                "missing {ip}"
+            );
+        }
+        for ip in [
+            "8.8.8.8",
+            "100.64.1.1",
+            "127.0.0.1",
+            "0.0.0.0",
+            "2001:db8::1",
+            "::1",
+            "::",
+        ] {
+            assert!(
+                !plan_has(&plan, &udp::BindKey::Unicast(ip.parse().unwrap())),
+                "kept {ip}"
+            );
+        }
+        assert!(plan.iter().all(|target| match target.key {
+            udp::BindKey::Unicast(ip) => !ip.is_unspecified() && udp::udp_ip_allowed(ip),
+            udp::BindKey::Directed(ip) => ip != Ipv4Addr::BROADCAST && !ip.is_unspecified(),
+            _ => true,
+        }));
+        assert!(plan_has(
+            &plan,
+            &udp::BindKey::Directed("192.168.1.255".parse().unwrap())
+        ));
+        assert!(plan_has(
+            &plan,
+            &udp::BindKey::Directed("169.254.255.255".parse().unwrap())
+        ));
+        assert!(!plan.iter().any(|target| matches!(
+            target.key,
+            udp::BindKey::Directed(ip) if ip == "8.8.8.255".parse::<Ipv4Addr>().unwrap()
+        )));
+        assert!(plan_has(
+            &plan,
+            &udp::BindKey::Limited {
+                index: 2,
+                name: "eth0".into(),
+            }
+        ));
+        assert!(plan_has(&plan, &udp::BindKey::V4Multicast { index: 2 }));
+        assert!(plan_has(&plan, &udp::BindKey::V6Multicast { index: 2 }));
+
+        let fb = udp::fallback_listen(&plan, udp::ScopeError::DeviceDenied);
+        let limited: Vec<_> = fb
+            .plan
+            .iter()
+            .filter(|target| matches!(target.key, udp::BindKey::Limited { .. }))
+            .collect();
+        assert_eq!(limited.len(), 1);
+        assert_eq!(
+            limited[0].key,
+            udp::BindKey::Limited {
+                index: 0,
+                name: String::new(),
+            }
+        );
+        assert_eq!(fb.join_v4, vec!["10.1.2.3".parse::<Ipv4Addr>().unwrap()]);
+        let two = udp::discovery_bind_plan(&[
+            lan_iface("wlan0", 3, &[("192.168.4.9", 24)], &[]),
+            lan_iface("eth0", 2, &[("10.0.0.5", 8)], &[]),
+        ]);
+        let two = udp::fallback_listen(&two, udp::ScopeError::DeviceDenied);
+        assert_eq!(
+            two.plan
+                .iter()
+                .filter(|target| matches!(target.key, udp::BindKey::Limited { .. }))
+                .count(),
+            1
+        );
+        assert_eq!(
+            two.join_v4,
+            vec![
+                "10.0.0.5".parse::<Ipv4Addr>().unwrap(),
+                "192.168.4.9".parse().unwrap(),
+            ]
+        );
+        assert!(!fb
+            .plan
+            .iter()
+            .any(|target| matches!(target.key, udp::BindKey::V4Multicast { .. })));
+        assert!(fb.plan.iter().all(|target| match &target.key {
+            udp::BindKey::Unicast(ip) => !ip.is_unspecified(),
+            udp::BindKey::Directed(ip) => !ip.is_unspecified() && *ip != Ipv4Addr::BROADCAST,
+            udp::BindKey::Limited { name, index } => name.is_empty() && *index == 0,
+            udp::BindKey::V4Multicast { .. } => false,
+            udp::BindKey::V6Multicast { .. } => true,
+        }));
+        assert!(fb.plan.iter().all(|target| !target.reply.is_unspecified()));
+        let unicast_only = udp::fallback_listen(&plan, udp::ScopeError::FreebindFailed);
+        assert!(unicast_only.join_v4.is_empty());
+        assert!(unicast_only.plan.iter().all(|target| {
+            matches!(target.key, udp::BindKey::Unicast(ip) if !ip.is_unspecified())
+        }));
+        assert!(plan_has(
+            &unicast_only.plan,
+            &udp::BindKey::Unicast("192.168.1.10".parse().unwrap())
+        ));
+        assert!(!plan_has(
+            &unicast_only.plan,
+            &udp::BindKey::Directed("192.168.1.255".parse().unwrap())
+        ));
+        assert!(udp::device_bind_denied(&std::io::Error::from_raw_os_error(
+            hbb_common::libc::EPERM
+        )));
+        assert!(udp::device_bind_denied(&std::io::Error::from_raw_os_error(
+            hbb_common::libc::EACCES
+        )));
+        assert!(!udp::device_bind_denied(
+            &std::io::Error::from_raw_os_error(hbb_common::libc::ENODEV)
+        ));
+
+        let android = udp::ifaces_from_android_json(
+            r#"[{"name":"wlan0","index":3,"flags":17,"addrs":["192.168.4.2/24","8.8.8.8/24","169.254.9.9/16","fe80::5/64","2001:db8::5/64"]},{"name":"lo","index":1,"flags":5,"addrs":["127.0.0.1/8"]}]"#,
+        );
+        let android = udp::discovery_bind_plan(&android);
+        assert!(plan_has(
+            &android,
+            &udp::BindKey::Unicast("192.168.4.2".parse().unwrap())
+        ));
+        assert!(plan_has(
+            &android,
+            &udp::BindKey::Unicast("169.254.9.9".parse().unwrap())
+        ));
+        assert!(plan_has(
+            &android,
+            &udp::BindKey::Unicast("fe80::5".parse().unwrap())
+        ));
+        assert!(!plan_has(
+            &android,
+            &udp::BindKey::Unicast("8.8.8.8".parse().unwrap())
+        ));
+        assert!(!plan_has(
+            &android,
+            &udp::BindKey::Unicast("127.0.0.1".parse().unwrap())
+        ));
+        assert!(!plan_has(
+            &android,
+            &udp::BindKey::Unicast("2001:db8::5".parse().unwrap())
+        ));
+    }
+
+    #[test]
+    fn udp_rebind_opens_added_addresses_and_closes_removed_ones() {
+        let before =
+            udp::discovery_bind_plan(&[lan_iface("eth0", 2, &[("192.168.1.10", 24)], &[])]);
+        let after = udp::discovery_bind_plan(&[
+            lan_iface("eth0", 2, &[("192.168.1.20", 24)], &[]),
+            lan_iface("wlan0", 3, &[("10.0.0.2", 8)], &[]),
+        ]);
+        let before_keys: Vec<_> = before.iter().map(|target| target.key.clone()).collect();
+        let after_keys: Vec<_> = after.iter().map(|target| target.key.clone()).collect();
+        let (close, open) = udp::rebind_keys(&before_keys, &after_keys);
+        assert!(close.contains(&udp::BindKey::Unicast("192.168.1.10".parse().unwrap())));
+        assert!(!close.contains(&udp::BindKey::Unicast("192.168.1.20".parse().unwrap())));
+        assert!(open.contains(&udp::BindKey::Unicast("192.168.1.20".parse().unwrap())));
+        assert!(open.contains(&udp::BindKey::Unicast("10.0.0.2".parse().unwrap())));
+        assert!(open.contains(&udp::BindKey::Directed("10.255.255.255".parse().unwrap())));
+        assert!(!close.contains(&udp::BindKey::Directed("192.168.1.255".parse().unwrap())));
+        assert!(!open.contains(&udp::BindKey::Directed("192.168.1.255".parse().unwrap())));
+        let eth0_limited = udp::BindKey::Limited {
+            index: 2,
+            name: "eth0".into(),
+        };
+        assert!(!close.contains(&eth0_limited));
+        assert!(!open.contains(&eth0_limited));
+        assert!(open.contains(&udp::BindKey::Limited {
+            index: 3,
+            name: "wlan0".into(),
+        }));
+        let (close_all, open_none) = udp::rebind_keys(&after_keys, &[]);
+        assert_eq!(close_all.len(), after_keys.len());
+        assert!(open_none.is_empty());
+    }
+
+    fn ephemeral_port() -> u16 {
+        UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port()
+    }
+
+    fn loopback_target(key: udp::BindKey) -> udp::BindTarget {
+        udp::BindTarget {
+            key,
+            reply: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            index: 1,
+            name: "lo".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn discovery_rebind_follows_the_loopback_address() {
+        let port = ephemeral_port();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+        let mut set = udp::ListenerSet::empty();
+        let target = loopback_target(udp::BindKey::Unicast(IpAddr::V4(Ipv4Addr::LOCALHOST)));
+        set.reconcile(vec![target.clone()], port, tx.clone());
+        assert_eq!(set.sockets.len(), 1);
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        client
+            .send_to(b"ping", (Ipv4Addr::LOCALHOST, port))
+            .unwrap();
+        let hit = tokio::time::timeout(Duration::from_millis(500), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(hit.bytes, b"ping");
+        set.reconcile(Vec::new(), port, tx.clone());
+        assert!(set.sockets.is_empty());
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        client
+            .send_to(b"gone", (Ipv4Addr::LOCALHOST, port))
+            .unwrap();
+        assert!(tokio::time::timeout(Duration::from_millis(200), rx.recv())
+            .await
+            .is_err());
+        set.reconcile(vec![target], port, tx);
+        assert_eq!(set.sockets.len(), 1);
+        client
+            .send_to(b"back", (Ipv4Addr::LOCALHOST, port))
+            .unwrap();
+        let hit = tokio::time::timeout(Duration::from_millis(500), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(hit.bytes, b"back");
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[test]
+    fn discovery_broadcast_and_multicast_roundtrip_on_loopback() {
+        let port = ephemeral_port();
+        let targets = vec![
+            loopback_target(udp::BindKey::Unicast(IpAddr::V4(Ipv4Addr::LOCALHOST))),
+            loopback_target(udp::BindKey::Directed("127.255.255.255".parse().unwrap())),
+            loopback_target(udp::BindKey::Limited {
+                index: 1,
+                name: "lo".into(),
+            }),
+            loopback_target(udp::BindKey::V4Multicast { index: 1 }),
+        ];
+        let mut opened = Vec::new();
+        for target in &targets {
+            let socket = udp::open_target(target, port)
+                .unwrap_or_else(|error| panic!("bind {}: {error}", target.key.label(port)));
+            socket.set_nonblocking(true).unwrap();
+            let ip = socket.local_addr().unwrap().ip();
+            assert!(!ip.is_unspecified(), "{}", target.key.label(port));
+            opened.push((target.key.clone(), socket));
+        }
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        client.set_broadcast(true).unwrap();
+        client.set_nonblocking(true).unwrap();
+        let cases = [
+            (
+                udp::BindKey::Unicast(IpAddr::V4(Ipv4Addr::LOCALHOST)),
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port),
+                b"uni".as_slice(),
+            ),
+            (
+                udp::BindKey::Directed("127.255.255.255".parse().unwrap()),
+                SocketAddr::new("127.255.255.255".parse().unwrap(), port),
+                b"dir".as_slice(),
+            ),
+            (
+                udp::BindKey::Limited {
+                    index: 1,
+                    name: "lo".into(),
+                },
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::BROADCAST), port),
+                b"lim".as_slice(),
+            ),
+            (
+                udp::BindKey::V4Multicast { index: 1 },
+                SocketAddr::new(IpAddr::V4(udp::IPV4_ALL_HOSTS), port),
+                b"mc".as_slice(),
+            ),
+        ];
+        for (key, dest, payload) in cases {
+            client.send_to(payload, dest).unwrap();
+            let start = Instant::now();
+            let mut found = None;
+            while start.elapsed() < Duration::from_millis(400) && found.is_none() {
+                for (bound, socket) in &opened {
+                    let mut buf = [0u8; 64];
+                    match socket.recv_from(&mut buf) {
+                        Ok((n, from)) => {
+                            found = Some((bound.clone(), buf[..n].to_vec(), from));
+                            break;
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                        Err(error) => panic!("{error}"),
+                    }
+                }
+                if found.is_none() {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+            }
+            let (bound, bytes, from) = found.unwrap_or_else(|| panic!("no reply for {payload:?}"));
+            assert_eq!(bound, key, "{payload:?} arrived on the wrong socket");
+            assert_eq!(bytes, payload);
+            opened
+                .iter()
+                .find(|(candidate, _)| candidate == &key)
+                .unwrap()
+                .1
+                .send_to(b"pong", from)
+                .unwrap();
+            let start = Instant::now();
+            let mut pong = None;
+            while start.elapsed() < Duration::from_millis(400) && pong.is_none() {
+                let mut buf = [0u8; 64];
+                match client.recv_from(&mut buf) {
+                    Ok((n, src)) => pong = Some((buf[..n].to_vec(), src)),
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => panic!("{error}"),
+                }
+            }
+            let (bytes, src) = pong.expect("pong");
+            assert_eq!(bytes, b"pong");
+            assert_eq!(src.ip(), IpAddr::V4(Ipv4Addr::LOCALHOST));
+        }
+    }
+
+    #[test]
+    fn discovery_ipv6_multicast_roundtrip_on_link_local_when_present() {
+        let Some(iface) = udp::interfaces_from_default_net()
+            .into_iter()
+            .find(|iface| {
+                iface.v6.iter().any(|(ip, _)| ip.is_unicast_link_local()) && iface.index != 0
+            })
+        else {
+            return;
+        };
+        let ip = iface
+            .v6
+            .iter()
+            .find(|(ip, _)| ip.is_unicast_link_local())
+            .unwrap()
+            .0;
+        let port = ephemeral_port();
+        let target = udp::BindTarget {
+            key: udp::BindKey::V6Multicast { index: iface.index },
+            reply: IpAddr::V6(ip),
+            index: iface.index,
+            name: iface.name,
+        };
+        let server = udp::open_target(&target, port).unwrap();
+        server.set_nonblocking(true).unwrap();
+        assert!(!server.local_addr().unwrap().ip().is_unspecified());
+        let client = UdpSocket::bind(std::net::SocketAddrV6::new(ip, 0, 0, iface.index)).unwrap();
+        client.set_nonblocking(true).unwrap();
+        let dest = std::net::SocketAddrV6::new(udp::IPV6_ALL_NODES, port, 0, iface.index);
+        client.send_to(b"v6", dest).unwrap();
+        let start = Instant::now();
+        let mut got = None;
+        while start.elapsed() < Duration::from_millis(400) && got.is_none() {
+            let mut buf = [0u8; 64];
+            match server.recv_from(&mut buf) {
+                Ok((n, from)) => got = Some((buf[..n].to_vec(), from)),
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(error) => panic!("{error}"),
+            }
+        }
+        let (bytes, from) = got.expect("ipv6 multicast");
+        assert_eq!(bytes, b"v6");
+        server.send_to(b"pong6", from).unwrap();
+        let start = Instant::now();
+        let mut pong = None;
+        while start.elapsed() < Duration::from_millis(400) && pong.is_none() {
+            let mut buf = [0u8; 64];
+            match client.recv_from(&mut buf) {
+                Ok((n, src)) => pong = Some((buf[..n].to_vec(), src)),
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(error) => panic!("{error}"),
+            }
+        }
+        let (bytes, src) = pong.expect("ipv6 pong");
+        assert_eq!(bytes, b"pong6");
+        let src_ip = src.ip();
+        assert!(
+            matches!(src_ip, IpAddr::V6(ip) if ip.is_unicast_link_local())
+                || src_ip == IpAddr::V6(ip)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn udp_and_tcp_share_the_discovery_interface_filter() {
+        use hbb_common::libc::{IFF_BROADCAST, IFF_POINTOPOINT, IFF_UP};
+
+        let vpn = (IFF_UP | IFF_POINTOPOINT) as u32;
+        let lan = (IFF_UP | IFF_BROADCAST) as u32;
+        assert!(udp::lan_iface_if_kept(
+            "tun0",
+            8,
+            vpn,
+            vec![("10.8.0.2".parse().unwrap(), 24)],
+            vec![],
+        )
+        .is_none());
+        assert!(udp::lan_iface_if_kept(
+            "wlan0",
+            3,
+            0,
+            vec![("192.168.1.5".parse().unwrap(), 24)],
+            vec![],
+        )
+        .is_none());
+        let kept = udp::lan_iface_if_kept(
+            "eth0",
+            2,
+            lan,
+            vec![("192.168.1.10".parse().unwrap(), 24)],
+            vec![],
+        )
+        .unwrap();
+        let plan = udp::discovery_bind_plan(std::slice::from_ref(&kept));
+        assert!(plan_has(
+            &plan,
+            &udp::BindKey::Unicast("192.168.1.10".parse().unwrap())
+        ));
+        assert!(plan.iter().all(|target| match target.key {
+            udp::BindKey::Unicast(ip) => !ip.is_unspecified(),
+            _ => true,
+        }));
+        let bound = tcp_bind_addrs(&[IpAddr::V4(kept.v4[0].0)], &[]);
+        assert_eq!(
+            bound,
+            vec![SocketAddr::new("192.168.1.10".parse().unwrap(), TCP_PORT)]
+        );
+    }
+
+    #[test]
+    fn android_discovery_falls_back_when_netlink_is_empty_or_flags_are_zero() {
+        // Empty, and the Unix flag filter's flags-0 result, are the same input:
+        // no kept interface. Discovery still queries 255.255.255.255.
+        let (ifaces, global) = udp::query_targets(&[], &[]);
+        assert!(ifaces.is_empty());
+        assert!(global);
+
+        let json = udp::ifaces_from_android_json(
+            r#"[{"name":"tun0","index":9,"flags":9,"addrs":["10.8.0.2/24"]},{"name":"wlan0","index":3,"flags":1,"addrs":["192.168.4.9/24","fe80::5/64"]}]"#,
+        );
+        assert_eq!(json.len(), 1);
+        assert_eq!(json[0].name, "wlan0");
+        let (ifaces, global) = udp::query_targets(&[], &json);
+        assert!(!global);
+        assert_eq!(ifaces.len(), 1);
+        let plan = udp::discovery_bind_plan(ifaces);
+        assert!(plan_has(
+            &plan,
+            &udp::BindKey::Unicast("192.168.4.9".parse().unwrap())
+        ));
+        assert!(!plan.iter().any(|target| matches!(
+            target.key,
+            udp::BindKey::Unicast(ip) if ip == "10.8.0.2".parse::<IpAddr>().unwrap()
+        )));
+
+        let tun_only = udp::ifaces_from_android_json(
+            r#"[{"name":"tun0","flags":1,"addrs":["10.8.0.2/24"]},{"name":"ppp0","flags":1,"addrs":["10.9.0.2/24"]},{"name":"wg0","flags":1,"addrs":["10.7.0.2/24"]},{"name":"lo","flags":5,"addrs":["127.0.0.1/8"]}]"#,
+        );
+        assert!(tun_only.is_empty());
+        let (ifaces, global) = udp::query_targets(&[], &tun_only);
+        assert!(ifaces.is_empty());
+        assert!(global);
     }
 }

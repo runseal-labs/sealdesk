@@ -19,6 +19,10 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.content.res.Configuration
+import android.net.ConnectivityManager
+import android.net.LinkProperties
+import android.net.Network
+import android.net.NetworkRequest
 import android.content.res.Configuration.ORIENTATION_LANDSCAPE
 import android.graphics.Color
 import android.graphics.PixelFormat
@@ -235,6 +239,7 @@ class MainService : Service() {
     private lateinit var notificationManager: NotificationManager
     private lateinit var notificationChannel: String
     private lateinit var notificationBuilder: NotificationCompat.Builder
+    private var interfaceCallback: ConnectivityManager.NetworkCallback? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -253,13 +258,54 @@ class MainService : Service() {
         val configPath = prefs.getString(KEY_APP_DIR_CONFIG_PATH, "") ?: ""
         val homePath = applicationContext.getExternalFilesDir(null)?.absolutePath
             ?: applicationContext.filesDir.absolutePath
-        FFI.pushTailcatInterfaces()
+        FFI.pushTailcatInterfaces(applicationContext)
+        registerInterfaceCallback()
         FFI.startServer(configPath, homePath, "")
 
         createForegroundNotification()
     }
 
+    private fun registerInterfaceCallback() {
+        if (interfaceCallback != null) return
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                FFI.pushTailcatInterfaces(applicationContext)
+            }
+
+            override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
+                FFI.pushTailcatInterfaces(applicationContext)
+            }
+
+            override fun onLost(network: Network) {
+                FFI.pushTailcatInterfaces(applicationContext)
+            }
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                cm.registerDefaultNetworkCallback(callback)
+            } else {
+                cm.registerNetworkCallback(NetworkRequest.Builder().build(), callback)
+            }
+            interfaceCallback = callback
+        } catch (e: Exception) {
+            Log.w(logTag, "network callback register failed: $e")
+        }
+    }
+
+    private fun unregisterInterfaceCallback() {
+        val callback = interfaceCallback ?: return
+        interfaceCallback = null
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
+        try {
+            cm.unregisterNetworkCallback(callback)
+        } catch (e: Exception) {
+            Log.w(logTag, "network callback unregister failed: $e")
+        }
+    }
+
     override fun onDestroy() {
+        unregisterInterfaceCallback()
         checkMediaPermission()
         stopService(Intent(this, FloatingWindowService::class.java))
         super.onDestroy()
@@ -349,7 +395,7 @@ class MainService : Service() {
         super.onStartCommand(intent, flags, startId)
         if (intent?.action == ACT_INIT_MEDIA_PROJECTION_AND_SERVICE) {
             if (intent.getBooleanExtra(EXT_INIT_FROM_BOOT, false)) {
-                FFI.pushTailcatInterfaces()
+                FFI.pushTailcatInterfaces(applicationContext)
                 FFI.startService()
             }
             Log.d(logTag, "service starting: ${startId}:${Thread.currentThread()}")
