@@ -69,6 +69,20 @@ default. Initialization failures show the map or relay/bootstrap stage and a
 See [DERP configuration and troubleshooting](docs/DERP.md) for when changes take
 effect, embedded relay addresses, TLS validation, and network limitations.
 
+## Troubleshooting
+
+- **No approval prompt on the host**: make sure the host is in the "Share this
+  device" state and is not locked or asleep.
+- **Scanning times out**: a QR code appearing only means the host is ready, not
+  that the path is reachable. Some networks (corporate or campus networks,
+  forced proxies, deep traffic inspection) block both direct connections and
+  DERP relays, and scanning will always time out there. Try the same LAN, or a
+  different network such as a phone hotspot. The sharing page shows relay
+  connectivity status, so check there first.
+- **Black screen or no control on macOS**: permissions most likely broke after
+  an upgrade. Remove the old SealDesk entries and grant them again, as
+  described in the macOS notes above.
+
 ## Keep your code private
 
 A pairing code is a key to your computer. Don't post it, screenshot it, or
