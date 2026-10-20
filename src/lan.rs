@@ -2888,10 +2888,14 @@ mod tests {
             );
         }
         for ip in ["fc00::1", "fd12::1", "fe80::1"] {
-            assert!(
-                plan_has(&plan, &udp::BindKey::Unicast(ip.parse().unwrap())),
-                "missing {ip}"
-            );
+            let present = plan_has(&plan, &udp::BindKey::Unicast(ip.parse().unwrap()));
+            // Windows binds the V6Multicast socket to the link-local reply, so
+            // that address is not also a unicast listener.
+            if cfg!(windows) && ip == "fe80::1" {
+                assert!(!present, "windows multicast socket owns {ip}");
+            } else {
+                assert!(present, "missing {ip}");
+            }
         }
         for ip in [
             "8.8.8.8",
@@ -3015,10 +3019,19 @@ mod tests {
             &android,
             &udp::BindKey::Unicast("169.254.9.9".parse().unwrap())
         ));
-        assert!(plan_has(
+        let link_local = plan_has(
             &android,
-            &udp::BindKey::Unicast("fe80::5".parse().unwrap())
-        ));
+            &udp::BindKey::Unicast("fe80::5".parse().unwrap()),
+        );
+        if cfg!(windows) {
+            assert!(!link_local);
+            assert!(plan_has(
+                &android,
+                &udp::BindKey::V6Multicast { index: 3 }
+            ));
+        } else {
+            assert!(link_local);
+        }
         assert!(!plan_has(
             &android,
             &udp::BindKey::Unicast("8.8.8.8".parse().unwrap())
