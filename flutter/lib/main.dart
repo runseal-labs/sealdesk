@@ -329,6 +329,9 @@ showCmWindow({bool isStartup = false}) async {
 }
 
 hideCmWindow({bool isStartup = false}) async {
+  // Linux destroys the CM window on close (prevent-close is off). Once
+  // closing, setOpacity/hide throw window_destroyed.
+  if (gFFI.serverModel.cmWindowClosing) return;
   if (isStartup) {
     WindowOptions windowOptions = getHiddenTitleBarWindowOptions(
         size: kConnectionManagerWindowSizeClosedChat);
@@ -340,9 +343,14 @@ hideCmWindow({bool isStartup = false}) async {
     _isCmReadyToShow = true;
   } else if (_isCmReadyToShow) {
     if (await windowManager.getOpacity() != 0) {
+      // Close can win while getOpacity is in flight. setOpacity then throws
+      // window_destroyed.
+      if (gFFI.serverModel.cmWindowClosing) return;
       await windowManager.setOpacity(0);
+      if (gFFI.serverModel.cmWindowClosing) return;
       bind.mainHideDock();
       await windowManager.minimize();
+      if (gFFI.serverModel.cmWindowClosing) return;
       await windowManager.hide();
     }
   }

@@ -63,6 +63,9 @@ class _DesktopServerPageState extends State<DesktopServerPage>
 
   @override
   void onWindowClose() {
+    // Before the awaits: a logout (or any close we did not start) must still
+    // stop hideCmWindow. Our own closeCmWindow already set this.
+    gFFI.serverModel.cmWindowClosing = true;
     // Other platforms keep the old behaviour exactly: the ambiguity this guards against is a
     // Linux session logout, which closes every window in the session.
     final byOperator = _cmClosedByOperator || !isLinux;
@@ -79,7 +82,7 @@ class _DesktopServerPageState extends State<DesktopServerPage>
 
   void onRemoveId(String id) {
     if (tabController.state.value.tabs.isEmpty) {
-      windowManager.close();
+      gFFI.serverModel.closeCmWindow();
     }
   }
 
@@ -339,7 +342,7 @@ class ConnectionManagerState extends State<ConnectionManager>
     final connLength = tabController.length;
     if (connLength <= 1) {
       _cmClosedByOperator = true;
-      windowManager.close();
+      gFFI.serverModel.closeCmWindow();
       return true;
     } else {
       final bool res;
@@ -353,7 +356,7 @@ class ConnectionManagerState extends State<ConnectionManager>
         // After the dialog, never before it: an external close while it is open must not
         // inherit an intent the user had not expressed yet.
         _cmClosedByOperator = true;
-        windowManager.close();
+        gFFI.serverModel.closeCmWindow();
       }
       return res;
     }
@@ -404,7 +407,7 @@ class _CloseButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return IconButton(
       onPressed: () {
-        windowManager.close();
+        gFFI.serverModel.closeCmWindow();
       },
       icon: const Icon(
         IconFont.close,
@@ -1219,7 +1222,7 @@ class _CmControlPanel extends StatelessWidget {
   void handleClose() async {
     await bind.cmRemoveDisconnectedConnection(connId: client.id);
     if (await bind.cmGetClientsLength() == 0) {
-      windowManager.close();
+      gFFI.serverModel.closeCmWindow();
     }
   }
 
