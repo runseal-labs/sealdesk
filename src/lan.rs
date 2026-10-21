@@ -3244,6 +3244,7 @@ mod tests {
                 iface.v6.iter().any(|(ip, _)| ip.is_unicast_link_local()) && iface.index != 0
             })
         else {
+            eprintln!("skipping discovery_ipv6_multicast_roundtrip_on_link_local_when_present: no link-local IPv6 interface");
             return;
         };
         let ip = iface
