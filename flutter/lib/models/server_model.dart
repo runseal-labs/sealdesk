@@ -38,6 +38,9 @@ class ServerModel with ChangeNotifier {
   String _approveMode = "";
   int _zeroClientLengthCounter = 0;
 
+  /// Set synchronously before [windowManager.close]. See [closeCmWindow].
+  bool cmWindowClosing = false;
+
   late String _emptyIdShow;
   late final IDTextEditingController _serverId;
   final _serverPasswd =
@@ -155,13 +158,16 @@ class ServerModel with ChangeNotifier {
           debugPrint("clients not match!");
           updateClientState(res);
         } else {
-          if (_clients.isEmpty) {
-            hideCmWindow();
+          if (_clients.isEmpty && !cmWindowClosing) {
+            // Hide while the window stays up. On the tick that closes it,
+            // do not also hide: close destroys the window before setOpacity.
             if (_zeroClientLengthCounter++ == 12) {
               // 6 second
-              windowManager.close();
+              closeCmWindow();
+            } else {
+              hideCmWindow();
             }
-          } else {
+          } else if (_clients.isNotEmpty) {
             _zeroClientLengthCounter = 0;
             if (!hideCm) showCmWindow();
           }
@@ -714,6 +720,14 @@ class ServerModel with ChangeNotifier {
     } catch (e) {
       debugPrint("onClientRemove failed,error:$e");
     }
+  }
+
+  /// Marks the CM window closing, then asks the window manager to close it.
+  /// The flag is set first so an in-flight [hideCmWindow] does not call
+  /// setOpacity on a window Linux has already destroyed.
+  void closeCmWindow() {
+    cmWindowClosing = true;
+    windowManager.close();
   }
 
   /// `byOperator` false means the CM's window went away rather than a person asking for the
