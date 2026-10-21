@@ -83,7 +83,7 @@ void main() {
     final scam = tester.widget<Text>(find.descendant(
         of: find.byKey(const ValueKey('sealdesk-scam-line')),
         matching: find.byType(Text)));
-    expect(scam.maxLines, 1);
+    expect(scam.maxLines, 2);
     expect(scam.data, 'Stranger asks you to share? Hang up');
     expect(find.byKey(const ValueKey('sealdesk-qr')), findsOneWidget);
     expect(

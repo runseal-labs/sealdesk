@@ -700,7 +700,9 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
       alignment: Alignment.center,
       child: Container(
         key: const ValueKey('sealdesk-relay'),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        // 4px side padding leaves room for "Relay reachable (NNN ms)" at the
+        // narrowest sidebar. Longer status text still ellipsizes.
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
         decoration: BoxDecoration(
           color: background,
           borderRadius: BorderRadius.circular(16),
@@ -933,7 +935,9 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
           Expanded(
             child: Text(
               translate('Stranger asks you to share? Hang up'),
-              maxLines: 1,
+              // The English sentence needs a second line at the narrowest
+              // sidebar width. Wider layouts still fit on one line.
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(color: Color(0xFF8A5300), fontSize: 12),
             ),
@@ -1422,9 +1426,8 @@ Widget _shareIcon({
   required Widget icon,
   required VoidCallback? onPressed,
 }) {
-  return Tooltip(
+  return _ShareIconTip(
     message: tooltip,
-    preferBelow: false,
     child: IconButton(
       key: key,
       visualDensity: VisualDensity.compact,
@@ -1432,4 +1435,158 @@ Widget _shareIcon({
       icon: icon,
     ),
   );
+}
+
+/// Hover tip drawn beside the share icon. A normal tooltip opens above or
+/// below and covers either the QR countdown or the relay status.
+class _ShareIconTip extends StatefulWidget {
+  const _ShareIconTip({required this.message, required this.child});
+
+  final String message;
+  final Widget child;
+
+  @override
+  State<_ShareIconTip> createState() => _ShareIconTipState();
+}
+
+class _ShareIconTipState extends State<_ShareIconTip> {
+  final _key = GlobalKey();
+  OverlayEntry? _entry;
+  Timer? _timer;
+
+  void _arm() {
+    _timer?.cancel();
+    final wait = TooltipTheme.of(context).waitDuration ?? Duration.zero;
+    _timer = Timer(wait, _show);
+  }
+
+  void _show() {
+    if (!mounted || _entry != null) return;
+    final box = _key.currentContext?.findRenderObject() as RenderBox?;
+    final overlay = Overlay.maybeOf(context);
+    final overlayBox = overlay?.context.findRenderObject();
+    if (box == null ||
+        overlay == null ||
+        overlayBox is! RenderBox ||
+        !box.hasSize ||
+        !box.attached) {
+      return;
+    }
+    final target = box.localToGlobal(Offset.zero, ancestor: overlayBox);
+    final targetSize = box.size;
+    final entry = OverlayEntry(
+      builder: (context) => _ShareIconTipBubble(
+        message: widget.message,
+        target: target,
+        targetSize: targetSize,
+      ),
+    );
+    _entry = entry;
+    overlay.insert(entry);
+  }
+
+  void _hide() {
+    _timer?.cancel();
+    _timer = null;
+    _entry?.remove();
+    _entry = null;
+  }
+
+  @override
+  void dispose() {
+    _hide();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => _arm(),
+      onExit: (_) => _hide(),
+      child: Semantics(
+        tooltip: widget.message,
+        child: KeyedSubtree(key: _key, child: widget.child),
+      ),
+    );
+  }
+}
+
+class _ShareIconTipBubble extends StatelessWidget {
+  const _ShareIconTipBubble({
+    required this.message,
+    required this.target,
+    required this.targetSize,
+  });
+
+  final String message;
+  final Offset target;
+  final Size targetSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Positioned.fill(
+      child: CustomSingleChildLayout(
+        delegate: _ShareIconTipDelegate(target: target, targetSize: targetSize),
+        child: IgnorePointer(
+          child: Container(
+            key: const ValueKey('sealdesk-share-tip'),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: dark
+                  ? Colors.white.withOpacity(0.9)
+                  : Colors.grey[700]!.withOpacity(0.9),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              message,
+              style: TextStyle(
+                color: dark ? Colors.black : Colors.white,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ShareIconTipDelegate extends SingleChildLayoutDelegate {
+  _ShareIconTipDelegate({required this.target, required this.targetSize});
+
+  final Offset target;
+  final Size targetSize;
+
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) =>
+      constraints.loosen();
+
+  @override
+  Offset getPositionForChild(Size size, Size childSize) {
+    const margin = 8.0;
+    // Stay inside the icon's vertical span so the tip cannot cover the
+    // countdown row above or the relay row below.
+    var top = target.dy + (targetSize.height - childSize.height) / 2;
+    if (childSize.height <= targetSize.height) {
+      top = top
+          .clamp(target.dy, target.dy + targetSize.height - childSize.height)
+          .toDouble();
+    } else {
+      top = top
+          .clamp(margin, math.max(margin, size.height - childSize.height))
+          .toDouble();
+    }
+    var left = target.dx + targetSize.width + 4;
+    if (left + childSize.width > size.width - margin) {
+      left = target.dx - 4 - childSize.width;
+    }
+    final maxLeft = math.max(margin, size.width - margin - childSize.width);
+    left = left.clamp(margin, maxLeft).toDouble();
+    return Offset(left, top);
+  }
+
+  @override
+  bool shouldRelayout(_ShareIconTipDelegate oldDelegate) =>
+      target != oldDelegate.target || targetSize != oldDelegate.targetSize;
 }

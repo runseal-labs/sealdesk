@@ -159,8 +159,7 @@ void main() {
     expect(find.byType(AppBar), findsNothing);
   });
 
-  testWidgets('S-AC3 stopped has a single non-wrapping scam line',
-      (tester) async {
+  testWidgets('S-AC3 stopped has a single scam line', (tester) async {
     await show(
       tester,
       size: const Size(360, 640),
@@ -172,7 +171,7 @@ void main() {
     expect(line, findsOneWidget);
     final text = tester
         .widget<Text>(find.descendant(of: line, matching: find.byType(Text)));
-    expect(text.maxLines, 1);
+    expect(text.maxLines, 2);
     expect(text.data, 'Stranger asks you to share? Hang up');
     expect(find.text('Sharing stopped'), findsOneWidget);
     expect(find.textContaining('Starting LAN sharing'), findsNothing);
