@@ -1263,7 +1263,10 @@ void main() {
       final tipRect = tester.getRect(tip.first);
       final relayRect =
           tester.getRect(find.byKey(const ValueKey('sealdesk-relay')));
+      final ttlRect =
+          tester.getRect(find.byKey(const ValueKey('sealdesk-qr-ttl')));
       expect(tipRect.overlaps(relayRect), isFalse);
+      expect(tipRect.overlaps(ttlRect), isFalse);
     }
 
     await expectTip('sealdesk-refresh', 'Refresh password');
