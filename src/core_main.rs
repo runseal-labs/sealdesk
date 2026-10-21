@@ -417,6 +417,7 @@ pub fn core_main() -> Option<CoreMainAction> {
                 return None;
             }
         } else if args[0] == "--tray" {
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
             if !crate::check_process("--tray", true) {
                 crate::tray::start_tray();
             }

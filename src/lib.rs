@@ -59,7 +59,9 @@ mod lang;
 mod port_forward;
 mod port_forward_mux;
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+// Linux desktop never starts a tray process: `--tray` and `--server` fail
+// before dispatch. Windows still spawns `--tray`; macOS `--server` runs the tray.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 mod tray;
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
