@@ -171,9 +171,12 @@ piet-coregraphics = "0.6"
 foreign-types = "0.3"
 
 [target.'cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))'.dependencies]
+image = "0.24"
+
+# Tray UI only. Linux does not compile `src/tray.rs` (and its whiteboard uses winit, not tao).
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
 tray-icon = { git = "https://github.com/tauri-apps/tray-icon", version = "0.21.3" }
 tao = { git = "https://github.com/rustdesk-org/tao", branch = "dev" }
-image = "0.24"
 
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 keepawake = { git = "https://github.com/rustdesk-org/keepawake-rs" }
