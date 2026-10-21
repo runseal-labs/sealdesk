@@ -365,5 +365,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Arrow right", "Arrow right"),
         ("Page down", "Page down"),
         ("Long press", "Long press"),
+        ("ScrollAuto", "Auto scroll"),
+        ("Scrollbar", "Scroll bar"),
+        ("ScrollEdge", "Edge scroll"),
     ].iter().cloned().collect();
 }

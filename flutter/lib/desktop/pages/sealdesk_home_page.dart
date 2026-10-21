@@ -1175,34 +1175,30 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
   List<Widget> _iconActionButtons() {
     final copyEnabled = _code != null && !_busy;
     return [
-      IconButton(
+      _shareIcon(
         key: const ValueKey('sealdesk-copy'),
         tooltip: translate('Copy pairing code'),
-        visualDensity: VisualDensity.compact,
         onPressed: copyEnabled ? _copyPairing : null,
         icon: const Icon(Icons.copy, size: 20),
       ),
-      IconButton(
+      _shareIcon(
         key: const ValueKey('sealdesk-refresh'),
         tooltip: translate('Refresh password'),
-        visualDensity: VisualDensity.compact,
         onPressed: _busy ? null : _refreshPassword,
         icon: const Icon(Icons.refresh, size: 20),
       ),
       if (widget.resetAddress != null)
-        IconButton(
+        _shareIcon(
           key: const ValueKey('sealdesk-reset-address'),
           tooltip: translate('Reset address'),
-          visualDensity: VisualDensity.compact,
           onPressed: _busy || (_pairing == null && _revokedAddress == null)
               ? null
               : _resetAddress,
           icon: const Icon(Icons.restart_alt, size: 20),
         ),
-      IconButton(
+      _shareIcon(
         key: const ValueKey('sealdesk-hide'),
         tooltip: translate(_hidden ? 'Show QR code' : 'Hide QR code'),
-        visualDensity: VisualDensity.compact,
         onPressed: () => setState(_toggleQrMask),
         icon: Icon(_hidden ? Icons.visibility : Icons.visibility_off, size: 20),
       ),
@@ -1418,4 +1414,22 @@ Future<void> showSealDeskRelaySettings(BuildContext context) async {
       ),
     );
   }
+}
+
+Widget _shareIcon({
+  required Key key,
+  required String tooltip,
+  required Widget icon,
+  required VoidCallback? onPressed,
+}) {
+  return Tooltip(
+    message: tooltip,
+    preferBelow: false,
+    child: IconButton(
+      key: key,
+      visualDensity: VisualDensity.compact,
+      onPressed: onPressed,
+      icon: icon,
+    ),
+  );
 }

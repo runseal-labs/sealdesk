@@ -2854,6 +2854,10 @@ mod tests {
         plan.iter().any(|target| &target.key == key)
     }
 
+    fn v6_multicast_owns_reply() -> bool {
+        cfg!(any(windows, target_os = "macos", target_os = "ios"))
+    }
+
     #[test]
     fn udp_bind_plan_skips_public_and_keeps_private_and_link_local() {
         let plan = udp::discovery_bind_plan(&[
@@ -2889,10 +2893,10 @@ mod tests {
         }
         for ip in ["fc00::1", "fd12::1", "fe80::1"] {
             let present = plan_has(&plan, &udp::BindKey::Unicast(ip.parse().unwrap()));
-            // Windows binds the V6Multicast socket to the link-local reply, so
-            // that address is not also a unicast listener.
-            if cfg!(windows) && ip == "fe80::1" {
-                assert!(!present, "windows multicast socket owns {ip}");
+            // Windows and Darwin bind the V6Multicast socket to the link-local
+            // reply, so that address is not also a unicast listener.
+            if v6_multicast_owns_reply() && ip == "fe80::1" {
+                assert!(!present, "multicast socket owns {ip}");
             } else {
                 assert!(present, "missing {ip}");
             }
@@ -3023,7 +3027,7 @@ mod tests {
             &android,
             &udp::BindKey::Unicast("fe80::5".parse().unwrap()),
         );
-        if cfg!(windows) {
+        if v6_multicast_owns_reply() {
             assert!(!link_local);
             assert!(plan_has(
                 &android,

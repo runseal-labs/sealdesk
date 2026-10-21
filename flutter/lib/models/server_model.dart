@@ -99,6 +99,10 @@ class ServerModel with ChangeNotifier {
 
   setTemporaryPasswordLength(String length) async {
     await bind.mainSetOption(key: "temporary-password-length", value: length);
+    // The length change itself must not make updatePasswordModel generate
+    // another password. Callers that need a new password generate it once,
+    // then reload; the refresh buttons do not come through here.
+    _temporaryPasswordLength = length;
   }
 
   setApproveMode(String mode) async {

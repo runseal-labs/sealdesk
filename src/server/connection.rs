@@ -2806,17 +2806,12 @@ impl Connection {
                 self.try_start_cm_ipc();
             }
 
-            if self.lan_peer.is_some() {
-                match lan_decision {
-                    crate::lan::LanLoginDecision::AllowRemembered(permissions) => {
-                        self.apply_lan_permissions(permissions);
-                        if !self.send_logon_response_and_keep_alive().await { return false; }
-                    }
-                    _ => {
-                        self.send_login_error(crate::client::LOGIN_MSG_NO_PASSWORD_ACCESS).await;
-                    }
+            if let crate::lan::LanLoginDecision::AllowRemembered(permissions) = lan_decision {
+                self.apply_lan_permissions(permissions);
+                if !self.send_logon_response_and_keep_alive().await {
+                    return false;
                 }
-                self.try_start_cm(lr.my_id.clone(),lr.my_name.clone(),self.authorized);
+                self.try_start_cm(lr.my_id.clone(), lr.my_name.clone(), self.authorized);
                 return true;
             }
 
