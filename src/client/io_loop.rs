@@ -252,10 +252,12 @@ impl<T: InvokeUiSession> Remote<T> {
                 let mut last_recv_time = Instant::now();
                 let path_handler = self.handler.clone();
                 let path_address = path_handler.get_id();
-                let mut path_monitor =
-                    Box::pin(crate::tailcat::watch_path(&path_address, move |direct| {
+                let mut path_monitor = Box::pin(crate::tailcat::watch_path(
+                    &path_address,
+                    move |direct| {
                         path_handler.update_tailcat_path(direct);
-                    }));
+                    },
+                ));
 
                 loop {
                     tokio::select! {
@@ -636,10 +638,7 @@ impl<T: InvokeUiSession> Remote<T> {
     // Capture after readiness so changes during the read can invalidate the snapshot.
     // A separate task keeps a stalled backend from blocking the connection loop.
     #[cfg(target_os = "linux")]
-    fn spawn_initial_clipboard_read_after_ready(
-        &self,
-        read_clipboard: impl FnOnce() + Send + 'static,
-    ) {
+    fn spawn_initial_clipboard_read_after_ready(&self, read_clipboard: impl FnOnce() + Send + 'static) {
         // Initial-sync wait budget, not a protocol-defined startup deadline.
         const CLIPBOARD_READY_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -726,8 +725,7 @@ impl<T: InvokeUiSession> Remote<T> {
                         return true;
                     }
                     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-                    Some(message::Union::Clipboard(_))
-                    | Some(message::Union::MultiClipboards(_)) => {
+                    Some(message::Union::Clipboard(_)) | Some(message::Union::MultiClipboards(_)) => {
                         self.initial_clipboard_pending = false;
                     }
                     #[cfg(not(any(target_os = "android", target_os = "ios")))]
