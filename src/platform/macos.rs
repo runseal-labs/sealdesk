@@ -1031,6 +1031,46 @@ pub fn quit_gui() {
     };
 }
 
+pub fn set_login_autostart(enable: bool) -> ResultType<()> {
+    let home = current_user_home()?;
+    let label = super::login_item::macos_login_label(&crate::get_app_name());
+    let path = home.join("Library/LaunchAgents").join(format!("{label}.plist"));
+    if !enable {
+        // Delete the plist only. `launchctl unload -w` writes a disabled
+        // override that survives the file and blocks the next login.
+        super::login_item::ignore_not_found(std::fs::remove_file(&path))?;
+        return Ok(());
+    }
+    let exe = std::env::current_exe()?;
+    let exe = exe
+        .to_str()
+        .ok_or_else(|| anyhow!("Current executable path is not valid Unicode"))?
+        .to_owned();
+    let body = super::login_item::macos_login_plist(&label, &exe);
+    if std::fs::read_to_string(&path).ok().as_deref() == Some(body.as_str()) {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    // Do not `launchctl bootstrap` here. RunAtLoad would start `--server` immediately
+    // and that process exits if the open app already owns IPC. The plist is loaded at next login.
+    std::fs::write(&path, body)?;
+    Ok(())
+}
+
+fn current_user_home() -> ResultType<PathBuf> {
+    use hbb_common::users::os::unix::UserExt;
+    let uid = hbb_common::users::get_current_uid();
+    let user = hbb_common::users::get_user_by_uid(uid)
+        .ok_or_else(|| anyhow!("Failed to look up the current user"))?;
+    let home = user.home_dir();
+    if !home.is_dir() {
+        bail!("Home directory does not exist");
+    }
+    Ok(home.to_path_buf())
+}
+
 pub fn update_me() -> ResultType<()> {
     let cmd = std::env::current_exe()?;
     // SealDesk.app/Contents/MacOS/SealDesk

@@ -33,6 +33,7 @@ import 'package:window_size/window_size.dart' as window_size;
 import '../consts.dart';
 import 'common/sealdesk_connection.dart';
 export 'common/sealdesk_connection.dart';
+import 'common/sealdesk_startup.dart';
 import 'common/system_ui_style.dart';
 import 'common/widgets/overlay.dart';
 import 'mobile/pages/file_manager_page.dart';
@@ -2756,6 +2757,13 @@ Future<void> onActiveWindowChanged() async {
   print(
       "[MultiWindowHandler] active window changed: ${rustDeskWinManager.getActiveWindows()}");
   if (rustDeskWinManager.getActiveWindows().isEmpty) {
+    // Hiding the main window unregisters it. With a tray host the service
+    // runs in this process, so destroying the window would exit both.
+    // The close handler hides the window after this returns. No tray host
+    // still quits below, including the macOS terminate fallback.
+    if (sealDeskTrayKeepsProcess(bind.mainGetEnv(key: sealDeskTrayHostEnv))) {
+      return;
+    }
     // close all sub windows
     try {
       if (isLinux) {

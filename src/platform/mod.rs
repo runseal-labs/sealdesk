@@ -23,6 +23,27 @@ pub mod linux;
 #[cfg(target_os = "linux")]
 pub mod gtk_sudo;
 
+pub mod login_item;
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub fn sync_login_autostart() {
+    let enabled = login_item::enabled(&hbb_common::config::LocalConfig::get_option(
+        base::config::keys::OPTION_ALLOW_START_AT_LOGIN,
+    ));
+    if let Err(error) = set_login_autostart(enabled) {
+        hbb_common::log::warn!("Could not update start at login: {error}");
+        // An old all-users shortcut is still launching the app. Keep the
+        // switch on so the UI does not show login as off.
+        #[cfg(windows)]
+        if !enabled && windows::all_users_login_shortcut_exists() {
+            hbb_common::config::LocalConfig::set_option(
+                base::config::keys::OPTION_ALLOW_START_AT_LOGIN.to_owned(),
+                "Y".to_owned(),
+            );
+        }
+    }
+}
+
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use base::message_proto::CursorData;
 #[cfg(all(

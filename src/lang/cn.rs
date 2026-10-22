@@ -276,6 +276,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Overwrite", "覆盖"),
         ("This file exists, skip or overwrite this file?", "这个文件/文件夹已存在，跳过/覆盖？"),
         ("Quit", "退出"),
+        ("Open main window", "打开主窗口"),
+        ("Start at login", "开机自启"),
         ("Help", "帮助"),
         ("Failed", "失败"),
         ("Succeeded", "成功"),

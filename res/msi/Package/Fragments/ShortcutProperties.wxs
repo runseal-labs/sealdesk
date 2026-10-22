@@ -13,7 +13,8 @@
 				 properties from command line, bundle, or registry values. -->
 		<Property Id="STARTMENUSHORTCUTS" Value="1" Secure="yes"></Property>
 		<Property Id="DESKTOPSHORTCUTS" Value="1" Secure="yes"></Property>
-		<Property Id="STARTUPSHORTCUTS" Value="1" Secure="yes"></Property>
+		<!-- Start at login stays off unless the user turns it on. -->
+		<Property Id="STARTUPSHORTCUTS" Value="0" Secure="yes"></Property>
 		<Property Id="PRINTER" Secure="yes"></Property>
 
 		<!-- These properties get set from either the command line, bundle or registry value,
