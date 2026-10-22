@@ -204,6 +204,10 @@ pub fn core_main() -> Option<CoreMainAction> {
             outgoing_only: config::is_outgoing_only(),
             stop_service,
         });
+    // Tray follows the explicit launch only. Saved stop-service and outgoing-only
+    // are handled inside `--tray`, which returns without starting the host.
+    let launch_without_tray = explicit_control || no_server;
+    // Portable-service startup on Windows still keys off `no_server`.
     #[cfg(windows)]
     {
         no_server = !service_plan.start_server;
@@ -315,8 +319,9 @@ pub fn core_main() -> Option<CoreMainAction> {
         }
         crate::platform::sync_login_autostart();
         // `--control` / `--no-server` clear into this empty-arg path.
-        // A `--tray` child sets host mode and starts the service.
-        if !explicit_control && !no_server {
+        // A `--tray` child sets host mode and starts the service, unless
+        // stop-service or outgoing-only already told it not to.
+        if !launch_without_tray {
             note_tray_host();
             ensure_tray();
         }

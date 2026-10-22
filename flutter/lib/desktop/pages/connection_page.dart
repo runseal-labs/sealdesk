@@ -236,10 +236,9 @@ class _ConnectionPageState extends State<ConnectionPage>
   @override
   void onWindowClose() {
     super.onWindowClose();
-    // Linux hides to the tray only when a host was present at startup.
-    // That close must not stop sharing. Every other close still does.
-    if (isLinux &&
-        bind.mainGetAppNameSync() == 'SealDesk' &&
+    // Hiding to the tray must not stop sharing. That only happens when this
+    // launch advertised a tray host. Every other close still does.
+    if (bind.mainGetAppNameSync() == 'SealDesk' &&
         bind.mainGetEnv(key: sealDeskTrayHostEnv) == '1') {
       return;
     }
