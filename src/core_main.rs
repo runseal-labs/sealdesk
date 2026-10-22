@@ -41,9 +41,14 @@ fn note_tray_host() {
     let present = crate::platform::has_status_notifier_watcher();
     #[cfg(not(target_os = "linux"))]
     let present = true;
+    let hide_tray = crate::common::get_builtin_option(keys::OPTION_HIDE_TRAY);
     std::env::set_var(
         crate::platform::login_item::TRAY_HOST_ENV,
-        if present { "1" } else { "0" },
+        if crate::platform::login_item::advertise_tray_host(present, &hide_tray) {
+            "1"
+        } else {
+            "0"
+        },
     );
 }
 
@@ -516,6 +521,17 @@ pub fn core_main() -> Option<CoreMainAction> {
             #[cfg(target_os = "macos")]
             crate::platform::sync_login_autostart();
             prepare_background_host();
+            // Linux and macOS login items exec `--server`. Use the same startup
+            // plan as a normal launch: stop-service and outgoing-only do not
+            // start the host. Windows `--server` is the service child; service
+            // install already applies that guard before this process exists.
+            #[cfg(not(windows))]
+            if !service_plan.start_server {
+                log::info!("--server did not start the host");
+                #[cfg(target_os = "macos")]
+                crate::tray::start_tray();
+                return None;
+            }
             #[cfg(windows)]
             crate::privacy_mode::restore_reg_connectivity(true, false);
             #[cfg(any(target_os = "linux", target_os = "windows"))]

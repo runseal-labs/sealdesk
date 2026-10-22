@@ -1192,12 +1192,19 @@ pub fn main_set_local_option(key: String, value: String) {
     let is_texture_render_key = key.eq(keys::OPTION_TEXTURE_RENDER);
     let is_d3d_render_key = key.eq(keys::OPTION_ALLOW_D3D_RENDER);
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    let start_at_login = key == keys::OPTION_ALLOW_START_AT_LOGIN;
-    set_local_option(key, value.clone());
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    if start_at_login {
-        crate::platform::sync_login_autostart();
+    if key == keys::OPTION_ALLOW_START_AT_LOGIN {
+        if let Err(error) =
+            crate::platform::set_login_autostart(crate::platform::login_item::enabled(&value))
+        {
+            log::warn!("Could not update start at login: {error}");
+            // The checkbox reads the saved option back. Leave it unchanged and
+            // surface the failure instead of showing login as off.
+            #[cfg(windows)]
+            crate::platform::message_box(&format!("{error}!"));
+            return;
+        }
     }
+    set_local_option(key, value.clone());
     let is_render_target =
         |session: &crate::flutter::FlutterSession| session.is_default() || session.is_view_camera();
     if is_texture_render_key {

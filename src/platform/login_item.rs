@@ -8,6 +8,21 @@ pub fn enabled(value: &str) -> bool {
     value == "Y"
 }
 
+/// Flutter treats `SEALDESK_TRAY_HOST=1` as "× hides". That is only true when a tray
+/// icon can actually appear. `hide-tray=Y` makes `start_tray` return without one.
+pub fn advertise_tray_host(platform_present: bool, hide_tray: &str) -> bool {
+    platform_present && hide_tray != "Y"
+}
+
+/// A missing shortcut is already off. Any other delete error is returned so the
+/// caller does not report success.
+pub(crate) fn ignore_not_found(result: std::io::Result<()>) -> std::io::Result<()> {
+    match result {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        other => other,
+    }
+}
+
 pub fn linux_autostart_path(home: &Path, app_name: &str) -> PathBuf {
     home.join(".config")
         .join("autostart")
@@ -98,6 +113,30 @@ mod tests {
         assert!(!enabled(""));
         assert!(!enabled("N"));
         assert!(enabled("Y"));
+    }
+
+    #[test]
+    fn hide_tray_is_not_a_tray_host() {
+        assert!(advertise_tray_host(true, ""));
+        assert!(advertise_tray_host(true, "N"));
+        assert!(!advertise_tray_host(true, "Y"));
+        assert!(!advertise_tray_host(false, ""));
+        assert!(!advertise_tray_host(false, "Y"));
+    }
+
+    #[test]
+    fn missing_startup_shortcut_is_not_a_delete_error() {
+        assert!(ignore_not_found(Ok(())).is_ok());
+        assert!(ignore_not_found(Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "gone"
+        )))
+        .is_ok());
+        assert!(ignore_not_found(Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "denied"
+        )))
+        .is_err());
     }
 
     #[test]
