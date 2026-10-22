@@ -758,7 +758,7 @@ class ClientInfo extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 18)),
                     if (!isLegacyNumericId(client.peerId)) ...[
-                      const SizedBox(height: 2),
+                      const SizedBox(width: 8),
                       IdText(client.peerId,
                           style: const TextStyle(fontSize: 10)),
                     ],
