@@ -298,17 +298,43 @@ fn same_exe(left: &std::path::Path, right: &std::path::Path) -> bool {
     }
 }
 
-/// Info dialog for the device id. A fixed width avoids the zenity `--no-wrap`
-/// layout that grows to about the screen width.
+/// Characters that fit the 360px device-id dialog without widening it.
+#[cfg(any(target_os = "linux", test))]
+const DEVICE_ID_DIALOG_MAX_CHARS: usize = 36;
+
+/// Cut each line to `max_chars` Unicode scalar values. An over-long line ends with `…`.
+#[cfg(any(target_os = "linux", test))]
+fn truncate_dialog_lines(text: &str, max_chars: usize) -> String {
+    text.lines()
+        .map(|line| truncate_dialog_line(line, max_chars))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn truncate_dialog_line(line: &str, max_chars: usize) -> String {
+    if line.chars().count() <= max_chars {
+        return line.to_owned();
+    }
+    let mut out: String = line.chars().take(max_chars.saturating_sub(1)).collect();
+    if max_chars > 0 {
+        out.push('\u{2026}');
+    }
+    out
+}
+
+/// Info dialog for the device id. `--width` and `--no-wrap` keep a fixed width.
+/// Long lines are truncated so the text neither wraps nor stretches the window.
 #[cfg(any(target_os = "linux", test))]
 fn linux_device_id_dialog_args(title: &str, id: &str) -> Vec<String> {
     vec![
         "--info".to_owned(),
         "--width=360".to_owned(),
+        "--no-wrap".to_owned(),
         "--title".to_owned(),
         title.to_owned(),
         "--text".to_owned(),
-        id.to_owned(),
+        truncate_dialog_lines(id, DEVICE_ID_DIALOG_MAX_CHARS),
     ]
 }
 
@@ -326,7 +352,6 @@ fn show_device_id() {
             .map(|status| status.success())
             .unwrap_or(false);
         if !notified {
-            // `--no-wrap` makes zenity size the dialog near the screen width.
             let _ = std::process::Command::new("zenity")
                 .args(linux_device_id_dialog_args(&title, &id))
                 .status();
@@ -423,22 +448,48 @@ fn load_icon_from_asset() -> Option<image::DynamicImage> {
 
 #[cfg(test)]
 mod tests {
-    use super::linux_device_id_dialog_args;
+    use super::{linux_device_id_dialog_args, truncate_dialog_lines, DEVICE_ID_DIALOG_MAX_CHARS};
 
     #[test]
-    fn linux_id_dialog_uses_a_fixed_width_without_no_wrap() {
+    fn linux_id_dialog_keeps_a_fixed_width_without_wrapping() {
         let args = linux_device_id_dialog_args("Show this device's ID", "tc-addr");
         assert_eq!(
             args,
             vec![
                 "--info".to_owned(),
                 "--width=360".to_owned(),
+                "--no-wrap".to_owned(),
                 "--title".to_owned(),
                 "Show this device's ID".to_owned(),
                 "--text".to_owned(),
                 "tc-addr".to_owned(),
             ]
         );
-        assert!(!args.iter().any(|arg| arg == "--no-wrap"));
+    }
+
+    #[test]
+    fn device_id_dialog_truncates_long_lines_by_chars() {
+        let max = DEVICE_ID_DIALOG_MAX_CHARS;
+        let short = "a".repeat(max);
+        assert_eq!(truncate_dialog_lines(&short, max), short);
+
+        let long = "abc".repeat(max);
+        let truncated = truncate_dialog_lines(&long, max);
+        assert_eq!(truncated.chars().count(), max);
+        assert!(truncated.ends_with('\u{2026}'));
+        assert_eq!(
+            truncated.chars().take(max - 1).collect::<String>(),
+            long.chars().take(max - 1).collect::<String>()
+        );
+
+        // `é` and `你` are multiple bytes and one scalar value each.
+        assert_eq!(truncate_dialog_lines("éééé", 4), "éééé");
+        assert_eq!(truncate_dialog_lines("ééééé", 4), "ééé…");
+        assert_eq!(truncate_dialog_lines("你你你你你", 4), "你你你…");
+
+        assert_eq!(
+            truncate_dialog_lines("ok\n123456789\nend", 8),
+            "ok\n1234567…\nend"
+        );
     }
 }
