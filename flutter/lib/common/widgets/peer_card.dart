@@ -673,8 +673,9 @@ abstract class BasePeerCard extends StatelessWidget {
           showToast(translate('Successful'));
         }
 
-        deleteConfirmDialog(onSubmit,
-            '${translate('Delete')} "${peerShownId(peer)}"?');
+        deleteConfirmDialog(
+            onSubmit,
+            '${translate('Delete')} "${ellipsizeDeviceId(peerShownId(peer))}"?');
       },
       padding: menuPadding,
       dismissOnClicked: true,

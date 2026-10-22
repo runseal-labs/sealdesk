@@ -2984,7 +2984,7 @@ Widget futureBuilder(
 void onCopyId(String value) {
   if (value.isNotEmpty) {
     Clipboard.setData(ClipboardData(text: value));
-    showToast('$value\n${translate("Copied")}');
+    showToast('${ellipsizeDeviceId(value)}\n${translate("Copied")}');
   } else {
     showToast(translate("Invalid ID"));
   }

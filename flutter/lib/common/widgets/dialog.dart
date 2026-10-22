@@ -359,7 +359,7 @@ void changeIdWhiteList({Function()? callback}) async {
                   final hasControlCharacters = id.runes.any(
                       (char) => char <= 0x1f || (char >= 0x7f && char <= 0x9f));
                   if (hasControlCharacters) {
-                    msg = "${translate("Invalid ID")} $id";
+                    msg = "${translate("Invalid ID")} ${ellipsizeDeviceId(id)}";
                     setState(() {
                       isInProgress = false;
                     });
@@ -1403,8 +1403,19 @@ void showRestartRemoteDevice(PeerInfo pi, String id, SessionID sessionId,
                   child: Text(translate("Restart remote device"))
                       .paddingOnly(left: 10)),
             ]),
-            content: Text(
-                "${translate('Are you sure you want to restart')} \n${pi.username}@${pi.hostname}($id) ?"),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text("${translate('Are you sure you want to restart')} "),
+                Text(
+                  "${pi.username}@${pi.hostname}(${ellipsizeDeviceId(id)}) ?",
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
             actions: [
               dialogButton(
                 "Cancel",
@@ -1728,7 +1739,12 @@ void deleteConfirmDialog(Function onSubmit, String title) async {
               color: Colors.red,
             ),
             Expanded(
-              child: Text(title, overflow: TextOverflow.ellipsis).paddingOnly(
+              child: Text(
+                title,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.ellipsis,
+              ).paddingOnly(
                 left: 10,
               ),
             ),
