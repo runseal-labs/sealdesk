@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 
 import '../../common.dart';
 import '../../common/sealdesk_share_settings.dart';
+import '../../common/widgets/id_text.dart';
 import '../../consts.dart';
 import '../../models/platform_model.dart';
 import '../../models/server_model.dart';
@@ -399,9 +400,11 @@ class ServerInfo extends StatelessWidget {
               )
             ]),
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              Text(
-                model.serverId.value.text,
-                style: textStyleValue,
+              Expanded(
+                child: IdText(
+                  model.serverId.value.text,
+                  style: textStyleValue,
+                ),
               ),
               IconButton(
                   visualDensity: VisualDensity.compact,
@@ -750,10 +753,13 @@ class ClientInfo extends StatelessWidget {
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                    Text(client.name, style: const TextStyle(fontSize: 18)),
+                    Text(client.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 18)),
                     if (!isLegacyNumericId(client.peerId)) ...[
                       const SizedBox(width: 8),
-                      Text(client.peerId,
+                      IdText(client.peerId,
                           style: const TextStyle(fontSize: 10)),
                     ],
                   ]))

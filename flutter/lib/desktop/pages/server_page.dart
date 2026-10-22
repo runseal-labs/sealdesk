@@ -18,6 +18,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../common.dart';
 import '../../common/widgets/chat_page.dart';
+import '../../common/widgets/id_text.dart';
 import '../../models/file_model.dart';
 import '../../models/platform_model.dart';
 import '../../models/server_model.dart';
@@ -497,11 +498,9 @@ class _CmHeaderState extends State<_CmHeader>
                   ),
                   maxLines: 1,
                 )),
-                FittedBox(
-                  child: Text(
-                    "(${client.peerId})",
-                    style: TextStyle(color: Colors.white, fontSize: 14),
-                  ),
+                IdText(
+                  "(${client.peerId})",
+                  style: const TextStyle(color: Colors.white, fontSize: 14),
                 ),
                 if (client.type_() == ClientType.terminal)
                   FittedBox(

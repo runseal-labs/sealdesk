@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:sealdesk/common/formatter/id_formatter.dart';
+import 'package:sealdesk/common/widgets/id_text.dart';
 import '../../../models/platform_model.dart';
 import 'package:sealdesk/models/peer_model.dart';
 import 'package:sealdesk/common.dart';
@@ -249,31 +250,29 @@ class AutocompletePeerTileState extends State<AutocompletePeerTile> {
                                                     getOnline(
                                                         8, widget.peer.online),
                                                     Expanded(
-                                                        child: Text(
+                                                        child: IdText(
                                                       widget.peer.alias.isEmpty
                                                           ? formatID(
                                                               widget.peer.id)
                                                           : widget.peer.alias,
-                                                      overflow:
-                                                          TextOverflow.ellipsis,
                                                       style: Theme.of(context)
                                                           .textTheme
                                                           .titleSmall,
                                                     )),
                                                     widget.peer.alias.isNotEmpty
-                                                        ? Padding(
-                                                            padding:
-                                                                const EdgeInsets
-                                                                    .only(
-                                                                    left: 5,
-                                                                    right: 5),
-                                                            child: Text(
-                                                              "(${widget.peer.id})",
-                                                              style: greyStyle,
-                                                              overflow:
-                                                                  TextOverflow
-                                                                      .ellipsis,
-                                                            ))
+                                                        ? Flexible(
+                                                            child: Padding(
+                                                                padding:
+                                                                    const EdgeInsets
+                                                                        .only(
+                                                                        left: 5,
+                                                                        right:
+                                                                            5),
+                                                                child: IdText(
+                                                                  "(${widget.peer.id})",
+                                                                  style:
+                                                                      greyStyle,
+                                                                )))
                                                         : Container(),
                                                   ])),
                                               Align(

@@ -10,6 +10,7 @@ import 'package:sealdesk/common/sealdesk_share_settings.dart';
 import 'package:sealdesk/common/sealdesk_startup.dart';
 import 'package:sealdesk/common/widgets/animated_rotation_widget.dart';
 import 'package:sealdesk/common/widgets/custom_password.dart';
+import 'package:sealdesk/common/widgets/id_text.dart';
 import 'package:sealdesk/consts.dart';
 import 'package:sealdesk/desktop/macos_permission_guide.dart';
 import 'package:sealdesk/desktop/pages/connection_page.dart';
@@ -235,17 +236,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                             ClipboardData(text: model.serverId.text));
                         showToast(translate("Copied"));
                       },
-                      child: TextFormField(
-                        controller: model.serverId,
-                        readOnly: true,
-                        decoration: InputDecoration(
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.only(top: 10, bottom: 10),
+                      child: ValueListenableBuilder<TextEditingValue>(
+                        valueListenable: model.serverId,
+                        builder: (context, value, _) => IdText(
+                          value.text,
+                          style: const TextStyle(fontSize: 22),
                         ),
-                        style: TextStyle(
-                          fontSize: 22,
-                        ),
-                      ).workaroundFreezeLinuxMint(),
+                      ),
                     ),
                   )
                 ],

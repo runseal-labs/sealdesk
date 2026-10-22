@@ -11,6 +11,7 @@ import 'package:settings_ui/settings_ui.dart';
 
 import '../../common.dart';
 import '../../common/sealdesk_connect.dart';
+import '../../common/widgets/id_text.dart';
 import '../../common/widgets/dialog.dart';
 import '../../consts.dart';
 import '../../models/model.dart';
@@ -824,9 +825,9 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                 leading: Icon(Icons.query_builder)),
             SettingsTile(
                 onPressed: (context) => onCopyId(_myId),
-                title: Text(_myId.isEmpty
-                    ? translate('Generating pairing code...')
-                    : _myId),
+                title: _myId.isEmpty
+                    ? Text(translate('Generating pairing code...'))
+                    : IdText(_myId),
                 leading: Icon(Icons.qr_code_2)),
           ],
         ),

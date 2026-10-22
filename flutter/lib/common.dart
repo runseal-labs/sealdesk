@@ -9,6 +9,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sealdesk/common/formatter/id_formatter.dart';
+import 'package:sealdesk/common/widgets/id_text.dart';
 import 'package:sealdesk/desktop/widgets/refresh_wrapper.dart';
 import 'package:sealdesk/desktop/widgets/tabbar_widget.dart';
 import 'package:sealdesk/main.dart';
@@ -2919,7 +2920,8 @@ String getWindowName({WindowType? overrideType}) {
 }
 
 String getWindowNameWithId(String id, {WindowType? overrideType}) {
-  return "${DesktopTab.tablabelGetter(id).value} - ${getWindowName(overrideType: overrideType)}";
+  final label = ellipsizeDeviceId(DesktopTab.tablabelGetter(id).value);
+  return "$label - ${getWindowName(overrideType: overrideType)}";
 }
 
 Future<void> updateSystemWindowTheme() async {
@@ -2982,7 +2984,7 @@ Widget futureBuilder(
 void onCopyId(String value) {
   if (value.isNotEmpty) {
     Clipboard.setData(ClipboardData(text: value));
-    showToast('$value\n${translate("Copied")}');
+    showToast('${ellipsizeDeviceId(value)}\n${translate("Copied")}');
   } else {
     showToast(translate("Invalid ID"));
   }

@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 
 import '../../common.dart';
 import '../../common/formatter/id_formatter.dart';
+import 'id_text.dart';
 import '../sealdesk_connect.dart';
 import '../sealdesk_connect_target.dart';
 import '../sealdesk_connection_record.dart';
@@ -48,9 +49,8 @@ Widget sealDeskPeerTitle(Peer peer, TextStyle? style) {
   return Row(
     children: [
       Flexible(
-        child: Text(
+        child: IdText(
           sealDeskPeerLine(peer),
-          overflow: TextOverflow.ellipsis,
           style: style,
         ),
       ),
@@ -211,9 +211,8 @@ class _PeerCardState extends State<_PeerCard>
                             child: isSealDeskApp()
                                 ? sealDeskPeerTitle(peer,
                                     Theme.of(context).textTheme.titleSmall)
-                                : Text(
+                                : IdText(
                                     peerShownId(peer),
-                                    overflow: TextOverflow.ellipsis,
                                     style:
                                         Theme.of(context).textTheme.titleSmall,
                                   )),
@@ -339,9 +338,8 @@ class _PeerCardState extends State<_PeerCard>
                             child: isSealDeskApp()
                                 ? sealDeskPeerTitle(peer,
                                     Theme.of(context).textTheme.titleSmall)
-                                : Text(
+                                : IdText(
                                     peerShownId(peer),
-                                    overflow: TextOverflow.ellipsis,
                                     style:
                                         Theme.of(context).textTheme.titleSmall,
                                   )),
@@ -484,7 +482,7 @@ abstract class BasePeerCard extends StatelessWidget {
     bool isTerminalRunAsAdmin = false,
   }) {
     return MenuEntryButton<String>(
-      childBuilder: (TextStyle? style) => Text(
+      childBuilder: (TextStyle? style) => IdText(
         title,
         style: style,
       ),
@@ -675,8 +673,9 @@ abstract class BasePeerCard extends StatelessWidget {
           showToast(translate('Successful'));
         }
 
-        deleteConfirmDialog(onSubmit,
-            '${translate('Delete')} "${peerShownId(peer)}"?');
+        deleteConfirmDialog(
+            onSubmit,
+            '${translate('Delete')} "${ellipsizeDeviceId(peerShownId(peer))}"?');
       },
       padding: menuPadding,
       dismissOnClicked: true,

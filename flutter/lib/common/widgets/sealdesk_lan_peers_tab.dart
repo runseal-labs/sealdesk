@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../common.dart';
 import '../sealdesk_connect.dart';
+import 'id_text.dart';
 import '../sealdesk_connect_target.dart';
 import 'sealdesk_connect_field.dart';
 
@@ -75,11 +76,14 @@ class _SealDeskLanPeersTabState extends State<SealDeskLanPeersTab> {
             return ListTile(
               key: ValueKey('sealdesk-lan-${device.address}'),
               dense: true,
-              title: Text(device.name.isEmpty ? device.ip : device.name),
+              title: device.name.isEmpty
+                  ? IdText(device.ip)
+                  : Text(device.name,
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
               subtitle: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(device.ip),
+                  IdText(device.ip),
                   const SizedBox(height: 4),
                   SealDeskSecurityChip(encrypted: device.encrypted),
                   Wrap(

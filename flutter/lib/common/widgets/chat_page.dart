@@ -1,6 +1,7 @@
 import 'package:dash_chat_2/dash_chat_2.dart';
 import 'package:flutter/material.dart';
 import 'package:sealdesk/common.dart';
+import 'package:sealdesk/common/widgets/id_text.dart';
 import 'package:sealdesk/models/chat_model.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
@@ -51,7 +52,9 @@ class ChatPage extends StatelessWidget implements PageShape {
                               : Icons.call_received_rounded,
                           color: MyTheme.accent)
                       .marginOnly(right: 6),
-                  Text("${user.firstName}   ${user.id}"),
+                  Expanded(
+                    child: IdText("${user.firstName}   ${user.id}"),
+                  ),
                   if (connected)
                     Container(
                       width: 10,
