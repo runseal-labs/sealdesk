@@ -54,11 +54,6 @@ mod auth_2fa;
 mod clipboard;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub mod core_main;
-#[cfg(any(
-    test,
-    all(any(target_os = "linux", target_os = "macos"), feature = "flutter")
-))]
-mod main_window_instance;
 mod lang;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod port_forward;

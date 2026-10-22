@@ -36,8 +36,7 @@ impl Error for DbusError {}
 /// - use dbus-send command:
 /// `dbus-send --session --print-reply --dest=com.runseal.sealdesk /com/runseal/sealdesk com.runseal.sealdesk.NewConnection string:'PEER_ID'`
 pub fn invoke_new_connection(uni_links: String) -> Result<(), Box<dyn Error>> {
-    // A second launch retries this until the main window can handle it.
-    log::trace!("invoke new connection on dbus");
+    log::info!("Starting dbus service for uni");
     let conn = Connection::new_session()?;
     let proxy = conn.with_proxy(DBUS_NAME, DBUS_PREFIX, DBUS_TIMEOUT);
     let (ret,): (String,) =

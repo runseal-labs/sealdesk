@@ -290,20 +290,17 @@ pub fn core_main() -> Option<CoreMainAction> {
     // linux uni (url) go here.
     #[cfg(all(target_os = "linux", feature = "flutter"))]
     if args.len() > 0 && args[0].starts_with(&crate::get_uri_prefix()) {
-        return handoff_or_start_main(args[0].clone()).map(CoreMainAction::StartUi);
+        return try_send_by_dbus(args[0].clone()).map(CoreMainAction::StartUi);
     }
 
     // Plain launch (no args, or macOS Finder `-psn_`) while a main window
     // already exists: raise that window and exit. Upstream RustDesk does not
     // do this on Linux (`G_APPLICATION_NON_UNIQUE`) or macOS. Reuse the tray
     // "Open main window" handoff so a window hidden to the tray is shown too.
-    // The lock is taken before Flutter starts, so two plain launches cannot
-    // both miss the handoff and both open a window. Exit only when the
-    // running window accepts the activation.
     // `--server` / `--tray` / `--cm` / `--install`, connection args, and
     // `sealdesk://` URLs are not plain launches and keep their own paths.
     #[cfg(all(any(target_os = "linux", target_os = "macos"), feature = "flutter"))]
-    if is_plain_main_window_launch() && handoff_or_start_main(plain_main_window_url()).is_none() {
+    if is_plain_main_window_launch() && show_existing_main_window() {
         return None;
     }
 
@@ -802,7 +799,7 @@ fn core_main_invoke_new_connection(mut args: std::env::Args) -> Option<Vec<Strin
     }
 
     #[cfg(target_os = "linux")]
-    return handoff_or_start_main(uni_links);
+    return try_send_by_dbus(uni_links);
 
     #[cfg(windows)]
     {
@@ -817,7 +814,13 @@ fn core_main_invoke_new_connection(mut args: std::env::Args) -> Option<Vec<Strin
         return if res { None } else { Some(Vec::new()) };
     }
     #[cfg(target_os = "macos")]
-    return handoff_or_start_main(uni_links);
+    {
+        return if let Err(_) = crate::ipc::send_url_scheme(uni_links) {
+            Some(Vec::new())
+        } else {
+            None
+        };
+    }
 }
 
 /// No user arguments. macOS Finder appends `-psn_<number>` for a normal open.
@@ -828,48 +831,37 @@ fn is_plain_main_window_launch() -> bool {
         .all(|arg| arg.is_empty() || arg.starts_with("-psn_"))
 }
 
-/// Payload that asks the running main window to show itself.
+/// Tell the running main window to show itself.
 ///
 /// Linux sends `sealdesk://` on the session bus, the same call as the tray
 /// menu. macOS sends an empty url on the `_url` IPC socket, the same payload
 /// as `handle_url_scheme("")`. Flutter `onUrlSchemeReceived` calls `windowOnTop`.
+/// Returns false when no main window is listening, so this process starts one.
 #[cfg(all(any(target_os = "linux", target_os = "macos"), feature = "flutter"))]
-fn plain_main_window_url() -> String {
+fn show_existing_main_window() -> bool {
     #[cfg(target_os = "linux")]
     {
-        crate::get_uri_prefix()
+        crate::dbus::invoke_new_connection(crate::get_uri_prefix()).is_ok()
     }
     #[cfg(target_os = "macos")]
     {
-        String::new()
+        crate::ipc::send_url_scheme(String::new()).is_ok()
     }
 }
 
-/// Hand the activation to a main window that can handle it.
-///
-/// `None` means that window accepted it and this process should exit.
-/// `Some` means this process holds the main-window lock (or the lock could
-/// not be taken) and must start the UI itself.
-#[cfg(all(any(target_os = "linux", target_os = "macos"), feature = "flutter"))]
-fn handoff_or_start_main(url: String) -> Option<Vec<String>> {
-    let action = crate::main_window_instance::resolve_main_window_activation(|| {
-        deliver_to_main_window(&url)
-    });
-    match action {
-        crate::main_window_instance::MainWindowStartup::HandedOff => None,
-        crate::main_window_instance::MainWindowStartup::BecomeMain => Some(Vec::new()),
-    }
-}
+#[cfg(all(target_os = "linux", feature = "flutter"))]
+fn try_send_by_dbus(uni_links: String) -> Option<Vec<String>> {
+    use crate::dbus::invoke_new_connection;
 
-#[cfg(all(any(target_os = "linux", target_os = "macos"), feature = "flutter"))]
-fn deliver_to_main_window(url: &str) -> bool {
-    #[cfg(target_os = "linux")]
-    {
-        crate::dbus::invoke_new_connection(url.to_owned()).is_ok()
-    }
-    #[cfg(target_os = "macos")]
-    {
-        crate::ipc::send_url_scheme(url.to_owned()).is_ok()
+    match invoke_new_connection(uni_links) {
+        Ok(()) => {
+            return None;
+        }
+        Err(err) => {
+            log::error!("{}", err.as_ref());
+            // return Some to invoke this url by self
+            return Some(Vec::new());
+        }
     }
 }
 
