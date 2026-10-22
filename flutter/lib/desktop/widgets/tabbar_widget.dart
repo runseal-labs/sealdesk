@@ -7,6 +7,7 @@ import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart' hide TabBarTheme;
 import 'package:sealdesk/common.dart';
+import 'package:sealdesk/common/widgets/id_text.dart';
 import 'package:sealdesk/consts.dart';
 import 'package:sealdesk/desktop/pages/remote_page.dart';
 import 'package:sealdesk/desktop/pages/view_camera_page.dart';
@@ -1105,7 +1106,7 @@ class _TabState extends State<_Tab> with RestorationMixin {
           child: Tooltip(
             message:
                 widget.tabType == DesktopTabType.main ? '' : widget.label.value,
-            child: Text(
+            child: IdText(
               widget.tabType == DesktopTabType.main
                   ? translate(widget.label.value)
                   : widget.label.value,
@@ -1114,7 +1115,6 @@ class _TabState extends State<_Tab> with RestorationMixin {
                   color: isSelected
                       ? MyTheme.tabbar(context).selectedTextColor
                       : MyTheme.tabbar(context).unSelectedTextColor),
-              overflow: TextOverflow.ellipsis,
             ),
           ));
     });

@@ -8,6 +8,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../common.dart';
 import '../../common/sealdesk_pairing.dart';
+import '../../common/widgets/id_text.dart';
 import '../../common/sealdesk_qr_mask.dart';
 import '../../models/platform_model.dart';
 import '../../models/relay_status.dart';
@@ -998,7 +999,7 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
               Text(translate(_status), key: const ValueKey('sealdesk-status')),
             const SizedBox(height: 12),
             Text(translate('Device code')),
-            Text(
+            IdText(
               _deviceAddress.isEmpty ? '-' : _deviceAddress,
               key: const ValueKey('sealdesk-device-code'),
             ),

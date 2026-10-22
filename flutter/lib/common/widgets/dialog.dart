@@ -15,6 +15,7 @@ import 'package:get/get.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../common.dart';
+import 'id_text.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
 
@@ -2280,7 +2281,7 @@ Widget trustedDevicesTable(
                 },
               )),
               DataCell(Text(device.platform)),
-              DataCell(Text(device.id)),
+              DataCell(IdText(device.id)),
               DataCell(Text(device.name)),
               DataCell(Text(device.daysRemaining())),
             ]);
