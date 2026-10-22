@@ -1060,27 +1060,68 @@ pub fn set_login_autostart(enable: bool) -> ResultType<()> {
 }
 
 fn current_user_home() -> ResultType<PathBuf> {
-    // `hbb_common::users` is Linux-only. Same passwd lookup, and it ignores `$HOME`.
+    // `hbb_common::users` is Linux-only. Reentrant passwd lookup; ignores `$HOME`.
     use std::ffi::{CStr, OsString};
     use std::os::unix::ffi::OsStringExt;
 
-    let pwd = unsafe { hbb_common::libc::getpwuid(hbb_common::libc::getuid()) };
-    if pwd.is_null() {
-        bail!("Failed to look up the current user");
+    const DEFAULT_BUF: usize = 1024;
+    const MAX_BUF: usize = 1 << 20;
+
+    let suggested = unsafe { hbb_common::libc::sysconf(hbb_common::libc::_SC_GETPW_R_SIZE_MAX) };
+    let mut cap = if suggested > 0 {
+        suggested as usize
+    } else {
+        DEFAULT_BUF
+    };
+    if cap > MAX_BUF {
+        cap = MAX_BUF;
     }
-    let dir = unsafe { (*pwd).pw_dir };
-    if dir.is_null() {
-        bail!("Failed to look up the current user");
+
+    let mut buf = vec![0 as hbb_common::libc::c_char; cap];
+    loop {
+        let mut pwd = unsafe { std::mem::zeroed::<hbb_common::libc::passwd>() };
+        let mut result: *mut hbb_common::libc::passwd = std::ptr::null_mut();
+        unsafe {
+            *hbb_common::libc::__error() = 0;
+        }
+        let rc = unsafe {
+            hbb_common::libc::getpwuid_r(
+                hbb_common::libc::getuid(),
+                &mut pwd,
+                buf.as_mut_ptr(),
+                buf.len(),
+                &mut result,
+            )
+        };
+        // A short buffer is ERANGE. macOS may return 0 and set errno instead.
+        let errno = unsafe { *hbb_common::libc::__error() };
+        let short_buf = rc == hbb_common::libc::ERANGE
+            || (rc == 0 && result.is_null() && errno == hbb_common::libc::ERANGE);
+        if short_buf {
+            let Some(next) = cap.checked_mul(2).filter(|next| *next <= MAX_BUF) else {
+                bail!("Failed to look up the current user");
+            };
+            cap = next;
+            buf.resize(cap, 0);
+            continue;
+        }
+        if rc != 0 || result.is_null() {
+            bail!("Failed to look up the current user");
+        }
+        let dir = unsafe { (*result).pw_dir };
+        if dir.is_null() {
+            bail!("Failed to look up the current user");
+        }
+        let bytes = unsafe { CStr::from_ptr(dir) }.to_bytes();
+        if bytes.is_empty() {
+            bail!("Home directory does not exist");
+        }
+        let home = PathBuf::from(OsString::from_vec(bytes.to_vec()));
+        if !home.is_dir() {
+            bail!("Home directory does not exist");
+        }
+        return Ok(home);
     }
-    let bytes = unsafe { CStr::from_ptr(dir) }.to_bytes();
-    if bytes.is_empty() {
-        bail!("Home directory does not exist");
-    }
-    let home = PathBuf::from(OsString::from_vec(bytes.to_vec()));
-    if !home.is_dir() {
-        bail!("Home directory does not exist");
-    }
-    Ok(home)
 }
 
 pub fn update_me() -> ResultType<()> {
