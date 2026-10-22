@@ -109,6 +109,8 @@ pub const OPTION_HIDE_USERNAME_ON_CARD: &str = "hide-username-on-card";
 pub const OPTION_HIDE_HELP_CARDS: &str = "hide-help-cards";
 pub const OPTION_DEFAULT_CONNECT_PASSWORD: &str = "default-connect-password";
 pub const OPTION_HIDE_TRAY: &str = "hide-tray";
+// `allow-` so a missing value stays off (`option2bool`).
+pub const OPTION_ALLOW_START_AT_LOGIN: &str = "allow-start-at-login";
 pub const OPTION_ONE_WAY_CLIPBOARD_REDIRECTION: &str = "one-way-clipboard-redirection";
 pub const OPTION_ALLOW_LOGON_SCREEN_PASSWORD: &str = "allow-logon-screen-password";
 pub const OPTION_ALLOW_DEEP_LINK_PASSWORD: &str = "allow-deep-link-password";

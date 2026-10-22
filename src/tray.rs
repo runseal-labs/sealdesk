@@ -1,10 +1,10 @@
 use crate::client::translate;
 #[cfg(windows)]
 use crate::ipc::Data;
+use base::config::keys;
 #[cfg(windows)]
 use hbb_common::tokio;
 use hbb_common::{allow_err, log};
-use base::config::keys;
 use std::sync::{Arc, Mutex};
 #[cfg(windows)]
 use std::time::Duration;
@@ -16,6 +16,9 @@ pub fn start_tray() {
             return;
         }
     }
+
+    #[cfg(target_os = "linux")]
+    crate::server::check_zombie();
 
     allow_err!(make_tray());
 }
@@ -58,25 +61,14 @@ fn make_tray() -> hbb_common::ResultType<()> {
     let icon = tray_icon::Icon::from_rgba(icon_rgba, icon_width, icon_height)
         .context("Failed to open icon")?;
 
+    #[allow(unused_mut)]
     let mut event_loop = EventLoopBuilder::new().build();
 
     let tray_menu = Menu::new();
-    let hide_stop_service = crate::ui_interface::get_builtin_option(
-        keys::OPTION_HIDE_STOP_SERVICE,
-    ) == "Y";
-    // The tray icon is only shown when the service is running, so we don't need to check
-    // the `stop-service` option here.
-    let quit_i = if !hide_stop_service {
-        Some(MenuItem::new(translate("Stop service".to_owned()), true, None))
-    } else {
-        None
-    };
-    let open_i = MenuItem::new(translate("Open".to_owned()), true, None);
-    if let Some(quit_i) = &quit_i {
-        tray_menu.append_items(&[&open_i, quit_i]).ok();
-    } else {
-        tray_menu.append_items(&[&open_i]).ok();
-    }
+    let open_i = MenuItem::new(translate("Open main window".to_owned()), true, None);
+    let id_i = MenuItem::new(translate("Show this device's ID".to_owned()), true, None);
+    let quit_i = MenuItem::new(translate("Quit".to_owned()), true, None);
+    tray_menu.append_items(&[&open_i, &id_i, &quit_i]).ok();
     let tooltip = |count: usize| {
         if count == 0 {
             format!(
@@ -115,6 +107,15 @@ fn make_tray() -> hbb_common::ResultType<()> {
             // `allow_multiple_instances` in `flutter/windows/runner/main.cpp` allows only one instance without args.
             crate::run_me::<&str>(vec![]).ok();
         }
+        #[cfg(target_os = "linux")]
+        {
+            // Do not use "xdg-open", it won't read the config.
+            if crate::dbus::invoke_new_connection(crate::get_uri_prefix()).is_err() {
+                if let Ok(task) = crate::run_me::<&str>(vec![]) {
+                    crate::server::CHILD_PROCESS.lock().unwrap().push(task);
+                }
+            }
+        }
     };
 
     #[cfg(windows)]
@@ -141,6 +142,7 @@ fn make_tray() -> hbb_common::ResultType<()> {
             }
             // We create the icon once the event loop is actually running
             // to prevent issues like https://github.com/tauri-apps/tray-icon/issues/90
+            #[allow(unused_mut)]
             let mut builder = TrayIconBuilder::new()
                 .with_id(crate::get_app_name().to_lowercase())
                 .with_menu(Box::new(tray_menu.clone()))
@@ -176,39 +178,12 @@ fn make_tray() -> hbb_common::ResultType<()> {
         }
 
         if let Ok(event) = menu_channel.try_recv() {
-            if let Some(quit_i) = &quit_i {
-                if event.id == quit_i.id() {
-                    /* failed in windows, seems no permission to check system process
-                    if !crate::check_process("--server", false) {
-                        *control_flow = ControlFlow::Exit;
-                        return;
-                    }
-                    */
-                    // Remove the icon first: on success `uninstall_service()` ends
-                    // this process with `std::process::exit`, which skips the
-                    // destructor that would remove it, leaving a ghost icon behind.
-                    #[cfg(windows)]
-                    let _ = _tray_icon
-                        .lock()
-                        .unwrap()
-                        .as_mut()
-                        .map(|t| t.set_visible(false));
-                    if !crate::platform::uninstall_service(false, false) {
-                        *control_flow = ControlFlow::Exit;
-                    }
-                    // Still alive, so stopping the service failed or was cancelled
-                    // in the UAC prompt. Show the icon again.
-                    #[cfg(windows)]
-                    let _ = _tray_icon
-                        .lock()
-                        .unwrap()
-                        .as_mut()
-                        .map(|t| t.set_visible(true));
-                } else if event.id == open_i.id() {
-                    open_func();
-                }
+            if event.id == quit_i.id() {
+                quit_app();
             } else if event.id == open_i.id() {
                 open_func();
+            } else if event.id == id_i.id() {
+                show_device_id();
             }
         }
 
@@ -248,6 +223,100 @@ fn make_tray() -> hbb_common::ResultType<()> {
             }
         }
     });
+}
+
+/// Upstream's tray item stops the installed service (`uninstall_service`), which also
+/// relaunches the GUI. Quit ends this user's SealDesk processes and does not uninstall
+/// a system service or LaunchDaemon.
+fn quit_app() {
+    terminate_other_instances();
+    std::process::exit(0);
+}
+
+fn terminate_other_instances() {
+    use hbb_common::sysinfo::System;
+    let Ok(my_exe) = std::env::current_exe() else {
+        return;
+    };
+    let my_exe = std::fs::canonicalize(&my_exe).unwrap_or(my_exe);
+    let my_pid = std::process::id();
+    let mut sys = System::new();
+    sys.refresh_processes();
+    for (pid, process) in sys.processes() {
+        if pid.as_u32() == my_pid {
+            continue;
+        }
+        let exe = process.exe();
+        if exe.as_os_str().is_empty() {
+            continue;
+        }
+        let exe = std::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
+        if !same_exe(&exe, &my_exe) {
+            continue;
+        }
+        process.kill();
+    }
+    std::thread::sleep(std::time::Duration::from_millis(200));
+}
+
+fn same_exe(left: &std::path::Path, right: &std::path::Path) -> bool {
+    #[cfg(windows)]
+    {
+        left.to_string_lossy()
+            .eq_ignore_ascii_case(&right.to_string_lossy())
+    }
+    #[cfg(not(windows))]
+    {
+        left == right
+    }
+}
+
+fn show_device_id() {
+    let id = device_id_text();
+    let title = translate("Show this device's ID".to_owned());
+    #[cfg(windows)]
+    crate::platform::message_box(&format!("{title}\n{id}"));
+    #[cfg(target_os = "linux")]
+    {
+        let notified = std::process::Command::new("notify-send")
+            .arg(&title)
+            .arg(&id)
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false);
+        if !notified {
+            let _ = std::process::Command::new("zenity")
+                .args(["--info", "--no-wrap", "--title", &title, "--text", &id])
+                .status();
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let script = format!(
+            "display dialog \"{}\" with title \"{}\" buttons {{\"OK\"}} default button \"OK\"",
+            id.replace('\\', "\\\\").replace('"', "\\\""),
+            title.replace('\\', "\\\\").replace('"', "\\\""),
+        );
+        let _ = std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(script)
+            .spawn();
+    }
+}
+
+fn device_id_text() -> String {
+    let options = crate::ipc::get_options();
+    if let Some(addr) = options.get(crate::tailcat::OPTION_ADDR) {
+        if !addr.is_empty() {
+            return addr.clone();
+        }
+    }
+    if let Some(id) = options.get("id") {
+        if !id.is_empty() {
+            return id.clone();
+        }
+    }
+    translate("Service is not running".to_owned())
 }
 
 #[cfg(windows)]
@@ -295,6 +364,8 @@ fn load_icon_from_asset() -> Option<image::DynamicImage> {
     let path = path.join("../Frameworks/App.framework/Resources/flutter_assets/assets/icon.png");
     #[cfg(windows)]
     let path = path.join(r"data\flutter_assets\assets\icon.png");
+    #[cfg(target_os = "linux")]
+    let path = path.join(r"data/flutter_assets/assets/icon.png");
     if path.exists() {
         if let Ok(image) = image::open(path) {
             return Some(image);

@@ -23,6 +23,18 @@ pub mod linux;
 #[cfg(target_os = "linux")]
 pub mod gtk_sudo;
 
+pub mod login_item;
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub fn sync_login_autostart() {
+    let enabled = login_item::enabled(&hbb_common::config::LocalConfig::get_option(
+        base::config::keys::OPTION_ALLOW_START_AT_LOGIN,
+    ));
+    if let Err(error) = set_login_autostart(enabled) {
+        hbb_common::log::warn!("Could not update start at login: {error}");
+    }
+}
+
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use base::message_proto::CursorData;
 #[cfg(all(

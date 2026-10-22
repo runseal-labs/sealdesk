@@ -36,6 +36,67 @@ fn finish_macos_update(result: hbb_common::ResultType<()>) -> Option<CoreMainAct
     }
 }
 
+fn note_tray_host() {
+    #[cfg(target_os = "linux")]
+    let present = crate::platform::has_status_notifier_watcher();
+    #[cfg(not(target_os = "linux"))]
+    let present = true;
+    std::env::set_var(
+        crate::platform::login_item::TRAY_HOST_ENV,
+        if present { "1" } else { "0" },
+    );
+}
+
+fn ensure_tray() {
+    if std::env::var(crate::platform::login_item::TRAY_HOST_ENV)
+        .ok()
+        .as_deref()
+        != Some("1")
+    {
+        return;
+    }
+    // macOS `--server` already runs the tray on its main thread.
+    #[cfg(target_os = "macos")]
+    if crate::check_process("--server", true) {
+        return;
+    }
+    if !crate::check_process("--tray", true) {
+        hbb_common::allow_err!(crate::run_me(vec!["--tray"]));
+    }
+}
+
+fn prepare_background_host() {
+    let stop_service = config::option2bool(
+        keys::OPTION_STOP_SERVICE,
+        &config::Config::get_option(keys::OPTION_STOP_SERVICE),
+    );
+    if stop_service || config::is_outgoing_only() {
+        return;
+    }
+    // `set_mode("host")` also clears stop-service. Call it only when that flag is already off.
+    crate::tailcat::host::set_mode("host".to_owned());
+}
+
+/// `--tray` is not the dedicated server. Attach to one if it shows up (the UI or `--server`),
+/// otherwise become it. A dedicated `--server` parent is left to call `start_server(true)`.
+fn ensure_background_service() {
+    if crate::check_process("--server", true) {
+        return;
+    }
+    prepare_background_host();
+    let stop_service = config::option2bool(
+        keys::OPTION_STOP_SERVICE,
+        &config::Config::get_option(keys::OPTION_STOP_SERVICE),
+    );
+    if stop_service || config::is_outgoing_only() {
+        return;
+    }
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        crate::start_server(false, false);
+    });
+}
+
 /// Shared by the Flutter main function and command-line startup.
 ///
 /// [Note]
@@ -110,10 +171,12 @@ pub fn core_main() -> Option<CoreMainAction> {
             flutter_args = vec!["--control".to_owned(), input.clone()];
         }
     }
+    // `--tray` / `--server` are the background entry points (service + tray, no window).
+    // Linux still has no system service install path.
     #[cfg(all(target_os = "linux", feature = "flutter"))]
     if matches!(
         args.first().map(String::as_str),
-        Some("--service" | "--server" | "--tray" | "--install-service" | "--uninstall-service")
+        Some("--service" | "--install-service" | "--uninstall-service")
     ) {
         return Some(CoreMainAction::ExitFailure(hbb_common::anyhow::anyhow!(
             "SealDesk runs as a desktop app; open Share this device or use --host"
@@ -253,8 +316,9 @@ pub fn core_main() -> Option<CoreMainAction> {
                 return Some(CoreMainAction::ExitFailure(error));
             }
         }
-        #[cfg(target_os = "linux")]
-        hbb_common::allow_err!(crate::platform::check_autostart_config());
+        crate::platform::sync_login_autostart();
+        note_tray_host();
+        ensure_tray();
         #[cfg(target_os = "macos")]
         {
             crate::platform::macos::try_remove_temp_update_dir(None);
@@ -417,8 +481,9 @@ pub fn core_main() -> Option<CoreMainAction> {
                 return None;
             }
         } else if args[0] == "--tray" {
-            #[cfg(any(target_os = "windows", target_os = "macos"))]
             if !crate::check_process("--tray", true) {
+                crate::platform::sync_login_autostart();
+                ensure_background_service();
                 crate::tray::start_tray();
             }
             return None;
@@ -436,6 +501,21 @@ pub fn core_main() -> Option<CoreMainAction> {
             return None;
         } else if args[0] == "--server" {
             log::info!("start --server with user {}", crate::username());
+            #[cfg(target_os = "linux")]
+            {
+                // Upstream reaps a previous tray, then starts a new one beside the server.
+                hbb_common::allow_err!(crate::platform::check_autostart_config());
+                std::process::Command::new("pkill")
+                    .arg("-f")
+                    .arg(format!("{} --tray", crate::get_app_name().to_lowercase()))
+                    .status()
+                    .ok();
+                note_tray_host();
+                ensure_tray();
+            }
+            #[cfg(target_os = "macos")]
+            crate::platform::sync_login_autostart();
+            prepare_background_host();
             #[cfg(windows)]
             crate::privacy_mode::restore_reg_connectivity(true, false);
             #[cfg(any(target_os = "linux", target_os = "windows"))]

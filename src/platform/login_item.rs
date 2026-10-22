@@ -1,0 +1,128 @@
+use std::path::{Path, PathBuf};
+
+/// Set in the UI process before Flutter starts. `1` means × hides to the tray.
+pub const TRAY_HOST_ENV: &str = "SEALDESK_TRAY_HOST";
+
+/// Missing and every value other than `Y` stay off.
+pub fn enabled(value: &str) -> bool {
+    value == "Y"
+}
+
+pub fn linux_autostart_path(home: &Path, app_name: &str) -> PathBuf {
+    home.join(".config")
+        .join("autostart")
+        .join(format!("{}.desktop", app_name.to_lowercase()))
+}
+
+pub fn linux_autostart_desktop(app_name: &str, exe: &str) -> String {
+    format!(
+        "[Desktop Entry]\nType=Application\nName={app_name}\nExec={exec}\nNoDisplay=false\nX-GNOME-Autostart-enabled=true\n",
+        exec = desktop_exec(exe),
+    )
+}
+
+pub fn macos_login_label(app_name: &str) -> String {
+    let mut label = String::from("com.runseal.");
+    for c in app_name.chars() {
+        if c.is_ascii_alphanumeric() {
+            label.push(c.to_ascii_lowercase());
+        }
+    }
+    label.push_str(".login");
+    label
+}
+
+/// User LaunchAgent. Upstream's system agent keeps the process alive; this one
+/// does not, so Quit is not immediately started again.
+pub fn macos_login_plist(label: &str, exe: &str) -> String {
+    let work = Path::new(exe)
+        .parent()
+        .map(|path| path.to_string_lossy().into_owned())
+        .filter(|path| !path.is_empty())
+        .unwrap_or_else(|| "/".to_owned());
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{label}</string>
+    <key>LimitLoadToSessionType</key>
+    <array>
+        <string>LoginWindow</string>
+        <string>Aqua</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{exe}</string>
+        <string>--server</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>{work}</string>
+</dict>
+</plist>
+"#,
+        label = xml_escape(label),
+        exe = xml_escape(exe),
+        work = xml_escape(&work),
+    )
+}
+
+fn desktop_exec(exe: &str) -> String {
+    if exe.contains([' ', '\t', '\n', '"']) {
+        format!(
+            "\"{}\" --server",
+            exe.replace('\\', "\\\\").replace('"', "\\\"")
+        )
+    } else {
+        format!("{exe} --server")
+    }
+}
+
+fn xml_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn start_at_login_defaults_off() {
+        assert!(!enabled(""));
+        assert!(!enabled("N"));
+        assert!(enabled("Y"));
+    }
+
+    #[test]
+    fn linux_autostart_file_starts_the_server_in_the_user_config_dir() {
+        let path = linux_autostart_path(Path::new("/home/user"), "SealDesk");
+        assert_eq!(
+            path,
+            PathBuf::from("/home/user/.config/autostart/sealdesk.desktop")
+        );
+        let desktop = linux_autostart_desktop("SealDesk", "/usr/bin/sealdesk");
+        assert!(desktop.contains("Exec=/usr/bin/sealdesk --server\n"));
+        assert!(!desktop.contains("--tray"));
+        let quoted = linux_autostart_desktop("SealDesk", "/opt/Seal Desk/sealdesk");
+        assert!(quoted.contains("Exec=\"/opt/Seal Desk/sealdesk\" --server\n"));
+    }
+
+    #[test]
+    fn macos_login_agent_uses_server_and_does_not_keep_alive() {
+        let label = macos_login_label("SealDesk");
+        assert_eq!(label, "com.runseal.sealdesk.login");
+        let plist = macos_login_plist(&label, "/Applications/SealDesk.app/Contents/MacOS/SealDesk");
+        assert!(plist.contains("<string>--server</string>"));
+        assert!(plist.contains("<string>/Applications/SealDesk.app/Contents/MacOS</string>"));
+        assert!(!plist.contains("KeepAlive"));
+        assert!(macos_login_plist("a&b", "/tmp/a<b").contains("&amp;"));
+        assert!(macos_login_plist("a&b", "/tmp/a<b").contains("&lt;"));
+    }
+}

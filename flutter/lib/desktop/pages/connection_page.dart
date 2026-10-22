@@ -12,6 +12,7 @@ import 'package:window_manager/window_manager.dart';
 import 'package:sealdesk/models/peer_model.dart';
 
 import '../../common.dart';
+import '../../common/sealdesk_startup.dart';
 import '../../common/formatter/id_formatter.dart';
 import '../../common/sealdesk_connect.dart';
 import '../../common/sealdesk_connect_target.dart';
@@ -235,7 +236,14 @@ class _ConnectionPageState extends State<ConnectionPage>
   @override
   void onWindowClose() {
     super.onWindowClose();
-    bind.mainOnMainWindowClose();
+    // Hiding to the tray must not stop sharing. Every other close still does.
+    if (!sealDeskHidesMainWindowToTray(
+      linux: isLinux,
+      sealDesk: bind.mainGetAppNameSync() == 'SealDesk',
+      trayHostEnv: bind.mainGetEnv(key: sealDeskTrayHostEnv),
+    )) {
+      bind.mainOnMainWindowClose();
+    }
   }
 
   void onFocusChanged() {

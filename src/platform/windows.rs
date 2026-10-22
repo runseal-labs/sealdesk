@@ -2305,6 +2305,38 @@ pub fn quit_gui() {
     // unsafe { PostQuitMessage(0) }; // some how not work
 }
 
+/// Per-user Startup shortcut, same target as the installer's tray shortcut (`--tray`).
+/// The installer copy under ProgramData is removed when the switch is off so login stays off
+/// unless the user turns it on. Writing ProgramData needs elevation; the user Startup folder does not.
+pub fn set_login_autostart(enable: bool) -> ResultType<()> {
+    use windows::Win32::UI::Shell::{FOLDERID_ProgramData, FOLDERID_Startup};
+
+    let file_name = format!("{} Tray.lnk", crate::get_app_name());
+    let user_lnk = installer_shell::get_known_folder(&FOLDERID_Startup)?.join(&file_name);
+    let all_users_lnk = installer_shell::get_known_folder(&FOLDERID_ProgramData)?
+        .join("Microsoft")
+        .join("Windows")
+        .join("Start Menu")
+        .join("Programs")
+        .join("Startup")
+        .join(&file_name);
+    if !enable {
+        let _ = std::fs::remove_file(&user_lnk);
+        let _ = std::fs::remove_file(&all_users_lnk);
+        return Ok(());
+    }
+    let exe = std::env::current_exe()?;
+    let exe = exe
+        .to_str()
+        .ok_or_else(|| anyhow!("Current executable path is not valid Unicode"))?;
+    let bytes = shortcut_bytes(exe, Some("--tray"), None)?;
+    if let Some(parent) = user_lnk.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&user_lnk, bytes)?;
+    Ok(())
+}
+
 pub fn get_user_token(session_id: u32, as_user: bool) -> HANDLE {
     let mut token = NULL as HANDLE;
     unsafe {
