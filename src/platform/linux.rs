@@ -2784,10 +2784,8 @@ pub fn has_status_notifier_watcher() -> bool {
 
 pub fn set_login_autostart(enable: bool) -> ResultType<()> {
     // Trusted home via getpwuid, same source upstream uses for this path.
-    let Some(home) = get_home_dir_trusted() else {
-        log::warn!("Failed to get trusted home directory for start at login");
-        return Ok(());
-    };
+    let home = get_home_dir_trusted()
+        .ok_or_else(|| anyhow!("Failed to get trusted home directory for start at login"))?;
     let app_name = crate::get_app_name();
     let path = super::login_item::linux_autostart_path(&home, &app_name);
     if !enable {
