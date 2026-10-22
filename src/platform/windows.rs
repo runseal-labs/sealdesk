@@ -97,8 +97,8 @@ use winreg::{enums::*, RegKey};
 mod acl;
 mod installer_handoff;
 mod installer_shell;
-mod verified_update;
 mod msi_registry;
+mod verified_update;
 pub(crate) use acl::current_process_user_sid_string;
 pub use acl::{
     set_path_permission, set_path_permission_for_portable_service_shmem_dir,
@@ -107,8 +107,8 @@ pub use acl::{
 };
 use installer_handoff::run_cmds;
 use installer_shell::{
-    embedded_shortcut_commands, embedded_tray_shortcut_commands, escape_nested_cmd_ampersands,
-    shortcut_bytes, validate_install_value,
+    embedded_shortcut_commands, escape_nested_cmd_ampersands, shortcut_bytes,
+    validate_install_value,
 };
 pub use verified_update::{
     copy_and_verify_update_file_sha256, schedule_current_verified_update_file_cleanup,
@@ -1683,8 +1683,6 @@ pub fn install_me(options: &str, path: String, silent: bool, debug: bool) -> Res
         &format!("Uninstall {app_name}.lnk"),
         "uninstall_shortcut",
     );
-    let tray_shortcut_commands =
-        embedded_tray_shortcut_commands(&app_name, &exe, shortcut_icon_location.as_deref())?;
     let mut reg_value_desktop_shortcuts = "0".to_owned();
     let mut reg_value_start_menu_shortcuts = "0".to_owned();
     let mut reg_value_printer = "0".to_owned();
@@ -1727,19 +1725,9 @@ copy /Y \"{tmp_path}\\Uninstall {app_name}.lnk\" \"{start_menu}\\\"
         "
 if exist \"{tmp_path}\\{app_name}.lnk\" del /f /q \"{tmp_path}\\{app_name}.lnk\"
 if exist \"{tmp_path}\\Uninstall {app_name}.lnk\" del /f /q \"{tmp_path}\\Uninstall {app_name}.lnk\"
-if exist \"{tmp_path}\\{app_name} Tray.lnk\" del /f /q \"{tmp_path}\\{app_name} Tray.lnk\"
         "
     );
     let src_exe = cur_exe.clone();
-
-    let tray_shortcuts = if config::is_outgoing_only() {
-        "".to_owned()
-    } else {
-        format!("
-{tray_shortcut_commands}
-copy /Y \"{tmp_path}\\{app_name} Tray.lnk\" \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\\"
-")
-    };
 
     let install_remote_printer = if install_printer {
         // No need to use `|| true` here.
@@ -1776,7 +1764,6 @@ reg add {subkey} /f /v EstimatedSize /t REG_DWORD /d {size}
 reg add {subkey} /f /v WindowsInstaller /t REG_DWORD /d 0
 {mk_shortcut_commands}
 {uninstall_shortcut_commands}
-{tray_shortcuts}
 {shortcuts}
 copy /Y \"{tmp_path}\\Uninstall {app_name}.lnk\" \"{path}\\\"
 {dels}
@@ -2303,6 +2290,56 @@ pub fn get_win_key_state() -> bool {
 pub fn quit_gui() {
     std::process::exit(0);
     // unsafe { PostQuitMessage(0) }; // some how not work
+}
+
+fn all_users_startup_shortcut() -> ResultType<PathBuf> {
+    use windows::Win32::UI::Shell::FOLDERID_ProgramData;
+    let file_name = format!("{} Tray.lnk", crate::get_app_name());
+    Ok(installer_shell::get_known_folder(&FOLDERID_ProgramData)?
+        .join("Microsoft")
+        .join("Windows")
+        .join("Start Menu")
+        .join("Programs")
+        .join("Startup")
+        .join(file_name))
+}
+
+/// True when an older installer left `{App} Tray.lnk` in the all-users Startup folder.
+pub(crate) fn all_users_login_shortcut_exists() -> bool {
+    all_users_startup_shortcut()
+        .map(|path| path.exists())
+        .unwrap_or(false)
+}
+
+/// Per-user Startup shortcut (`--tray`). The switch does not create the all-users
+/// ProgramData shortcut. Turning login off still tries to delete an old one, and
+/// a failed delete is returned instead of reported as success.
+pub fn set_login_autostart(enable: bool) -> ResultType<()> {
+    use windows::Win32::UI::Shell::FOLDERID_Startup;
+
+    let file_name = format!("{} Tray.lnk", crate::get_app_name());
+    let user_lnk = installer_shell::get_known_folder(&FOLDERID_Startup)?.join(&file_name);
+    if !enable {
+        let shared = all_users_startup_shortcut()?;
+        super::login_item::ignore_not_found(std::fs::remove_file(&shared)).map_err(|error| {
+            anyhow!(
+                "Could not remove the all-users startup shortcut {}. Start at login stays on until that shortcut is removed. {error}",
+                shared.display()
+            )
+        })?;
+        super::login_item::ignore_not_found(std::fs::remove_file(&user_lnk))?;
+        return Ok(());
+    }
+    let exe = std::env::current_exe()?;
+    let exe = exe
+        .to_str()
+        .ok_or_else(|| anyhow!("Current executable path is not valid Unicode"))?;
+    let bytes = shortcut_bytes(exe, Some("--tray"), None)?;
+    if let Some(parent) = user_lnk.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&user_lnk, bytes)?;
+    Ok(())
 }
 
 pub fn get_user_token(session_id: u32, as_user: bool) -> HANDLE {
@@ -3305,19 +3342,11 @@ fn get_install_service_commands(path: &str, exe: &str) -> ResultType<String> {
             .to_str()
             .ok_or_else(|| anyhow!("Configuration path is not valid Unicode"))?,
     )?;
-    let shortcut_icon_location = get_custom_icon(path, exe);
-    if let Some(icon) = shortcut_icon_location.as_deref() {
-        validate_install_value(icon)?;
-    }
-    let tray_shortcut_commands =
-        embedded_tray_shortcut_commands(&app_name, exe, shortcut_icon_location.as_deref())?;
     let filter = format!(" /FI \"PID ne {}\"", get_current_pid());
     Ok(format!(
         "
 chcp 65001
 taskkill /F /IM {app_name}.exe{filter}
-{tray_shortcut_commands}
-copy /Y \"%RUSTDESK_OUTPUT_DIR%\\{app_name} Tray.lnk\" \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\\"
 {import_config}
 {create_service}
     ",

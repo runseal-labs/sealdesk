@@ -1191,6 +1191,19 @@ pub fn main_set_env(key: String, value: Option<String>) -> SyncReturn<()> {
 pub fn main_set_local_option(key: String, value: String) {
     let is_texture_render_key = key.eq(keys::OPTION_TEXTURE_RENDER);
     let is_d3d_render_key = key.eq(keys::OPTION_ALLOW_D3D_RENDER);
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if key == keys::OPTION_ALLOW_START_AT_LOGIN {
+        if let Err(error) =
+            crate::platform::set_login_autostart(crate::platform::login_item::enabled(&value))
+        {
+            log::warn!("Could not update start at login: {error}");
+            // The checkbox reads the saved option back. Leave it unchanged and
+            // surface the failure instead of showing login as off.
+            #[cfg(windows)]
+            crate::platform::message_box(&format!("{error}!"));
+            return;
+        }
+    }
     set_local_option(key, value.clone());
     let is_render_target =
         |session: &crate::flutter::FlutterSession| session.is_default() || session.is_view_camera();
@@ -2256,8 +2269,16 @@ pub fn install_install_options() -> SyncReturn<String> {
 }
 
 pub fn main_on_main_window_close() {
+    // Hiding to the tray keeps this process, and the service with it.
+    // No tray host: stop sharing, same as before the tray existed on Linux.
     #[cfg(target_os = "linux")]
-    crate::tailcat::host::stop_for_exit();
+    if std::env::var(crate::platform::login_item::TRAY_HOST_ENV)
+        .ok()
+        .as_deref()
+        != Some("1")
+    {
+        crate::tailcat::host::stop_for_exit();
+    }
     // may called more than one times
     #[cfg(windows)]
     crate::portable_service::client::drop_portable_service_shared_memory();

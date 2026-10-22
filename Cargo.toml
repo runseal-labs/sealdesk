@@ -172,9 +172,7 @@ foreign-types = "0.3"
 
 [target.'cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))'.dependencies]
 image = "0.24"
-
-# Tray UI only. Linux does not compile `src/tray.rs` (and its whiteboard uses winit, not tao).
-[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+# Linux tray uses the same tao + tray-icon stack as upstream RustDesk (StatusNotifierItem / appindicator).
 tray-icon = { git = "https://github.com/tauri-apps/tray-icon", version = "0.21.3" }
 tao = { git = "https://github.com/rustdesk-org/tao", branch = "dev" }
 

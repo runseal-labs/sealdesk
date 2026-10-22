@@ -1,10 +1,10 @@
 use crate::client::translate;
 #[cfg(windows)]
 use crate::ipc::Data;
+use base::config::keys;
 #[cfg(windows)]
 use hbb_common::tokio;
 use hbb_common::{allow_err, log};
-use base::config::keys;
 use std::sync::{Arc, Mutex};
 #[cfg(windows)]
 use std::time::Duration;
@@ -16,6 +16,9 @@ pub fn start_tray() {
             return;
         }
     }
+
+    #[cfg(target_os = "linux")]
+    crate::server::check_zombie();
 
     allow_err!(make_tray());
 }
@@ -58,25 +61,13 @@ fn make_tray() -> hbb_common::ResultType<()> {
     let icon = tray_icon::Icon::from_rgba(icon_rgba, icon_width, icon_height)
         .context("Failed to open icon")?;
 
+    #[allow(unused_mut)]
     let mut event_loop = EventLoopBuilder::new().build();
 
     let tray_menu = Menu::new();
-    let hide_stop_service = crate::ui_interface::get_builtin_option(
-        keys::OPTION_HIDE_STOP_SERVICE,
-    ) == "Y";
-    // The tray icon is only shown when the service is running, so we don't need to check
-    // the `stop-service` option here.
-    let quit_i = if !hide_stop_service {
-        Some(MenuItem::new(translate("Stop service".to_owned()), true, None))
-    } else {
-        None
-    };
-    let open_i = MenuItem::new(translate("Open".to_owned()), true, None);
-    if let Some(quit_i) = &quit_i {
-        tray_menu.append_items(&[&open_i, quit_i]).ok();
-    } else {
-        tray_menu.append_items(&[&open_i]).ok();
-    }
+    let open_i = MenuItem::new(translate("Open main window".to_owned()), true, None);
+    let quit_i = MenuItem::new(translate("Quit".to_owned()), true, None);
+    tray_menu.append_items(&[&open_i, &quit_i]).ok();
     let tooltip = |count: usize| {
         if count == 0 {
             format!(
@@ -115,6 +106,15 @@ fn make_tray() -> hbb_common::ResultType<()> {
             // `allow_multiple_instances` in `flutter/windows/runner/main.cpp` allows only one instance without args.
             crate::run_me::<&str>(vec![]).ok();
         }
+        #[cfg(target_os = "linux")]
+        {
+            // Do not use "xdg-open", it won't read the config.
+            if crate::dbus::invoke_new_connection(crate::get_uri_prefix()).is_err() {
+                if let Ok(task) = crate::run_me::<&str>(vec![]) {
+                    crate::server::CHILD_PROCESS.lock().unwrap().push(task);
+                }
+            }
+        }
     };
 
     #[cfg(windows)]
@@ -141,6 +141,7 @@ fn make_tray() -> hbb_common::ResultType<()> {
             }
             // We create the icon once the event loop is actually running
             // to prevent issues like https://github.com/tauri-apps/tray-icon/issues/90
+            #[allow(unused_mut)]
             let mut builder = TrayIconBuilder::new()
                 .with_id(crate::get_app_name().to_lowercase())
                 .with_menu(Box::new(tray_menu.clone()))
@@ -176,37 +177,36 @@ fn make_tray() -> hbb_common::ResultType<()> {
         }
 
         if let Ok(event) = menu_channel.try_recv() {
-            if let Some(quit_i) = &quit_i {
-                if event.id == quit_i.id() {
-                    /* failed in windows, seems no permission to check system process
-                    if !crate::check_process("--server", false) {
-                        *control_flow = ControlFlow::Exit;
-                        return;
-                    }
-                    */
-                    // Remove the icon first: on success `uninstall_service()` ends
-                    // this process with `std::process::exit`, which skips the
-                    // destructor that would remove it, leaving a ghost icon behind.
-                    #[cfg(windows)]
+            if event.id == quit_i.id() {
+                // `process::exit` skips the tray destructor. Hide the icon first
+                // or Windows keeps a ghost icon until the pointer passes over it.
+                #[cfg(windows)]
+                {
                     let _ = _tray_icon
                         .lock()
                         .unwrap()
                         .as_mut()
                         .map(|t| t.set_visible(false));
-                    if !crate::platform::uninstall_service(false, false) {
-                        *control_flow = ControlFlow::Exit;
+                    if crate::platform::is_self_service_running()
+                        && crate::platform::is_cur_exe_the_installed()
+                    {
+                        // Upstream tray quit. Writes `stop-service=Y`, stops and
+                        // deletes the service, then exits. A failed or cancelled
+                        // UAC prompt clears `stop-service` and returns true.
+                        if !crate::platform::uninstall_service(false, false) {
+                            std::process::exit(0);
+                        }
+                        let _ = _tray_icon
+                            .lock()
+                            .unwrap()
+                            .as_mut()
+                            .map(|t| t.set_visible(true));
+                    } else {
+                        quit_app();
                     }
-                    // Still alive, so stopping the service failed or was cancelled
-                    // in the UAC prompt. Show the icon again.
-                    #[cfg(windows)]
-                    let _ = _tray_icon
-                        .lock()
-                        .unwrap()
-                        .as_mut()
-                        .map(|t| t.set_visible(true));
-                } else if event.id == open_i.id() {
-                    open_func();
                 }
+                #[cfg(not(windows))]
+                quit_app();
             } else if event.id == open_i.id() {
                 open_func();
             }
@@ -248,6 +248,51 @@ fn make_tray() -> hbb_common::ResultType<()> {
             }
         }
     });
+}
+
+/// Ends this user's SealDesk processes. An installed, running Windows service
+/// is stopped earlier with upstream `uninstall_service` instead of this kill.
+fn quit_app() {
+    terminate_other_instances();
+    std::process::exit(0);
+}
+
+fn terminate_other_instances() {
+    use hbb_common::sysinfo::System;
+    let Ok(my_exe) = std::env::current_exe() else {
+        return;
+    };
+    let my_exe = std::fs::canonicalize(&my_exe).unwrap_or(my_exe);
+    let my_pid = std::process::id();
+    let mut sys = System::new();
+    sys.refresh_processes();
+    for (pid, process) in sys.processes() {
+        if pid.as_u32() == my_pid {
+            continue;
+        }
+        let exe = process.exe();
+        if exe.as_os_str().is_empty() {
+            continue;
+        }
+        let exe = std::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
+        if !same_exe(&exe, &my_exe) {
+            continue;
+        }
+        process.kill();
+    }
+    std::thread::sleep(std::time::Duration::from_millis(200));
+}
+
+fn same_exe(left: &std::path::Path, right: &std::path::Path) -> bool {
+    #[cfg(windows)]
+    {
+        left.to_string_lossy()
+            .eq_ignore_ascii_case(&right.to_string_lossy())
+    }
+    #[cfg(not(windows))]
+    {
+        left == right
+    }
 }
 
 #[cfg(windows)]
@@ -295,6 +340,8 @@ fn load_icon_from_asset() -> Option<image::DynamicImage> {
     let path = path.join("../Frameworks/App.framework/Resources/flutter_assets/assets/icon.png");
     #[cfg(windows)]
     let path = path.join(r"data\flutter_assets\assets\icon.png");
+    #[cfg(target_os = "linux")]
+    let path = path.join(r"data/flutter_assets/assets/icon.png");
     if path.exists() {
         if let Ok(image) = image::open(path) {
             return Some(image);

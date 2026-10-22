@@ -80,19 +80,6 @@ pub(super) fn embedded_shortcut_commands(bytes: Vec<u8>, filename: &str, name: &
     )
 }
 
-pub(super) fn embedded_tray_shortcut_commands(
-    app_name: &str,
-    exe: &str,
-    icon_location: Option<&str>,
-) -> ResultType<String> {
-    let filename = format!("{app_name} Tray.lnk");
-    Ok(embedded_shortcut_commands(
-        shortcut_bytes(exe, Some("--tray"), icon_location)?,
-        &filename,
-        "tray_shortcut",
-    ))
-}
-
 pub(super) fn validate_install_value(value: &str) -> ResultType<()> {
     if value.contains(['\0', '"', '%', '\r', '\n', '|', '<', '>']) {
         bail!("Installer path or name contains characters unsafe for cmd.exe");
@@ -115,7 +102,7 @@ pub(super) fn get_system_executable(relative_path: &str) -> ResultType<PathBuf> 
     Ok(path)
 }
 
-fn get_known_folder(id: &windows::core::GUID) -> ResultType<PathBuf> {
+pub(super) fn get_known_folder(id: &windows::core::GUID) -> ResultType<PathBuf> {
     let value = unsafe { SHGetKnownFolderPath(id, KF_FLAG_DEFAULT, None) }?;
     let path = unsafe { value.to_string() };
     unsafe { Com::CoTaskMemFree(Some(value.0.cast())) };

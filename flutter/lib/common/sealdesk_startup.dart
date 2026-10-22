@@ -1,3 +1,9 @@
+const sealDeskTrayHostEnv = 'SEALDESK_TRAY_HOST';
+
+/// `1` is the only value that means this launch showed a tray icon.
+/// Closing the main window then hides it. Any other value quits.
+bool sealDeskTrayKeepsProcess(String trayHost) => trayHost == '1';
+
 class SealDeskStartup {
   static String? _target;
 

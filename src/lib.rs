@@ -59,9 +59,8 @@ mod lang;
 mod port_forward;
 mod port_forward_mux;
 
-// Linux desktop never starts a tray process: `--tray` and `--server` fail
-// before dispatch. Windows still spawns `--tray`; macOS `--server` runs the tray.
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+// Upstream RustDesk tray. Linux `--server` spawns `--tray`; macOS `--server` runs it in-process.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod tray;
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]

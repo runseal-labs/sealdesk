@@ -2757,38 +2757,51 @@ fn check_if_stop_service() {
 }
 
 pub fn check_autostart_config() -> ResultType<()> {
-    // SECURITY: Use trusted home directory lookup via getpwuid instead of $HOME env var
-    // to prevent confused-deputy attacks where an attacker manipulates environment variables.
-    let home = match get_home_dir_trusted() {
-        Some(p) => p.to_string_lossy().to_string(),
-        None => {
-            log::warn!("Failed to get trusted home directory for autostart config check");
-            return Ok(());
-        }
+    // Upstream 1.5.1 deletes this file on every start (the write is commented out,
+    // rustdesk#4863). The login switch owns the file instead.
+    super::sync_login_autostart();
+    Ok(())
+}
+
+/// `org.kde.StatusNotifierWatcher` is what appindicator registers with.
+/// GNOME without the extension does not own the name.
+pub fn has_status_notifier_watcher() -> bool {
+    let Ok(conn) = dbus::blocking::Connection::new_session() else {
+        return false;
     };
-    let app_name = crate::get_app_name().to_lowercase();
-    let path = format!("{home}/.config/autostart");
-    let file = format!("{path}/{app_name}.desktop");
-    // https://github.com/rustdesk/rustdesk/issues/4863
-    std::fs::remove_file(&file).ok();
-    /*
-        std::fs::create_dir_all(&path).ok();
-        if !Path::new(&file).exists() {
-            // write text to the desktop file
-            let mut file = std::fs::File::create(&file)?;
-            file.write_all(
-                format!(
-                    "
-    [Desktop Entry]
-    Type=Application
-    Exec={app_name} --tray
-    NoDisplay=false
-            "
-                )
-                .as_bytes(),
-            )?;
-        }
-        */
+    let proxy = conn.with_proxy(
+        "org.freedesktop.DBus",
+        "/org/freedesktop/DBus",
+        std::time::Duration::from_millis(800),
+    );
+    let owned: Result<(bool,), dbus::Error> = proxy.method_call(
+        "org.freedesktop.DBus",
+        "NameHasOwner",
+        ("org.kde.StatusNotifierWatcher",),
+    );
+    matches!(owned, Ok((true,)))
+}
+
+pub fn set_login_autostart(enable: bool) -> ResultType<()> {
+    // Trusted home via getpwuid, same source upstream uses for this path.
+    let home = get_home_dir_trusted()
+        .ok_or_else(|| anyhow!("Failed to get trusted home directory for start at login"))?;
+    let app_name = crate::get_app_name();
+    let path = super::login_item::linux_autostart_path(&home, &app_name);
+    if !enable {
+        super::login_item::ignore_not_found(std::fs::remove_file(&path))?;
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let current_exe = std::env::current_exe()?;
+    let current_exe = current_exe.to_string_lossy();
+    // AppImage `current_exe()` is the mount path and is gone at next login.
+    let appimage = std::env::var("APPIMAGE").ok();
+    let exe = super::login_item::linux_login_program(appimage.as_deref(), &current_exe);
+    let body = super::login_item::linux_autostart_desktop(&app_name, exe);
+    std::fs::write(&path, body)?;
     Ok(())
 }
 
