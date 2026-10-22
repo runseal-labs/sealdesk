@@ -662,6 +662,31 @@ pub async fn accept(stream: &mut Stream) -> ResultType<String> {
 }
 pub async fn connect(address: &str) -> ResultType<Stream> {
     let (addr, expected) = parse_addr(address)?;
+    connect_socket(addr, Some(expected)).await
+}
+
+/// Typed `ip`, `ip:port`, or IPv6. The host key is learned from the handshake
+/// (there is no `lan:` pin). The preface is still SealDesk's, not legacy TCP.
+pub async fn connect_direct(value: &str) -> ResultType<Stream> {
+    connect_socket(parse_direct_socket(value)?, None).await
+}
+
+fn parse_direct_socket(value: &str) -> ResultType<SocketAddr> {
+    if !hbb_common::is_ip_str(value) {
+        bail!("not an IP address");
+    }
+    let with_port = hbb_common::socket_client::check_port(value, i32::from(TCP_PORT));
+    let addr: SocketAddr = with_port.parse().context("invalid IP address")?;
+    if addr.port() == 0 {
+        bail!("invalid IP port");
+    }
+    Ok(addr)
+}
+
+async fn connect_socket(
+    addr: SocketAddr,
+    expected: Option<sign::PublicKey>,
+) -> ResultType<Stream> {
     let socket = tokio::net::TcpStream::connect(addr).await?;
     socket.set_nodelay(true)?;
     let local = socket.local_addr()?;
@@ -670,7 +695,8 @@ pub async fn connect(address: &str) -> ResultType<Stream> {
     stream.0.send_raw(DOMAIN.to_vec()).await?;
     let prior = receive(&mut stream).await?;
     let remote: Hello = serde_json::from_slice(&prior)?;
-    if verify(&remote, 0, &[])? != expected {
+    let presented = verify(&remote, 0, &[])?;
+    if expected.is_some_and(|key| key != presented) {
         bail!("LAN host identity changed");
     }
     let (our, private) = hello(1, &prior)?;
@@ -2023,6 +2049,85 @@ mod tests {
             .await
             .is_err());
         server.await.unwrap();
+    }
+
+    #[test]
+    fn typed_direct_addresses_parse_onto_the_lan_port() {
+        let cases = [
+            ("192.168.1.20", TCP_PORT),
+            ("192.168.77.12:21118", 21118),
+            ("10.1.2.3", TCP_PORT),
+            ("10.255.0.4:9", 9),
+            ("172.16.0.1", TCP_PORT),
+            ("172.31.255.9", TCP_PORT),
+            ("172.20.5.5:21119", 21119),
+            ("100.64.0.8", TCP_PORT),
+            ("100.127.255.1:21118", 21118),
+            ("fd00::1", TCP_PORT),
+            ("[fd00::1]:21118", 21118),
+            ("[fd12::abcd]:9", 9),
+        ];
+        for (sample, port) in cases {
+            let addr = parse_direct_socket(sample).unwrap_or_else(|error| {
+                panic!("{sample} should be a direct LAN target: {error}")
+            });
+            assert_eq!(addr.port(), port, "{sample}");
+        }
+        // 172.15 / 172.32 are outside RFC1918, but a typed IP still uses this
+        // handshake. Bind policy is separate.
+        assert!(parse_direct_socket("172.15.255.1").is_ok());
+        assert!(parse_direct_socket("172.32.0.1").is_ok());
+        assert!(parse_direct_socket("8.8.8.8").is_ok());
+        assert!(parse_direct_socket("not-an-ip").is_err());
+        assert!(parse_direct_socket("lan:192.168.1.1:21118/abcd").is_err());
+        assert!(parse_direct_socket("192.168.1.1:0").is_err());
+        assert!(parse_direct_socket("256.1.1.1").is_err());
+    }
+
+    #[tokio::test]
+    async fn typed_ip_handshake_is_encrypted_without_a_pinned_identity() {
+        let (_lock, _reset) = lan_test_env();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (public, _) = identity().unwrap();
+        let expected = hex::encode(public.0);
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let local = socket.local_addr().unwrap();
+            let mut stream = Stream::from(socket, local);
+            assert_eq!(
+                accept_shared(&mut stream).await.unwrap().as_deref(),
+                Some(expected.as_str())
+            );
+            assert!(stream.is_secured());
+            assert_eq!(receive(&mut stream).await.unwrap(), b"desktop payload");
+            stream
+                .send_raw(b"encrypted reply".to_vec())
+                .await
+                .unwrap();
+        });
+        let target = format!("127.0.0.1:{}", addr.port());
+        let mut client = connect_direct(&target).await.unwrap();
+        assert!(client.is_secured());
+        client
+            .send_raw(b"desktop payload".to_vec())
+            .await
+            .unwrap();
+        assert_eq!(receive(&mut client).await.unwrap(), b"encrypted reply");
+        server.await.unwrap();
+
+        // The old typed-IP dial opened TCP and sent nothing. That is still rejected.
+        set_preface_wait_for_test(Some(Duration::from_millis(40)));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let socket = tokio::net::TcpStream::connect(listener.local_addr().unwrap())
+            .await
+            .unwrap();
+        let (accepted, _) = listener.accept().await.unwrap();
+        let local = accepted.local_addr().unwrap();
+        let mut server = Stream::from(accepted, local);
+        let error = accept_shared(&mut server).await.unwrap_err();
+        assert!(error.to_string().contains("disabled"));
+        drop(socket);
     }
     #[tokio::test]
     async fn shared_port_accepts_legacy_waiters_but_rejects_bad_encryption_prefaces() {

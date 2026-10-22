@@ -25,7 +25,6 @@ use std::{
 use uuid::Uuid;
 
 use crate::{
-    check_port,
     common::input::{MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT, MOUSE_TYPE_DOWN, MOUSE_TYPE_UP},
     is_keyboard_mode_supported,
     ui_interface::{get_builtin_option, resolve_avatar_url, use_texture_render},
@@ -51,7 +50,6 @@ use hbb_common::{
     rendezvous_proto::*,
     rand,
     sha2::{Digest, Sha256},
-    socket_client::{connect_tcp, connect_tcp_local},
     sodiumoxide::base64,
     tokio::{
         self,
@@ -213,12 +211,15 @@ impl Client {
             return Ok(((stream, Some(true), None, "LAN"), (0, String::new())));
         }
         if hbb_common::is_ip_str(peer) {
-            let stream = connect_tcp_local(
-                check_port(peer, i32::from(crate::lan::TCP_PORT)),
-                None,
-                CONNECT_TIMEOUT,
-            ).await?;
-            return Ok(((stream, Some(true), None, "TCP"), (0, String::new())));
+            // A typed address is not `lan:<endpoint>/<key>`. The legacy TCP dial
+            // sent no SealDesk preface, so a host that was listening on 21118
+            // still reset it as a RustDesk-compatible connection.
+            let stream = hbb_common::tokio::time::timeout(
+                std::time::Duration::from_millis(CONNECT_TIMEOUT),
+                crate::lan::connect_direct(peer),
+            )
+            .await??;
+            return Ok(((stream, Some(true), None, "LAN"), (0, String::new())));
         }
         // A peer is reached only through its tailcat address; the tunnel does the rest.
         if !crate::tailcat::is_addr(peer) {
