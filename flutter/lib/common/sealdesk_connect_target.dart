@@ -124,10 +124,54 @@ bool _lanAddress(String value) {
 bool _ipAddress(String value) {
   final matched =
       RegExp(r'^(\d{1,3}(?:\.\d{1,3}){3})(?::(\d{1,5}))?$').firstMatch(value);
-  if (matched == null) return false;
-  if (!_ipv4(matched.group(1)!)) return false;
-  final port = matched.group(2);
-  return port == null || _port(port);
+  if (matched != null) {
+    if (!_ipv4(matched.group(1)!)) return false;
+    final port = matched.group(2);
+    return port == null || _port(port);
+  }
+  return _ipv6(value);
+}
+
+/// `host`, `host:port` is IPv4 above. IPv6 is `hextets` or `[hextets]:port`.
+bool _ipv6(String value) {
+  var host = value;
+  String? port;
+  if (value.startsWith('[')) {
+    final end = value.indexOf(']');
+    if (end <= 1 || value.indexOf('[', 1) != -1) return false;
+    host = value.substring(1, end);
+    final rest = value.substring(end + 1);
+    if (rest.isEmpty) {
+      port = null;
+    } else if (rest.startsWith(':') && rest.length > 1) {
+      port = rest.substring(1);
+    } else {
+      return false;
+    }
+  } else if (value.contains('%') || value.contains(']')) {
+    return false;
+  }
+  if (port != null && !_port(port)) return false;
+  return _ipv6Host(host);
+}
+
+bool _ipv6Host(String host) {
+  if (host.isEmpty || host.contains(':::')) return false;
+  final halves = host.split('::');
+  if (halves.length > 2) return false;
+  if (halves.length == 1) {
+    final parts = host.split(':');
+    return parts.length == 8 && parts.every(_hextet);
+  }
+  final left = halves[0].isEmpty ? const <String>[] : halves[0].split(':');
+  final right = halves[1].isEmpty ? const <String>[] : halves[1].split(':');
+  if (left.isEmpty && right.isEmpty) return host == '::';
+  if (left.length + right.length >= 8) return false;
+  return left.every(_hextet) && right.every(_hextet);
+}
+
+bool _hextet(String part) {
+  return part.length <= 4 && RegExp(r'^[0-9a-fA-F]{1,4}$').hasMatch(part);
 }
 
 bool _ipv4(String value) {

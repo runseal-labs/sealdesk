@@ -758,14 +758,22 @@ pub fn forget(key: &str) -> ResultType<()> {
 pub fn compat_addresses_json() -> String {
     let addresses: Vec<String> =
         if ready() && crate::tailcat::host::enabled() && rustdesk_compat_enabled() {
-            // Same interface set as discovery and TCP 21118. On Windows that
-            // set drops down adapters and IfType/TAP/Wintun/WireGuard tunnels.
+            // Same private interfaces as discovery, plus CGNAT 100.64.0.0/10
+            // even when that address is on a virtual or point-to-point adapter.
+            // On Windows the private set drops down adapters and
+            // IfType/TAP/Wintun/WireGuard tunnels.
             let mut addresses: Vec<String> = udp::interfaces_from_default_net()
                 .into_iter()
                 .flat_map(|iface| iface.v4)
-                .filter(|(ip, _)| ip.is_private())
+                .filter(|(ip, _)| ip.is_private() || is_cgnat_v4(*ip))
                 .map(|(ip, _)| SocketAddr::new(IpAddr::V4(ip), TCP_PORT).to_string())
                 .collect();
+            for ip in direct_cgnat_v4() {
+                let text = SocketAddr::new(IpAddr::V4(ip), TCP_PORT).to_string();
+                if !addresses.contains(&text) {
+                    addresses.push(text);
+                }
+            }
             // Android denies netlink, so default_net is empty. The UI already
             // pushed interface addresses for Tailcat; reuse those for the share list.
             #[cfg(target_os = "android")]
@@ -1073,10 +1081,13 @@ impl Drop for AbortOnDrop {
     }
 }
 
-/// Private IPv4 (10/8, 172.16/12, 192.168/16) and IPv6 ULA only.
+/// Private IPv4 (10/8, 172.16/12, 192.168/16), CGNAT 100.64.0.0/10, and IPv6 ULA.
 /// Unspecified, loopback, link-local, and public addresses are dropped.
 /// An empty enumeration uses `fallback_v4` (the Android interface list) and
 /// still never adds 0.0.0.0 or ::.
+/// 100.64.0.0/10 is not RFC1918 (`Ipv4Addr::is_private` is false). Tailscale and
+/// Headscale use it, often on a point-to-point interface that discovery skips.
+/// Direct typed connections still need TCP 21118 on that address. UDP 21119 does not.
 pub(crate) fn tcp_bind_addrs(enumerated: &[IpAddr], fallback_v4: &[Ipv4Addr]) -> Vec<SocketAddr> {
     let mut selected = filter_bind_addrs(enumerated);
     if selected.is_empty() && !fallback_v4.is_empty() {
@@ -1095,7 +1106,7 @@ fn filter_bind_addrs(addrs: &[IpAddr]) -> Vec<SocketAddr> {
             continue;
         }
         let keep = match ip {
-            IpAddr::V4(ip) => is_lan_bind_v4(*ip),
+            IpAddr::V4(ip) => is_lan_bind_v4(*ip) || is_cgnat_v4(*ip),
             IpAddr::V6(ip) => is_ula(*ip),
         };
         if keep {
@@ -1107,6 +1118,73 @@ fn filter_bind_addrs(addrs: &[IpAddr]) -> Vec<SocketAddr> {
 
 pub(crate) fn is_lan_bind_v4(ip: Ipv4Addr) -> bool {
     ip.is_private()
+}
+
+/// RFC 6598 shared address space. Not private, not global; used by CGNAT and Tailscale.
+pub(crate) fn is_cgnat_v4(ip: Ipv4Addr) -> bool {
+    let [a, b, _, _] = ip.octets();
+    a == 100 && (64..128).contains(&b)
+}
+
+/// CGNAT addresses from an Android-style interface list, including VPN and
+/// point-to-point interfaces that LAN discovery refuses. Other VPN addresses stay out.
+pub(crate) fn cgnat_v4_from_interface_json(payload: &str) -> Vec<Ipv4Addr> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) else {
+        return Vec::new();
+    };
+    let Some(list) = value.as_array() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for iface in list {
+        let flags = iface.get("flags").and_then(|v| v.as_u64()).unwrap_or(0);
+        // Go net.Flags: 1 up, 4 loopback. Point-to-point (8) and VPN names are kept.
+        if flags & 1 == 0 || flags & 4 != 0 {
+            continue;
+        }
+        let Some(addrs) = iface.get("addrs").and_then(|v| v.as_array()) else {
+            continue;
+        };
+        for addr in addrs {
+            let Some(text) = addr.as_str() else {
+                continue;
+            };
+            let ip = text.split('/').next().unwrap_or("");
+            let Ok(ip) = ip.parse::<Ipv4Addr>() else {
+                continue;
+            };
+            if is_cgnat_v4(ip) && !out.contains(&ip) {
+                out.push(ip);
+            }
+        }
+    }
+    out
+}
+
+fn push_direct_cgnat(enumerated: &mut Vec<IpAddr>, candidates: &[Ipv4Addr]) {
+    for ip in candidates {
+        if is_cgnat_v4(*ip) {
+            enumerated.push(IpAddr::V4(*ip));
+        }
+    }
+}
+
+fn direct_cgnat_v4() -> Vec<Ipv4Addr> {
+    let mut out = Vec::new();
+    for iface in default_net::get_interfaces() {
+        for net in iface.ipv4 {
+            if is_cgnat_v4(net.addr) && !out.contains(&net.addr) {
+                out.push(net.addr);
+            }
+        }
+    }
+    #[cfg(target_os = "android")]
+    for ip in crate::tailcat::android_cgnat_ipv4() {
+        if !out.contains(&ip) {
+            out.push(ip);
+        }
+    }
+    out
 }
 
 fn is_ula(ip: Ipv6Addr) -> bool {
@@ -1123,6 +1201,9 @@ fn current_tcp_bind_addrs() -> Vec<SocketAddr> {
             enumerated.push(IpAddr::V6(ip));
         }
     }
+    // Discovery drops point-to-point and virtual adapters, which is where
+    // 100.64.0.0/10 usually sits. Append those addresses for TCP only.
+    push_direct_cgnat(&mut enumerated, &direct_cgnat_v4());
     #[cfg(target_os = "android")]
     let fallback = crate::tailcat::android_private_ipv4();
     #[cfg(not(target_os = "android"))]
@@ -2790,6 +2871,66 @@ mod tests {
     }
 
     #[test]
+    fn direct_cgnat_is_bound_for_typed_ip_but_not_discovered() {
+        assert!(is_cgnat_v4("100.64.0.1".parse().unwrap()));
+        assert!(is_cgnat_v4("100.127.255.254".parse().unwrap()));
+        assert!(!is_cgnat_v4("100.63.255.255".parse().unwrap()));
+        assert!(!is_cgnat_v4("100.128.0.1".parse().unwrap()));
+        assert!(!is_cgnat_v4("192.168.1.1".parse().unwrap()));
+        assert!(!is_lan_bind_v4("100.64.0.8".parse().unwrap()));
+        assert!(is_lan_bind_v4("10.1.2.3".parse().unwrap()));
+        assert!(is_lan_bind_v4("192.168.1.20".parse().unwrap()));
+
+        let mut enumerated = vec![
+            "192.168.1.20".parse().unwrap(),
+            "10.9.8.7".parse().unwrap(),
+            "8.8.8.8".parse().unwrap(),
+        ];
+        // A Tailscale address that discovery enumeration never handed us.
+        push_direct_cgnat(
+            &mut enumerated,
+            &[
+                "100.64.8.9".parse().unwrap(),
+                "8.8.8.8".parse().unwrap(),
+                "100.128.0.1".parse().unwrap(),
+            ],
+        );
+        let bound = tcp_bind_addrs(&enumerated, &[]);
+        let ips: Vec<_> = bound.iter().map(|addr| addr.to_string()).collect();
+        assert_eq!(
+            ips,
+            vec![
+                format!("10.9.8.7:{TCP_PORT}"),
+                format!("100.64.8.9:{TCP_PORT}"),
+                format!("192.168.1.20:{TCP_PORT}"),
+            ]
+        );
+        assert!(!udp::udp_ip_allowed("100.64.8.9".parse().unwrap()));
+        assert!(udp::udp_ip_allowed("192.168.1.20".parse().unwrap()));
+        assert!(udp::udp_ip_allowed("10.9.8.7".parse().unwrap()));
+
+        let payload = r#"[
+            {"name":"tun0","flags":9,"addrs":["100.64.5.6/32","10.8.0.2/24"]},
+            {"name":"wlan0","flags":1,"addrs":["192.168.1.5/24","8.8.8.8/32","100.64.1.2:21118"]},
+            {"name":"down0","flags":0,"addrs":["100.64.9.9/32"]},
+            {"name":"lo","flags":5,"addrs":["100.64.0.1/32"]}
+        ]"#;
+        assert_eq!(
+            cgnat_v4_from_interface_json(payload),
+            vec!["100.64.5.6".parse::<Ipv4Addr>().unwrap()]
+        );
+        let with_port = tcp_bind_addrs(
+            &[
+                "100.64.12.9".parse().unwrap(),
+                "192.168.0.4".parse().unwrap(),
+                "10.0.0.5".parse().unwrap(),
+            ],
+            &[],
+        );
+        assert!(with_port.iter().all(|addr| addr.port() == TCP_PORT));
+    }
+
+    #[test]
     fn tcp_bind_addrs_exclude_unspecified_and_use_android_fallback() {
         let unspecified = [
             IpAddr::V4(Ipv4Addr::UNSPECIFIED),
@@ -2800,7 +2941,10 @@ mod tests {
             IpAddr::V4("8.8.8.8".parse().unwrap()),
             "fe80::1".parse().unwrap(),
         ];
-        assert!(tcp_bind_addrs(&unspecified, &[]).is_empty());
+        assert_eq!(
+            tcp_bind_addrs(&unspecified, &[]),
+            vec![SocketAddr::new("100.64.0.1".parse().unwrap(), TCP_PORT)]
+        );
         let mixed = [
             IpAddr::V4(Ipv4Addr::UNSPECIFIED),
             IpAddr::V6(Ipv6Addr::UNSPECIFIED),
