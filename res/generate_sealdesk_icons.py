@@ -278,7 +278,9 @@ def main():
 
     glyph = mono_glyph(text(mono_root()), CANVAS * 2)
     png('res/sealdesk-icon-monochrome.png', glyph_fit(glyph, CANVAS, 24))
-    png('res/mac-tray-dark-x2.png', tinted(glyph_fit(glyph, 60, 2), 'white'))
+    # Menu bar template (upstream sizes). Must be black with the glyph in alpha.
+    # A white glyph, or the opaque app icon, is drawn as a black status-item block.
+    png('res/mac-tray-dark-x2.png', tinted(glyph_fit(glyph, 60, 2), 'black'))
     png('res/mac-tray-light-x2.png', tinted(glyph_fit(glyph, 48, 2), 'black'))
 
     ios = 'flutter/ios/Runner/Assets.xcassets/AppIcon.appiconset/'
