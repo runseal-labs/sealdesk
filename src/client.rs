@@ -209,12 +209,21 @@ impl Client {
         if crate::lan::is_pinned_or_typed(peer) {
             // A typed address is not `lan:<endpoint>/<key>`. It still sends the
             // SealDesk preface. A pinned dial that fails does not fall through.
-            let (stream, stream_type) = hbb_common::tokio::time::timeout(
+            let (stream, stream_type, direct_host_key) = hbb_common::tokio::time::timeout(
                 std::time::Duration::from_millis(CONNECT_TIMEOUT),
                 crate::lan::connect_pinned_or_typed(peer),
             )
             .await??;
-            return Ok(((stream, Some(true), None, stream_type), (0, String::new())));
+            // This slot is the host key negotiated by this dial, and only while it still needs confirmation.
+            return Ok((
+                (
+                    stream,
+                    Some(true),
+                    direct_host_key.map(String::into_bytes),
+                    stream_type,
+                ),
+                (0, String::new()),
+            ));
         }
         // A peer is reached only through its tailcat address; the tunnel does the rest.
         if !crate::tailcat::is_addr(peer) {
@@ -3282,9 +3291,11 @@ pub enum Data {
 pub async fn confirm_insecure_connection(
     interface: &impl Interface,
     receiver: &mut UnboundedReceiver<Data>,
+    direct_host_key: Option<&str>,
 ) -> bool {
     let id = interface.get_id();
-    let prompt = crate::lan::direct_confirm_prompt(&id);
+    let prompt =
+        direct_host_key.and_then(|key| crate::lan::direct_confirm_prompt(&id, key));
     if let Some(prompt) = prompt.as_ref() {
         interface.msgbox(prompt.msg_type, prompt.title, &prompt.text, "");
     } else {
@@ -3309,8 +3320,10 @@ pub async fn confirm_insecure_connection(
     while let Some(data) = receiver.recv().await {
         match data {
             Data::ContinueInsecureConnection => {
-                if prompt.is_some() {
-                    crate::lan::accept_direct_host(&id);
+                if let Some(key) = direct_host_key {
+                    if prompt.is_some() {
+                        crate::lan::accept_direct_host(&id, key);
+                    }
                 }
                 return true;
             }

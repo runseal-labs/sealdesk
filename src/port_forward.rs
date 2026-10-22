@@ -174,10 +174,12 @@ async fn connect_and_login(
     } else {
         ConnType::PORT_FORWARD
     };
-    let ((mut stream, _direct, _pk, stream_type), _) =
+    let ((mut stream, _direct, direct_host_key, stream_type), _) =
         Client::start(id, key, token, conn_type, interface.clone()).await?;
+    let direct_host_key = direct_host_key.and_then(|bytes| String::from_utf8(bytes).ok());
     if !crate::lan::shows_verified_identity(stream_type, stream.is_secured()) {
-        if !confirm_insecure_connection(&interface, ui_receiver).await {
+        if !confirm_insecure_connection(&interface, ui_receiver, direct_host_key.as_deref()).await
+        {
             *close_port_forward = true;
             return Ok(None);
         }
@@ -413,10 +415,12 @@ async fn connect_and_login_mux(
     } else {
         ConnType::PORT_FORWARD
     };
-    let ((mut stream, _direct, _pk, stream_type), _) =
+    let ((mut stream, _direct, direct_host_key, stream_type), _) =
         Client::start(id, key, token, conn_type, interface.clone()).await?;
+    let direct_host_key = direct_host_key.and_then(|bytes| String::from_utf8(bytes).ok());
     if !crate::lan::shows_verified_identity(stream_type, stream.is_secured()) {
-        if !confirm_insecure_connection(&interface, ui_receiver).await {
+        if !confirm_insecure_connection(&interface, ui_receiver, direct_host_key.as_deref()).await
+        {
             *close_port_forward = true;
             return Ok(None);
         }
