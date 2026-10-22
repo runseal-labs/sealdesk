@@ -70,8 +70,12 @@ fn handle_client_message(builder: &mut IfaceBuilder<()>) {
         (DBUS_METHOD_NEW_CONNECTION_ID,),
         (DBUS_METHOD_RETURN,),
         move |_, _, (_uni_links,): (String,)| {
+            // Success only when the main window's event stream accepts the
+            // message. The bus name can be owned briefly before that stream
+            // exists; reporting success then would make a second plain launch
+            // exit without showing anything.
             #[cfg(feature = "flutter")]
-            {
+            let delivered = {
                 use crate::flutter;
                 let data = HashMap::from([
                     ("name", "on_url_scheme_received"),
@@ -79,14 +83,26 @@ fn handle_client_message(builder: &mut IfaceBuilder<()>) {
                 ]);
                 let event = serde_json::ser::to_string(&data).unwrap_or("".to_string());
                 match crate::flutter::push_global_event(flutter::APP_TYPE_MAIN, event) {
-                    None => log::error!("failed to find main event stream"),
-                    Some(false) => {
-                        log::error!("failed to add dbus message to flutter global dbus stream.")
+                    Some(true) => true,
+                    None => {
+                        log::error!("failed to find main event stream");
+                        false
                     }
-                    Some(true) => {}
+                    Some(false) => {
+                        log::error!("failed to add dbus message to flutter global dbus stream.");
+                        false
+                    }
                 }
-            }
-            return Ok((DBUS_METHOD_RETURN_SUCCESS.to_string(),));
+            };
+            // No Flutter stream in this build; keep the historical ack.
+            #[cfg(not(feature = "flutter"))]
+            let delivered = true;
+            let ret = if delivered {
+                DBUS_METHOD_RETURN_SUCCESS
+            } else {
+                "no-main-window"
+            };
+            Ok((ret.to_string(),))
         },
     );
 }

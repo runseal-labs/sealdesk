@@ -293,6 +293,17 @@ pub fn core_main() -> Option<CoreMainAction> {
         return try_send_by_dbus(args[0].clone()).map(CoreMainAction::StartUi);
     }
 
+    // Plain launch (no args, or macOS Finder `-psn_`) while a main window
+    // already exists: raise that window and exit. Upstream RustDesk does not
+    // do this on Linux (`G_APPLICATION_NON_UNIQUE`) or macOS. Reuse the tray
+    // "Open main window" handoff so a window hidden to the tray is shown too.
+    // `--server` / `--tray` / `--cm` / `--install`, connection args, and
+    // `sealdesk://` URLs are not plain launches and keep their own paths.
+    #[cfg(all(any(target_os = "linux", target_os = "macos"), feature = "flutter"))]
+    if is_plain_main_window_launch() && show_existing_main_window() {
+        return None;
+    }
+
     #[cfg(windows)]
     if !crate::platform::is_installed()
         && args.is_empty()
@@ -809,6 +820,32 @@ fn core_main_invoke_new_connection(mut args: std::env::Args) -> Option<Vec<Strin
         } else {
             None
         };
+    }
+}
+
+/// No user arguments. macOS Finder appends `-psn_<number>` for a normal open.
+#[cfg(all(any(target_os = "linux", target_os = "macos"), feature = "flutter"))]
+fn is_plain_main_window_launch() -> bool {
+    std::env::args()
+        .skip(1)
+        .all(|arg| arg.is_empty() || arg.starts_with("-psn_"))
+}
+
+/// Tell the running main window to show itself.
+///
+/// Linux sends `sealdesk://` on the session bus, the same call as the tray
+/// menu. macOS sends an empty url on the `_url` IPC socket, the same payload
+/// as `handle_url_scheme("")`. Flutter `onUrlSchemeReceived` calls `windowOnTop`.
+/// Returns false when no main window is listening, so this process starts one.
+#[cfg(all(any(target_os = "linux", target_os = "macos"), feature = "flutter"))]
+fn show_existing_main_window() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        crate::dbus::invoke_new_connection(crate::get_uri_prefix()).is_ok()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        crate::ipc::send_url_scheme(String::new()).is_ok()
     }
 }
 
