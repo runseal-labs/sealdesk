@@ -2,6 +2,13 @@ import 'package:sealdesk/common/sealdesk_startup.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('only an advertised tray host keeps the process on close', () {
+    expect(sealDeskTrayKeepsProcess('1'), isTrue);
+    for (final value in ['', '0', 'true', 'Y']) {
+      expect(sealDeskTrayKeepsProcess(value), isFalse);
+    }
+  });
+
   test('startup target is preserved verbatim and consumed once', () {
     const target = 'SEALDESK:V:1;P:秘密 &?=;;';
     SealDeskStartup.configure(['--control', target]);

@@ -298,6 +298,20 @@ fn same_exe(left: &std::path::Path, right: &std::path::Path) -> bool {
     }
 }
 
+/// Info dialog for the device id. A fixed width avoids the zenity `--no-wrap`
+/// layout that grows to about the screen width.
+#[cfg(any(target_os = "linux", test))]
+fn linux_device_id_dialog_args(title: &str, id: &str) -> Vec<String> {
+    vec![
+        "--info".to_owned(),
+        "--width=360".to_owned(),
+        "--title".to_owned(),
+        title.to_owned(),
+        "--text".to_owned(),
+        id.to_owned(),
+    ]
+}
+
 fn show_device_id() {
     let id = device_id_text();
     let title = translate("Show this device's ID".to_owned());
@@ -312,8 +326,9 @@ fn show_device_id() {
             .map(|status| status.success())
             .unwrap_or(false);
         if !notified {
+            // `--no-wrap` makes zenity size the dialog near the screen width.
             let _ = std::process::Command::new("zenity")
-                .args(["--info", "--no-wrap", "--title", &title, "--text", &id])
+                .args(linux_device_id_dialog_args(&title, &id))
                 .status();
         }
     }
@@ -404,4 +419,26 @@ fn load_icon_from_asset() -> Option<image::DynamicImage> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::linux_device_id_dialog_args;
+
+    #[test]
+    fn linux_id_dialog_uses_a_fixed_width_without_no_wrap() {
+        let args = linux_device_id_dialog_args("Show this device's ID", "tc-addr");
+        assert_eq!(
+            args,
+            vec![
+                "--info".to_owned(),
+                "--width=360".to_owned(),
+                "--title".to_owned(),
+                "Show this device's ID".to_owned(),
+                "--text".to_owned(),
+                "tc-addr".to_owned(),
+            ]
+        );
+        assert!(!args.iter().any(|arg| arg == "--no-wrap"));
+    }
 }
