@@ -1412,7 +1412,14 @@ class _TabDropDownButtonState extends State<_TabDropDownButton> {
                 child: Row(
                   children: [
                     Expanded(
-                      child: InkWell(child: Text(label)),
+                      child: InkWell(
+                        child: Text(
+                          label,
+                          maxLines: 1,
+                          softWrap: false,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                     ),
                     Obx(
                       () {
