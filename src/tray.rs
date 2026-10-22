@@ -298,20 +298,41 @@ fn same_exe(left: &std::path::Path, right: &std::path::Path) -> bool {
     }
 }
 
-/// Characters that fit the 360px device-id dialog without widening it.
-#[cfg(any(target_os = "linux", test))]
-const DEVICE_ID_DIALOG_MAX_CHARS: usize = 36;
+/// Longest id the dialog must show in full.
+///
+/// Custom ids match `^[a-zA-Z][\w-]{5,15}$` (16 characters). Numeric ids are shorter.
+/// A tailcat address (`tc` + unpadded base64url, `is_addr` requires length > 40) is longer:
+/// the default relay embeds one DERP region and encodes to 229 characters.
+/// [`crate::common::MAX_UNTRUSTED_PEER_ID_LEN`] is the longest peer id accepted before
+/// it is stored or written into a command. That cap covers a tailcat address.
+const DEVICE_ID_MAX_CHARS: usize = crate::common::MAX_UNTRUSTED_PEER_ID_LEN;
 
-/// Cut each line to `max_chars` Unicode scalar values. An over-long line ends with `…`.
-#[cfg(any(target_os = "linux", test))]
+/// Other lines are cut to this many characters so they stay inside the fixed width.
+const DEVICE_ID_DIALOG_OTHER_LINE_MAX_CHARS: usize = DEVICE_ID_MAX_CHARS;
+
+/// Pixels of zenity `--width` per id character. 10px is the same ratio as the old
+/// 360px dialog and is wider than a base64url line (about 8.5px), so a max-length
+/// id does not stretch the window.
+const DEVICE_ID_DIALOG_PX_PER_CHAR: usize = 10;
+
+const DEVICE_ID_DIALOG_WIDTH_PX: usize = DEVICE_ID_MAX_CHARS * DEVICE_ID_DIALOG_PX_PER_CHAR;
+
+/// The first line is the device id and is kept whole. Later lines (TCP and the like)
+/// are cut to `max_chars` Unicode scalar values. An over-long line ends with `…`.
 fn truncate_dialog_lines(text: &str, max_chars: usize) -> String {
     text.lines()
-        .map(|line| truncate_dialog_line(line, max_chars))
+        .enumerate()
+        .map(|(index, line)| {
+            if index == 0 {
+                line.to_owned()
+            } else {
+                truncate_dialog_line(line, max_chars)
+            }
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
 
-#[cfg(any(target_os = "linux", test))]
 fn truncate_dialog_line(line: &str, max_chars: usize) -> String {
     if line.chars().count() <= max_chars {
         return line.to_owned();
@@ -323,31 +344,45 @@ fn truncate_dialog_line(line: &str, max_chars: usize) -> String {
     out
 }
 
-/// Info dialog for the device id. `--width` and `--no-wrap` keep a fixed width.
-/// Long lines are truncated so the text neither wraps nor stretches the window.
+/// Dialog body. The id line is complete. Other lines are truncated and do not wrap.
+fn device_id_dialog_body(text: &str) -> String {
+    truncate_dialog_lines(text, DEVICE_ID_DIALOG_OTHER_LINE_MAX_CHARS)
+}
+
+/// Info dialog for the device id. `--width` and `--no-wrap` keep a fixed width
+/// that fits the longest legal id.
 #[cfg(any(target_os = "linux", test))]
 fn linux_device_id_dialog_args(title: &str, id: &str) -> Vec<String> {
     vec![
         "--info".to_owned(),
-        "--width=360".to_owned(),
+        format!("--width={DEVICE_ID_DIALOG_WIDTH_PX}"),
         "--no-wrap".to_owned(),
         "--title".to_owned(),
         title.to_owned(),
         "--text".to_owned(),
-        truncate_dialog_lines(id, DEVICE_ID_DIALOG_MAX_CHARS),
+        device_id_dialog_body(id),
     ]
+}
+
+/// `notify-send` has no width flag. The body is the same text as the other dialogs:
+/// the id line is complete.
+#[cfg(any(target_os = "linux", test))]
+fn linux_notify_send_args(title: &str, id: &str) -> Vec<String> {
+    vec![title.to_owned(), device_id_dialog_body(id)]
 }
 
 fn show_device_id() {
     let id = device_id_text();
     let title = translate("Show this device's ID".to_owned());
+    // Same body on every platform: the id line is complete, other lines are cut.
+    let body = device_id_dialog_body(&id);
     #[cfg(windows)]
-    crate::platform::message_box_ok(&title, &id);
+    crate::platform::message_box_ok(&title, &body);
     #[cfg(target_os = "linux")]
     {
         let notified = std::process::Command::new("notify-send")
             .arg(&title)
-            .arg(&id)
+            .arg(&body)
             .status()
             .map(|status| status.success())
             .unwrap_or(false);
@@ -370,10 +405,12 @@ fn show_device_id() {
                  end run",
             )
             .arg("--")
-            .arg(&id)
+            .arg(&body)
             .arg(&title)
             .spawn();
     }
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+    let _ = (&title, &body);
 }
 
 fn device_id_text() -> String {
@@ -448,7 +485,11 @@ fn load_icon_from_asset() -> Option<image::DynamicImage> {
 
 #[cfg(test)]
 mod tests {
-    use super::{linux_device_id_dialog_args, truncate_dialog_lines, DEVICE_ID_DIALOG_MAX_CHARS};
+    use super::{
+        device_id_dialog_body, linux_device_id_dialog_args, linux_notify_send_args,
+        truncate_dialog_lines, DEVICE_ID_DIALOG_OTHER_LINE_MAX_CHARS, DEVICE_ID_DIALOG_WIDTH_PX,
+        DEVICE_ID_MAX_CHARS,
+    };
 
     #[test]
     fn linux_id_dialog_keeps_a_fixed_width_without_wrapping() {
@@ -457,7 +498,7 @@ mod tests {
             args,
             vec![
                 "--info".to_owned(),
-                "--width=360".to_owned(),
+                format!("--width={DEVICE_ID_DIALOG_WIDTH_PX}"),
                 "--no-wrap".to_owned(),
                 "--title".to_owned(),
                 "Show this device's ID".to_owned(),
@@ -465,27 +506,46 @@ mod tests {
                 "tc-addr".to_owned(),
             ]
         );
+        assert!(DEVICE_ID_DIALOG_WIDTH_PX >= DEVICE_ID_MAX_CHARS);
+        assert_eq!(DEVICE_ID_MAX_CHARS, 253);
     }
 
     #[test]
-    fn device_id_dialog_truncates_long_lines_by_chars() {
-        let max = DEVICE_ID_DIALOG_MAX_CHARS;
-        let short = "a".repeat(max);
-        assert_eq!(truncate_dialog_lines(&short, max), short);
+    fn device_id_dialog_keeps_the_id_and_truncates_other_lines() {
+        let max = DEVICE_ID_DIALOG_OTHER_LINE_MAX_CHARS;
+        let id = format!("tc{}", "A".repeat(DEVICE_ID_MAX_CHARS - 2));
+        assert_eq!(id.chars().count(), DEVICE_ID_MAX_CHARS);
+        let tcp = format!("TCP: {}", "1".repeat(max));
+        assert!(tcp.chars().count() > max);
 
-        let long = "abc".repeat(max);
-        let truncated = truncate_dialog_lines(&long, max);
-        assert_eq!(truncated.chars().count(), max);
-        assert!(truncated.ends_with('\u{2026}'));
+        let body = device_id_dialog_body(&format!("{id}\n{tcp}"));
+        let mut lines = body.lines();
+        assert_eq!(lines.next().unwrap(), id);
+        let tcp_line = lines.next().unwrap();
+        assert_eq!(tcp_line.chars().count(), max);
+        assert!(tcp_line.ends_with('\u{2026}'));
         assert_eq!(
-            truncated.chars().take(max - 1).collect::<String>(),
-            long.chars().take(max - 1).collect::<String>()
+            tcp_line.chars().take(max - 1).collect::<String>(),
+            tcp.chars().take(max - 1).collect::<String>()
+        );
+        assert!(lines.next().is_none());
+
+        let args = linux_device_id_dialog_args("Show this device's ID", &format!("{id}\n{tcp}"));
+        assert_eq!(args.last().map(String::as_str), Some(body.as_str()));
+        assert_eq!(
+            linux_notify_send_args("Show this device's ID", &format!("{id}\n{tcp}")),
+            vec!["Show this device's ID".to_owned(), body]
         );
 
+        // The id line is not cut, even past the other-line limit.
+        let long_id = "abc".repeat(max);
+        assert_eq!(truncate_dialog_lines(&long_id, max), long_id);
+
         // `é` and `你` are multiple bytes and one scalar value each.
-        assert_eq!(truncate_dialog_lines("éééé", 4), "éééé");
-        assert_eq!(truncate_dialog_lines("ééééé", 4), "ééé…");
-        assert_eq!(truncate_dialog_lines("你你你你你", 4), "你你你…");
+        // The first line is the id. Only the following lines are cut.
+        assert_eq!(truncate_dialog_lines("ééééé\néééé", 4), "ééééé\néééé");
+        assert_eq!(truncate_dialog_lines("éééé\nééééé", 4), "éééé\nééé…");
+        assert_eq!(truncate_dialog_lines("id\n你你你你你", 4), "id\n你你你…");
 
         assert_eq!(
             truncate_dialog_lines("ok\n123456789\nend", 8),
