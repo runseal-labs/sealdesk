@@ -13,6 +13,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../common.dart';
+import '../common/sealdesk_startup.dart';
 import '../generated_bridge.dart';
 
 final class RgbaFrame extends Struct {
@@ -172,11 +173,13 @@ class PlatformFFI {
       _ffiBindInitialized = true;
 
       if (isLinux) {
-        if (isMain) {
+        if (isMain && sealDeskOwnsMainWindowUriServer(kBootArgs)) {
           // Start a dbus service for uri links, no need to await
           _ffiBind.mainStartDbusServer();
         }
-      } else if (isMacOS && isMain) {
+      } else if (isMacOS &&
+          isMain &&
+          sealDeskOwnsMainWindowUriServer(kBootArgs)) {
         // Start ipc service for uri links.
         _ffiBind.mainStartIpcUrlServer();
       }
