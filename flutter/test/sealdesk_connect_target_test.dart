@@ -27,5 +27,18 @@ void main() {
     expect(bare.ok, isTrue);
     expect(bare.kind, 'ip');
     expect(bare.id, 'fd12::abcd');
+
+    final ula = parseSealDeskConnectInput('fd00::1');
+    expect(ula.ok, isTrue);
+    expect(ula.kind, 'ip');
+    expect(ula.id, 'fd00::1');
+  });
+
+  test('typed direct addresses reject ipv6 forms the backend parser rejects', () {
+    for (final input in ['::1', 'fd00::', '[fd00::1]', '2001:db8::']) {
+      final target = parseSealDeskConnectInput(input);
+      expect(target.ok, isFalse, reason: input);
+      expect(target.kind, 'invalid', reason: input);
+    }
   });
 }

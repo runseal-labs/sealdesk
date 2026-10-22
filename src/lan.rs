@@ -762,28 +762,19 @@ pub fn compat_addresses_json() -> String {
             // even when that address is on a virtual or point-to-point adapter.
             // On Windows the private set drops down adapters and
             // IfType/TAP/Wintun/WireGuard tunnels.
-            let mut addresses: Vec<String> = udp::interfaces_from_default_net()
+            // Android denies netlink, so default_net is empty and Wi-Fi is only
+            // in the Tailcat interface list. Emptiness is decided before CGNAT
+            // is appended, or a Tailscale address would hide that Wi-Fi entry.
+            let discovered: Vec<Ipv4Addr> = udp::interfaces_from_default_net()
                 .into_iter()
                 .flat_map(|iface| iface.v4)
-                .filter(|(ip, _)| ip.is_private() || is_cgnat_v4(*ip))
-                .map(|(ip, _)| SocketAddr::new(IpAddr::V4(ip), TCP_PORT).to_string())
+                .map(|(ip, _)| ip)
                 .collect();
-            for ip in direct_cgnat_v4() {
-                let text = SocketAddr::new(IpAddr::V4(ip), TCP_PORT).to_string();
-                if !addresses.contains(&text) {
-                    addresses.push(text);
-                }
-            }
-            // Android denies netlink, so default_net is empty. The UI already
-            // pushed interface addresses for Tailcat; reuse those for the share list.
             #[cfg(target_os = "android")]
-            if addresses.is_empty() {
-                addresses = crate::tailcat::android_private_ipv4()
-                    .into_iter()
-                    .map(|ip| SocketAddr::new(ip.into(), TCP_PORT).to_string())
-                    .collect();
-            }
-            addresses
+            let fallback = crate::tailcat::android_private_ipv4();
+            #[cfg(not(target_os = "android"))]
+            let fallback = Vec::new();
+            compat_share_addrs(&discovered, &direct_cgnat_v4(), &fallback)
         } else {
             vec![]
         };
@@ -1161,12 +1152,62 @@ pub(crate) fn cgnat_v4_from_interface_json(payload: &str) -> Vec<Ipv4Addr> {
     out
 }
 
-fn push_direct_cgnat(enumerated: &mut Vec<IpAddr>, candidates: &[Ipv4Addr]) {
-    for ip in candidates {
-        if is_cgnat_v4(*ip) {
-            enumerated.push(IpAddr::V4(*ip));
+/// `tcp_bind_addrs` uses `fallback_v4` only when the filtered enumeration is
+/// empty. Callers must pass the pre-CGNAT enumeration so an Android Wi-Fi
+/// fallback is not skipped just because Tailscale added 100.64.0.0/10.
+fn tcp_bind_with_direct_cgnat(
+    enumerated: &[IpAddr],
+    fallback_v4: &[Ipv4Addr],
+    cgnat: &[Ipv4Addr],
+) -> Vec<SocketAddr> {
+    let mut addrs = tcp_bind_addrs(enumerated, fallback_v4);
+    for ip in cgnat {
+        if !is_cgnat_v4(*ip) {
+            continue;
+        }
+        let addr = SocketAddr::new(IpAddr::V4(*ip), TCP_PORT);
+        if !addrs.contains(&addr) {
+            addrs.push(addr);
         }
     }
+    addrs.sort();
+    addrs.dedup();
+    addrs
+}
+
+/// Discovery private/CGNAT addresses, then direct CGNAT. `android_fallback` is
+/// appended only when the discovery set is empty, and that check happens
+/// before CGNAT is added.
+fn compat_share_addrs(
+    discovered_v4: &[Ipv4Addr],
+    cgnat: &[Ipv4Addr],
+    android_fallback: &[Ipv4Addr],
+) -> Vec<String> {
+    let mut addresses: Vec<String> = discovered_v4
+        .iter()
+        .copied()
+        .filter(|ip| ip.is_private() || is_cgnat_v4(*ip))
+        .map(|ip| SocketAddr::new(IpAddr::V4(ip), TCP_PORT).to_string())
+        .collect();
+    let supplement_private = addresses.is_empty();
+    for ip in cgnat {
+        if !is_cgnat_v4(*ip) {
+            continue;
+        }
+        let text = SocketAddr::new(IpAddr::V4(*ip), TCP_PORT).to_string();
+        if !addresses.contains(&text) {
+            addresses.push(text);
+        }
+    }
+    if supplement_private {
+        for ip in android_fallback {
+            let text = SocketAddr::new(IpAddr::V4(*ip), TCP_PORT).to_string();
+            if !addresses.contains(&text) {
+                addresses.push(text);
+            }
+        }
+    }
+    addresses
 }
 
 fn direct_cgnat_v4() -> Vec<Ipv4Addr> {
@@ -1202,13 +1243,13 @@ fn current_tcp_bind_addrs() -> Vec<SocketAddr> {
         }
     }
     // Discovery drops point-to-point and virtual adapters, which is where
-    // 100.64.0.0/10 usually sits. Append those addresses for TCP only.
-    push_direct_cgnat(&mut enumerated, &direct_cgnat_v4());
+    // 100.64.0.0/10 usually sits. Bind the Android Wi-Fi fallback from the
+    // pre-CGNAT list, then append those CGNAT addresses for TCP only.
     #[cfg(target_os = "android")]
     let fallback = crate::tailcat::android_private_ipv4();
     #[cfg(not(target_os = "android"))]
     let fallback = Vec::new();
-    tcp_bind_addrs(&enumerated, &fallback)
+    tcp_bind_with_direct_cgnat(&enumerated, &fallback, &direct_cgnat_v4())
 }
 fn private(ip: IpAddr) -> bool {
     match ip {
@@ -2881,21 +2922,21 @@ mod tests {
         assert!(is_lan_bind_v4("10.1.2.3".parse().unwrap()));
         assert!(is_lan_bind_v4("192.168.1.20".parse().unwrap()));
 
-        let mut enumerated = vec![
+        let enumerated = vec![
             "192.168.1.20".parse().unwrap(),
             "10.9.8.7".parse().unwrap(),
             "8.8.8.8".parse().unwrap(),
         ];
         // A Tailscale address that discovery enumeration never handed us.
-        push_direct_cgnat(
-            &mut enumerated,
+        let bound = tcp_bind_with_direct_cgnat(
+            &enumerated,
+            &[],
             &[
                 "100.64.8.9".parse().unwrap(),
                 "8.8.8.8".parse().unwrap(),
                 "100.128.0.1".parse().unwrap(),
             ],
         );
-        let bound = tcp_bind_addrs(&enumerated, &[]);
         let ips: Vec<_> = bound.iter().map(|addr| addr.to_string()).collect();
         assert_eq!(
             ips,
@@ -2928,6 +2969,52 @@ mod tests {
             &[],
         );
         assert!(with_port.iter().all(|addr| addr.port() == TCP_PORT));
+    }
+
+    #[test]
+    fn android_empty_enum_binds_wifi_fallback_and_cgnat() {
+        assert!(is_cgnat_v4("100.64.0.0".parse().unwrap()));
+        assert!(is_cgnat_v4("100.127.255.255".parse().unwrap()));
+        assert!(!is_cgnat_v4("100.63.255.255".parse().unwrap()));
+        assert!(!is_cgnat_v4("100.128.0.0".parse().unwrap()));
+
+        let wifi: Ipv4Addr = "192.168.1.20".parse().unwrap();
+        let cgnat: Ipv4Addr = "100.64.8.9".parse().unwrap();
+        let outside = [
+            "100.63.255.255".parse().unwrap(),
+            "100.128.0.0".parse().unwrap(),
+        ];
+        let bound = tcp_bind_with_direct_cgnat(&[], &[wifi], &[cgnat, outside[0], outside[1]]);
+        let ips: Vec<_> = bound.iter().map(|addr| addr.to_string()).collect();
+        assert_eq!(
+            ips,
+            vec![
+                format!("100.64.8.9:{TCP_PORT}"),
+                format!("192.168.1.20:{TCP_PORT}"),
+            ]
+        );
+        let listed = compat_share_addrs(&[], &[cgnat, outside[0], outside[1]], &[wifi]);
+        assert_eq!(
+            listed,
+            vec![
+                format!("100.64.8.9:{TCP_PORT}"),
+                format!("192.168.1.20:{TCP_PORT}"),
+            ]
+        );
+
+        let nonempty = tcp_bind_with_direct_cgnat(
+            &["10.1.2.3".parse().unwrap()],
+            &[wifi],
+            &[cgnat],
+        );
+        let nonempty_ips: Vec<_> = nonempty.iter().map(|addr| addr.ip()).collect();
+        assert!(nonempty_ips.contains(&"10.1.2.3".parse().unwrap()));
+        assert!(nonempty_ips.contains(&IpAddr::V4(cgnat)));
+        assert!(!nonempty_ips.contains(&IpAddr::V4(wifi)));
+        let listed_lan = compat_share_addrs(&["10.1.2.3".parse().unwrap()], &[cgnat], &[wifi]);
+        assert!(listed_lan.iter().any(|text| text.starts_with("10.1.2.3:")));
+        assert!(listed_lan.iter().any(|text| text.starts_with("100.64.8.9:")));
+        assert!(!listed_lan.iter().any(|text| text.starts_with("192.168.1.20:")));
     }
 
     #[test]

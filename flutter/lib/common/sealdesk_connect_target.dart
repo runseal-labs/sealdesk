@@ -132,46 +132,12 @@ bool _ipAddress(String value) {
   return _ipv6(value);
 }
 
-/// `host`, `host:port` is IPv4 above. IPv6 is `hextets` or `[hextets]:port`.
+/// Same grammar as `hbb_common::is_ipv6_str`. Leading or trailing `::`
+/// (`::1`, `fd00::`) and a bracketed address with no port (`[fd00::1]`) do not match.
 bool _ipv6(String value) {
-  var host = value;
-  String? port;
-  if (value.startsWith('[')) {
-    final end = value.indexOf(']');
-    if (end <= 1 || value.indexOf('[', 1) != -1) return false;
-    host = value.substring(1, end);
-    final rest = value.substring(end + 1);
-    if (rest.isEmpty) {
-      port = null;
-    } else if (rest.startsWith(':') && rest.length > 1) {
-      port = rest.substring(1);
-    } else {
-      return false;
-    }
-  } else if (value.contains('%') || value.contains(']')) {
-    return false;
-  }
-  if (port != null && !_port(port)) return false;
-  return _ipv6Host(host);
-}
-
-bool _ipv6Host(String host) {
-  if (host.isEmpty || host.contains(':::')) return false;
-  final halves = host.split('::');
-  if (halves.length > 2) return false;
-  if (halves.length == 1) {
-    final parts = host.split(':');
-    return parts.length == 8 && parts.every(_hextet);
-  }
-  final left = halves[0].isEmpty ? const <String>[] : halves[0].split(':');
-  final right = halves[1].isEmpty ? const <String>[] : halves[1].split(':');
-  if (left.isEmpty && right.isEmpty) return host == '::';
-  if (left.length + right.length >= 8) return false;
-  return left.every(_hextet) && right.every(_hextet);
-}
-
-bool _hextet(String part) {
-  return part.length <= 4 && RegExp(r'^[0-9a-fA-F]{1,4}$').hasMatch(part);
+  return RegExp(
+    r'^((([a-fA-F0-9]{1,4}:{1,2})+[a-fA-F0-9]{1,4})|(\[([a-fA-F0-9]{1,4}:{1,2})+[a-fA-F0-9]{1,4}\]:\d+))$',
+  ).hasMatch(value);
 }
 
 bool _ipv4(String value) {
