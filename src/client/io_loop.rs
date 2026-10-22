@@ -208,11 +208,14 @@ impl<T: InvokeUiSession> Remote<T> {
                 // A tailcat tunnel is WireGuard end to end, keyed to the peer's address (its
                 // public key plus a pre-shared key), so it is secured without RustDesk's own key
                 // exchange, which needs the rendezvous server's signature.
-                let is_secured =
+                let transport_secured =
                     peer.is_secured() || crate::tailcat::is_addr(&self.handler.get_id());
+                // Encryption without a pinned host key is not a verified identity.
+                let shows_verified =
+                    crate::lan::shows_verified_identity(stream_type, transport_secured);
                 self.handler
-                    .set_connection_type(is_secured, direct, stream_type); // flutter -> connection_ready
-                if !is_secured
+                    .set_connection_type(shows_verified, direct, stream_type); // flutter -> connection_ready
+                if !shows_verified
                     && !client::confirm_insecure_connection(&self.handler, &mut self.receiver).await
                 {
                     self.send_close_reason(&mut peer, "").await;

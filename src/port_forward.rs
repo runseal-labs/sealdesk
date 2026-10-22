@@ -174,9 +174,9 @@ async fn connect_and_login(
     } else {
         ConnType::PORT_FORWARD
     };
-    let ((mut stream, _direct, _pk, _stream_type), _) =
+    let ((mut stream, _direct, _pk, stream_type), _) =
         Client::start(id, key, token, conn_type, interface.clone()).await?;
-    if !stream.is_secured() {
+    if !crate::lan::shows_verified_identity(stream_type, stream.is_secured()) {
         if !confirm_insecure_connection(&interface, ui_receiver).await {
             *close_port_forward = true;
             return Ok(None);
@@ -413,9 +413,9 @@ async fn connect_and_login_mux(
     } else {
         ConnType::PORT_FORWARD
     };
-    let ((mut stream, _direct, _pk, _stream_type), _) =
+    let ((mut stream, _direct, _pk, stream_type), _) =
         Client::start(id, key, token, conn_type, interface.clone()).await?;
-    if !stream.is_secured() {
+    if !crate::lan::shows_verified_identity(stream_type, stream.is_secured()) {
         if !confirm_insecure_connection(&interface, ui_receiver).await {
             *close_port_forward = true;
             return Ok(None);

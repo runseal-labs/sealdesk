@@ -665,6 +665,38 @@ pub async fn connect(address: &str) -> ResultType<Stream> {
     connect_socket(addr, Some(expected)).await
 }
 
+pub(crate) const UNVERIFIED_DIRECT: &str = "Direct";
+
+pub(crate) const DIRECT_ADDRESS_DENIED: &str =
+    "Direct connection allows only a private, 100.64.0.0/10, link-local, or loopback address";
+
+pub(crate) fn shows_verified_identity(stream_type: &str, transport_secured: bool) -> bool {
+    transport_secured && stream_type != UNVERIFIED_DIRECT
+}
+
+pub(crate) fn is_typed_direct(value: &str) -> bool {
+    hbb_common::is_ip_str(value) || is_unspecified_v6_literal(value)
+}
+
+fn is_unspecified_v6_literal(value: &str) -> bool {
+    value == "::" || value == "[::]" || value.starts_with("[::]:")
+}
+
+pub(crate) fn is_pinned_or_typed(value: &str) -> bool {
+    is_addr(value) || is_typed_direct(value)
+}
+
+/// `lan:` stays on the pinned dial. A typed address never replaces that dial.
+pub(crate) async fn connect_pinned_or_typed(peer: &str) -> ResultType<(Stream, &'static str)> {
+    if is_addr(peer) {
+        return Ok((connect(peer).await?, "LAN"));
+    }
+    if is_typed_direct(peer) {
+        return Ok((connect_direct(peer).await?, UNVERIFIED_DIRECT));
+    }
+    bail!("not a direct address")
+}
+
 /// Typed `ip`, `ip:port`, or IPv6. The host key is learned from the handshake
 /// (there is no `lan:` pin). The preface is still SealDesk's, not legacy TCP.
 pub async fn connect_direct(value: &str) -> ResultType<Stream> {
@@ -672,6 +704,9 @@ pub async fn connect_direct(value: &str) -> ResultType<Stream> {
 }
 
 fn parse_direct_socket(value: &str) -> ResultType<SocketAddr> {
+    if is_unspecified_v6_literal(value) {
+        bail!(DIRECT_ADDRESS_DENIED);
+    }
     if !hbb_common::is_ip_str(value) {
         bail!("not an IP address");
     }
@@ -680,7 +715,25 @@ fn parse_direct_socket(value: &str) -> ResultType<SocketAddr> {
     if addr.port() == 0 {
         bail!("invalid IP port");
     }
+    if !direct_ip_allowed(addr.ip()) {
+        bail!(DIRECT_ADDRESS_DENIED);
+    }
     Ok(addr)
+}
+
+fn direct_ip_allowed(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => {
+            ip.is_loopback() || ip.is_private() || ip.is_link_local() || is_shared_v4(ip)
+        }
+        IpAddr::V6(ip) => ip.is_loopback() || ip.is_unique_local() || ip.is_unicast_link_local(),
+    }
+}
+
+/// RFC 6598. `Ipv4Addr::is_private` does not include this range.
+fn is_shared_v4(ip: Ipv4Addr) -> bool {
+    let [first, second, _, _] = ip.octets();
+    first == 100 && (64..128).contains(&second)
 }
 
 async fn connect_socket(
@@ -2056,16 +2109,30 @@ mod tests {
         let cases = [
             ("192.168.1.20", TCP_PORT),
             ("192.168.77.12:21118", 21118),
+            ("192.168.0.1", TCP_PORT),
+            ("192.168.255.254:21118", 21118),
             ("10.1.2.3", TCP_PORT),
+            ("10.0.0.1", TCP_PORT),
             ("10.255.0.4:9", 9),
+            ("10.255.255.254:9", 9),
             ("172.16.0.1", TCP_PORT),
             ("172.31.255.9", TCP_PORT),
             ("172.20.5.5:21119", 21119),
+            ("172.31.255.254:21119", 21119),
             ("100.64.0.8", TCP_PORT),
+            ("100.64.0.1", TCP_PORT),
             ("100.127.255.1:21118", 21118),
+            ("100.127.255.254:21118", 21118),
+            ("127.0.0.1", TCP_PORT),
+            ("127.0.0.1:21118", 21118),
+            ("169.254.1.1", TCP_PORT),
+            ("169.254.255.1:21119", 21119),
             ("fd00::1", TCP_PORT),
+            ("fc00::1", TCP_PORT),
             ("[fd00::1]:21118", 21118),
             ("[fd12::abcd]:9", 9),
+            ("fe80::1", TCP_PORT),
+            ("[fe80::1]:9", 9),
         ];
         for (sample, port) in cases {
             let addr = parse_direct_socket(sample).unwrap_or_else(|error| {
@@ -2073,11 +2140,35 @@ mod tests {
             });
             assert_eq!(addr.port(), port, "{sample}");
         }
-        // 172.15 / 172.32 are outside RFC1918, but a typed IP still uses this
-        // handshake. Bind policy is separate.
-        assert!(parse_direct_socket("172.15.255.1").is_ok());
-        assert!(parse_direct_socket("172.32.0.1").is_ok());
-        assert!(parse_direct_socket("8.8.8.8").is_ok());
+        let denied = [
+            "0.0.0.0",
+            "0.0.0.0:21118",
+            "::",
+            "[::]",
+            "[::]:21118",
+            "224.0.0.1",
+            "224.0.0.1:21118",
+            "239.255.255.255",
+            "ff02::1",
+            "[ff02::1]:21118",
+            "8.8.8.8",
+            "8.8.8.8:53",
+            "1.1.1.1",
+            "172.15.255.1",
+            "172.32.0.1",
+            "100.63.255.255",
+            "100.128.0.1",
+            "255.255.255.255",
+            "2001:db8::1",
+            "[2001:db8::1]:443",
+        ];
+        for sample in denied {
+            let error = parse_direct_socket(sample).unwrap_err();
+            assert!(
+                error.to_string().contains(DIRECT_ADDRESS_DENIED),
+                "{sample}: {error}"
+            );
+        }
         assert!(parse_direct_socket("not-an-ip").is_err());
         assert!(parse_direct_socket("lan:192.168.1.1:21118/abcd").is_err());
         assert!(parse_direct_socket("192.168.1.1:0").is_err());
@@ -2129,6 +2220,66 @@ mod tests {
         assert!(error.to_string().contains("disabled"));
         drop(socket);
     }
+
+    #[tokio::test]
+    async fn pinned_lan_key_change_is_rejected_and_not_an_unverified_direct_session() {
+        let (_lock, _reset) = lan_test_env();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (public, _) = identity().unwrap();
+        let real = hex::encode(public.0);
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let local = socket.local_addr().unwrap();
+            let mut stream = Stream::from(socket, local);
+            accept_shared(&mut stream).await
+        });
+        let (wrong, _) = sign::gen_keypair();
+        let pinned = format!("lan:{addr}/{}", hex::encode(wrong.0));
+        match connect_pinned_or_typed(&pinned).await {
+            Ok((_, kind)) => panic!("pinned key change returned {kind}"),
+            Err(error) => assert!(
+                error.to_string().contains("LAN host identity changed"),
+                "{error}"
+            ),
+        }
+        let accepted = server.await.unwrap();
+        assert!(
+            accepted.is_err(),
+            "a changed lan: key completed a session: {accepted:?}"
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let local = socket.local_addr().unwrap();
+            let mut stream = Stream::from(socket, local);
+            assert!(accept_shared(&mut stream).await.unwrap().is_some());
+        });
+        let (stream, kind) = connect_pinned_or_typed(&addr.to_string()).await.unwrap();
+        assert_eq!(kind, UNVERIFIED_DIRECT);
+        assert!(stream.is_secured());
+        assert!(!shows_verified_identity(kind, stream.is_secured()));
+        drop(stream);
+        server.await.unwrap();
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let local = socket.local_addr().unwrap();
+            let mut stream = Stream::from(socket, local);
+            assert!(accept_shared(&mut stream).await.unwrap().is_some());
+        });
+        let (stream, kind) =
+            connect_pinned_or_typed(&format!("lan:{addr}/{real}")).await.unwrap();
+        assert_eq!(kind, "LAN");
+        assert!(shows_verified_identity(kind, stream.is_secured()));
+        drop(stream);
+        server.await.unwrap();
+    }
+
     #[tokio::test]
     async fn shared_port_accepts_legacy_waiters_but_rejects_bad_encryption_prefaces() {
         let (_lock, _reset) = lan_test_env();

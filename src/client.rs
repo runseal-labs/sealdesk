@@ -206,20 +206,15 @@ impl Client {
         if config::is_incoming_only() && !is_switch_sides_back(conn_type, &interface).await {
             bail!("Incoming only mode");
         }
-        if crate::lan::is_addr(peer) {
-            let stream = hbb_common::tokio::time::timeout(std::time::Duration::from_millis(CONNECT_TIMEOUT), crate::lan::connect(peer)).await??;
-            return Ok(((stream, Some(true), None, "LAN"), (0, String::new())));
-        }
-        if hbb_common::is_ip_str(peer) {
-            // A typed address is not `lan:<endpoint>/<key>`. The legacy TCP dial
-            // sent no SealDesk preface, so a host that was listening on 21118
-            // still reset it as a RustDesk-compatible connection.
-            let stream = hbb_common::tokio::time::timeout(
+        if crate::lan::is_pinned_or_typed(peer) {
+            // A typed address is not `lan:<endpoint>/<key>`. It still sends the
+            // SealDesk preface. A pinned dial that fails does not fall through.
+            let (stream, stream_type) = hbb_common::tokio::time::timeout(
                 std::time::Duration::from_millis(CONNECT_TIMEOUT),
-                crate::lan::connect_direct(peer),
+                crate::lan::connect_pinned_or_typed(peer),
             )
             .await??;
-            return Ok(((stream, Some(true), None, "LAN"), (0, String::new())));
+            return Ok(((stream, Some(true), None, stream_type), (0, String::new())));
         }
         // A peer is reached only through its tailcat address; the tunnel does the rest.
         if !crate::tailcat::is_addr(peer) {
@@ -3288,10 +3283,17 @@ pub async fn confirm_insecure_connection(
     interface: &impl Interface,
     receiver: &mut UnboundedReceiver<Data>,
 ) -> bool {
+    let typed_direct = crate::lan::is_typed_direct(&interface.get_id());
     interface.msgbox(
         "insecure-connection-nocancel-hasclose",
-        "Insecure Connection",
-        if hbb_common::is_ip_str(&interface.get_id()) {
+        if typed_direct {
+            "Unverified identity"
+        } else {
+            "Insecure Connection"
+        },
+        if typed_direct {
+            "Unverified identity"
+        } else if hbb_common::is_ip_str(&interface.get_id()) {
             "Direct and unencrypted connection"
         } else {
             "conn-e2ee-unavailable-tip"

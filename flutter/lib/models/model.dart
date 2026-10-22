@@ -292,6 +292,7 @@ class FfiModel with ChangeNotifier {
           : (direct == true
               ? ConnectionType.strDirect
               : ConnectionType.strIndirect);
+      final showGlyph = sealDeskConnectionShowsSecureGlyph(streamType);
       final iconWidget = SvgPicture.asset(
         sealDeskConnectionAsset(secureToken, streamType, directToken),
         width: 48,
@@ -304,8 +305,8 @@ class FfiModel with ChangeNotifier {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          iconWidget,
-          SizedBox(height: 4),
+          if (showGlyph) iconWidget,
+          if (showGlyph) SizedBox(height: 4),
           Text(
             connectionText,
             style: TextStyle(fontSize: 12),

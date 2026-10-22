@@ -932,5 +932,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Long press", "长按"),
         ("About SealDesk", "关于 SealDesk"),
         ("2FA", "双重认证"),
+        ("Unverified identity", "未验证身份"),
+        ("Direct connection allows only a private, 100.64.0.0/10, link-local, or loopback address", "直连只允许私有地址、100.64.0.0/10、链路本地地址或回环地址"),
     ].iter().cloned().collect();
 }

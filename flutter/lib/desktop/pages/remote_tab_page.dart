@@ -173,15 +173,16 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      SvgPicture.asset(
-                        sealDeskConnectionAsset(
-                          connectionType.secure.value,
-                          streamType,
-                          connectionType.direct.value,
+                      if (sealDeskConnectionShowsSecureGlyph(streamType))
+                        SvgPicture.asset(
+                          sealDeskConnectionAsset(
+                            connectionType.secure.value,
+                            streamType,
+                            connectionType.direct.value,
+                          ),
+                          width: themeConf.iconSize,
+                          height: themeConf.iconSize,
                         ),
-                        width: themeConf.iconSize,
-                        height: themeConf.iconSize,
-                      ),
                       if (pathLabel != null)
                         Text(
                           translate(pathLabel),
