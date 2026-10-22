@@ -1885,15 +1885,11 @@ pub async fn set_options(value: HashMap<String, String>) -> ResultType<()> {
 
 #[tokio::main(flavor = "current_thread")]
 pub async fn send_url_scheme(url: String) -> ResultType<()> {
-    // A completed write is not delivery. The `_url` server replies with
-    // `Empty` only after the main-window stream accepts the event, and that
-    // server is started only once Dart's event callback is installed.
-    let mut conn = connect(1_000, "_url").await?;
-    conn.send(&Data::UrlLink(url)).await?;
-    match conn.next_timeout(1_000).await? {
-        Some(Data::Empty) => Ok(()),
-        _ => bail!("main window did not handle the url"),
-    }
+    connect(1_000, "_url")
+        .await?
+        .send(&Data::UrlLink(url))
+        .await?;
+    Ok(())
 }
 
 // Emit `close` events to ipc.

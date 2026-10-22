@@ -172,9 +172,7 @@ class PlatformFFI {
       _ffiBind = SealdeskImpl(dylib);
       _ffiBindInitialized = true;
 
-      // The URI server starts later, after the event callback is installed.
-      // Starting it here accepts activations that this listener drops while
-      // `_eventCallback` is still null.
+      // The URI server starts after the first main-window hide or show.
       _startListenEvent(_ffiBind); // global event
       try {
         if (isAndroid) {
@@ -291,22 +289,11 @@ class PlatformFFI {
     _eventCallback = fun;
   }
 
-  /// Linux D-Bus / macOS `_url` listener for the main window.
-  ///
-  /// Call only after [setEventCallback]. The listener treats a queued event
-  /// as handled, and this listener drops events while the callback is null.
   void startMainWindowUriServer() {
-    if (isWeb ||
-        !_ffiBindInitialized ||
-        !isMain ||
-        !sealDeskOwnsMainWindowUriServer(kBootArgs)) {
-      return;
-    }
-    if (isLinux) {
-      _ffiBind.mainStartDbusServer();
-    } else if (isMacOS) {
-      _ffiBind.mainStartIpcUrlServer();
-    }
+    if (isWeb || !_ffiBindInitialized || !isMain) return;
+    if (!sealDeskOwnsMainWindowUriServer(kBootArgs)) return;
+    if (isLinux) _ffiBind.mainStartDbusServer();
+    if (isMacOS) _ffiBind.mainStartIpcUrlServer();
   }
 
   void setRgbaCallback(void Function(int, Uint8List) fun) async {}

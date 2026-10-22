@@ -663,17 +663,12 @@ pub async fn start_ipc_url_server() {
                             m.insert("name", "on_url_scheme_received");
                             m.insert("url", url.as_str());
                             let event = serde_json::to_string(&m).unwrap_or("".to_owned());
-                            let handled = matches!(
-                                crate::flutter::push_global_event(
-                                    crate::flutter::APP_TYPE_MAIN,
-                                    event,
-                                ),
-                                Some(true)
-                            );
-                            if handled {
-                                allow_err!(conn.send(&Data::Empty).await);
-                            } else {
-                                log::warn!("main window did not accept the url scheme");
+                            match crate::flutter::push_global_event(
+                                crate::flutter::APP_TYPE_MAIN,
+                                event,
+                            ) {
+                                None => log::warn!("No main window app found!"),
+                                Some(..) => {}
                             }
                         }
                         _ => {

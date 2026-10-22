@@ -2270,9 +2270,9 @@ bool handleUriLink({List<String>? cmdArgs, Uri? uri, String? uriString}) {
   }
 
   if (args.isEmpty) {
-    sealDeskRequestMainWindowShow();
+    // Bare sealdesk:// shows this window. Returning true would hide it.
     windowOnTop(null);
-    return true;
+    return false;
   }
 
   UriLinkType? type;

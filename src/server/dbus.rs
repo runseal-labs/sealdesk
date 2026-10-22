@@ -70,9 +70,10 @@ fn handle_client_message(builder: &mut IfaceBuilder<()>) {
         (DBUS_METHOD_NEW_CONNECTION_ID,),
         (DBUS_METHOD_RETURN,),
         move |_, _, (_uni_links,): (String,)| {
-            // The server is started only after Dart installs the event
-            // callback. Success still requires the stream to accept the
-            // event; a name with no stream must not look handled.
+            // Success only when the main window's event stream accepts the
+            // message. The bus name can be owned briefly before that stream
+            // exists; reporting success then would make a second plain launch
+            // exit without showing anything.
             #[cfg(feature = "flutter")]
             let delivered = {
                 use crate::flutter;

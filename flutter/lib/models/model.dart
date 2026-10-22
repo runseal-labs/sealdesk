@@ -35,7 +35,6 @@ import 'package:file_picker/file_picker.dart';
 import 'package:vector_math/vector_math.dart' show Vector2;
 
 import '../common.dart';
-import '../common/sealdesk_startup.dart';
 import '../utils/image.dart' as img;
 import '../common/widgets/dialog.dart';
 import 'input_model.dart';
@@ -762,7 +761,6 @@ class FfiModel with ChangeNotifier {
         });
         break;
       default:
-        sealDeskRequestMainWindowShow();
         windowOnTop(null);
         break;
     }

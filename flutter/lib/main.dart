@@ -139,9 +139,7 @@ void runMainApp(bool startService) async {
   // trigger connection status updater
   await bind.mainCheckConnectStatus();
   if (startService) {
-    // Sets the event callback before the URI server accepts activations.
     gFFI.serverModel.startService();
-    platformFFI.startMainWindowUriServer();
   }
   runApp(App());
 
@@ -159,22 +157,12 @@ void runMainApp(bool startService) async {
     await restoreWindowPosition(WindowType.Main);
     // Check the startup argument, if we successfully handle the argument, we keep the main window hidden.
     final handledByUniLinks = await initUniLinks();
-    final handledByArgs =
-        !handledByUniLinks && handleUriLink(cmdArgs: kBootArgs);
     debugPrint("handled by uni links: $handledByUniLinks");
-    if (sealDeskHideMainWindowOnStartup(
-      handledByUniLinks: handledByUniLinks,
-      handledByArgs: handledByArgs,
-    )) {
-      // A plain launch can ask to show the window while this hide runs.
+    if (handledByUniLinks || handleUriLink(cmdArgs: kBootArgs)) {
       await windowManager.hide();
-    }
-    if (!sealDeskHideMainWindowOnStartup(
-      handledByUniLinks: handledByUniLinks,
-      handledByArgs: handledByArgs,
-    )) {
-      windowManager.show();
-      windowManager.focus();
+    } else {
+      await windowManager.show();
+      await windowManager.focus();
       // Move registration of active main window here to prevent from async visible check.
       rustDeskWinManager.registerActiveWindow(kWindowMainId);
     }
@@ -182,6 +170,9 @@ void runMainApp(bool startService) async {
     windowManager.setTitle(getWindowName());
     // Do not use `windowManager.setResizable()` here.
     setResizable(!bind.isIncomingOnly());
+    if (startService) {
+      platformFFI.startMainWindowUriServer();
+    }
   });
 }
 
