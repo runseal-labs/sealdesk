@@ -210,7 +210,7 @@ impl<T: InvokeUiSession> Remote<T> {
                 // exchange, which needs the rendezvous server's signature.
                 let transport_secured =
                     peer.is_secured() || crate::tailcat::is_addr(&self.handler.get_id());
-                // Encryption without a pinned host key is not a verified identity.
+                // A typed host is verified only when its key matches the one saved for that address.
                 let shows_verified =
                     crate::lan::shows_verified_identity(stream_type, transport_secured);
                 self.handler

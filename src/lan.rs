@@ -3,7 +3,7 @@
 use hbb_common::{
     anyhow::{anyhow, Context},
     bail,
-    config::Config,
+    config::{Config, LocalConfig},
     log,
     protobuf::Message as _,
     rendezvous_proto::{rendezvous_message, PeerDiscovery, RendezvousMessage},
@@ -662,7 +662,7 @@ pub async fn accept(stream: &mut Stream) -> ResultType<String> {
 }
 pub async fn connect(address: &str) -> ResultType<Stream> {
     let (addr, expected) = parse_addr(address)?;
-    connect_socket(addr, Some(expected)).await
+    Ok(connect_socket(addr, Some(expected)).await?.0)
 }
 
 pub(crate) const UNVERIFIED_DIRECT: &str = "Direct";
@@ -687,12 +687,26 @@ pub(crate) fn is_pinned_or_typed(value: &str) -> bool {
 }
 
 /// `lan:` stays on the pinned dial. A typed address never replaces that dial.
+/// Its host key is remembered per normalized `host:port` only after the user
+/// confirms. A later match is reported as `LAN` (verified). A new or changed
+/// key stays `Direct` until then. A changed `lan:` pin still fails closed.
 pub(crate) async fn connect_pinned_or_typed(peer: &str) -> ResultType<(Stream, &'static str)> {
     if is_addr(peer) {
         return Ok((connect(peer).await?, "LAN"));
     }
     if is_typed_direct(peer) {
-        return Ok((connect_direct(peer).await?, UNVERIFIED_DIRECT));
+        let addr = parse_direct_socket(peer)?;
+        let (stream, presented) = connect_socket(addr, None).await?;
+        let address = addr.to_string();
+        let presented = hex::encode(presented.0);
+        let mut state = direct_host_state().lock().unwrap();
+        let stored = canonical_stored_host(&load_direct_hosts(&state), &address);
+        if stored.as_deref() == Some(presented.as_str()) {
+            state.pending.remove(&address);
+            return Ok((stream, "LAN"));
+        }
+        state.pending.insert(address, presented);
+        return Ok((stream, UNVERIFIED_DIRECT));
     }
     bail!("not a direct address")
 }
@@ -700,7 +714,7 @@ pub(crate) async fn connect_pinned_or_typed(peer: &str) -> ResultType<(Stream, &
 /// Typed `ip`, `ip:port`, or IPv6. The host key is learned from the handshake
 /// (there is no `lan:` pin). The preface is still SealDesk's, not legacy TCP.
 pub async fn connect_direct(value: &str) -> ResultType<Stream> {
-    connect_socket(parse_direct_socket(value)?, None).await
+    Ok(connect_socket(parse_direct_socket(value)?, None).await?.0)
 }
 
 fn parse_direct_socket(value: &str) -> ResultType<SocketAddr> {
@@ -739,7 +753,7 @@ fn is_shared_v4(ip: Ipv4Addr) -> bool {
 async fn connect_socket(
     addr: SocketAddr,
     expected: Option<sign::PublicKey>,
-) -> ResultType<Stream> {
+) -> ResultType<(Stream, sign::PublicKey)> {
     let socket = tokio::net::TcpStream::connect(addr).await?;
     socket.set_nodelay(true)?;
     let local = socket.local_addr()?;
@@ -760,7 +774,158 @@ async fn connect_socket(
     }
     stream.0.send_raw(DOMAIN.to_vec()).await?;
     stream.set_max_packet_length(usize::MAX);
-    Ok(stream)
+    Ok((stream, presented))
+}
+
+const DIRECT_HOST_KEYS: &str = "direct-host-keys";
+
+pub(crate) struct DirectPrompt {
+    pub msg_type: &'static str,
+    pub title: &'static str,
+    pub text: String,
+}
+
+struct DirectHostState {
+    pending: BTreeMap<String, String>,
+    #[cfg(test)]
+    memory: Option<BTreeMap<String, String>>,
+}
+
+fn direct_host_state() -> &'static Mutex<DirectHostState> {
+    static STATE: Mutex<DirectHostState> = Mutex::new(DirectHostState {
+        pending: BTreeMap::new(),
+        #[cfg(test)]
+        memory: None,
+    });
+    &STATE
+}
+
+fn normalize_direct_address(value: &str) -> ResultType<String> {
+    Ok(parse_direct_socket(value)?.to_string())
+}
+
+fn canonical_host_key(key: &str) -> Option<String> {
+    let bytes = hex::decode(key.trim()).ok()?;
+    if bytes.len() != 32 {
+        return None;
+    }
+    Some(hex::encode(bytes))
+}
+
+fn canonical_stored_host(hosts: &BTreeMap<String, String>, address: &str) -> Option<String> {
+    hosts.get(address).and_then(|key| canonical_host_key(key))
+}
+
+/// First 16 hex digits of the host key, in groups of four.
+fn fingerprint_prefix(hex_key: &str) -> String {
+    let shown: String = hex_key
+        .chars()
+        .filter(|c| c.is_ascii_hexdigit())
+        .take(16)
+        .collect();
+    let mut out = String::new();
+    for (i, ch) in shown.chars().enumerate() {
+        if i > 0 && i % 4 == 0 {
+            out.push(' ');
+        }
+        out.push(ch);
+    }
+    out
+}
+
+fn load_direct_hosts(state: &DirectHostState) -> BTreeMap<String, String> {
+    #[cfg(test)]
+    if let Some(memory) = &state.memory {
+        return memory.clone();
+    }
+    #[cfg(not(test))]
+    let _ = state;
+    let raw = LocalConfig::get_option(DIRECT_HOST_KEYS);
+    if raw.is_empty() {
+        return BTreeMap::new();
+    }
+    match serde_json::from_str(&raw) {
+        Ok(hosts) => hosts,
+        Err(err) => {
+            log::warn!("ignoring unreadable direct host keys: {err}");
+            BTreeMap::new()
+        }
+    }
+}
+
+fn store_direct_hosts(state: &mut DirectHostState, hosts: &BTreeMap<String, String>) {
+    #[cfg(test)]
+    if state.memory.is_some() {
+        state.memory = Some(hosts.clone());
+        return;
+    }
+    #[cfg(not(test))]
+    let _ = state;
+    LocalConfig::set_option(
+        DIRECT_HOST_KEYS.to_owned(),
+        serde_json::to_string(hosts).unwrap_or_else(|_| "{}".to_owned()),
+    );
+}
+
+fn insert_direct_host(state: &mut DirectHostState, address: String, key: String) {
+    let mut hosts = load_direct_hosts(state);
+    hosts.insert(address, key);
+    store_direct_hosts(state, &hosts);
+}
+
+#[cfg(test)]
+fn stored_direct_host(address: &str) -> Option<String> {
+    let state = direct_host_state().lock().unwrap();
+    canonical_stored_host(&load_direct_hosts(&state), address)
+}
+
+#[cfg(test)]
+fn remember_direct_host(address: &str, key: &str) -> ResultType<()> {
+    let key = canonical_host_key(key).context("invalid direct host key")?;
+    let mut state = direct_host_state().lock().unwrap();
+    insert_direct_host(&mut state, address.to_owned(), key);
+    Ok(())
+}
+
+/// Prompt for a typed dial whose host key is not yet the saved one.
+/// `None` when nothing is pending (a matching key, or not a typed dial).
+pub(crate) fn direct_confirm_prompt(peer: &str) -> Option<DirectPrompt> {
+    let address = normalize_direct_address(peer).ok()?;
+    let state = direct_host_state().lock().unwrap();
+    let presented = state.pending.get(&address)?.clone();
+    let stored = canonical_stored_host(&load_direct_hosts(&state), &address);
+    drop(state);
+    Some(match stored {
+        Some(old) if old != presented => DirectPrompt {
+            msg_type: "insecure-connection-changed-error",
+            title: "Host identity changed",
+            text: format!(
+                "{}\n→\n{}",
+                fingerprint_prefix(&old),
+                fingerprint_prefix(&presented)
+            ),
+        },
+        _ => DirectPrompt {
+            msg_type: "insecure-connection-nocancel-hasclose",
+            title: "Unverified identity",
+            text: fingerprint_prefix(&presented),
+        },
+    })
+}
+
+/// Record the pending host key. A dismiss leaves the saved key unchanged.
+pub(crate) fn accept_direct_host(peer: &str) {
+    let Ok(address) = normalize_direct_address(peer) else {
+        return;
+    };
+    let mut state = direct_host_state().lock().unwrap();
+    let Some(key) = state.pending.remove(&address) else {
+        return;
+    };
+    if canonical_host_key(&key).is_none() {
+        return;
+    }
+    insert_direct_host(&mut state, address, key);
 }
 fn trust_path() -> std::path::PathBuf {
     Config::path("lan-trusted.json")
@@ -2276,6 +2441,122 @@ mod tests {
             connect_pinned_or_typed(&format!("lan:{addr}/{real}")).await.unwrap();
         assert_eq!(kind, "LAN");
         assert!(shows_verified_identity(kind, stream.is_secured()));
+        drop(stream);
+        server.await.unwrap();
+    }
+
+    #[test]
+    fn direct_host_address_and_fingerprint_are_stable() {
+        assert_eq!(
+            normalize_direct_address("192.168.1.20").unwrap(),
+            "192.168.1.20:21118"
+        );
+        assert_eq!(
+            normalize_direct_address("192.168.1.20:21118").unwrap(),
+            "192.168.1.20:21118"
+        );
+        assert_eq!(
+            normalize_direct_address("192.168.1.20:9").unwrap(),
+            "192.168.1.20:9"
+        );
+        assert_eq!(
+            normalize_direct_address("fd00::1").unwrap(),
+            "[fd00::1]:21118"
+        );
+        assert_eq!(
+            normalize_direct_address("[fd00::1]:9").unwrap(),
+            "[fd00::1]:9"
+        );
+        assert_eq!(
+            fingerprint_prefix(&"0123456789abcdef".repeat(4)),
+            "0123 4567 89ab cdef"
+        );
+    }
+
+    fn memory_direct_hosts() -> impl Drop {
+        {
+            let mut state = direct_host_state().lock().unwrap();
+            state.memory = Some(BTreeMap::new());
+            state.pending.clear();
+        }
+        struct Reset;
+        impl Drop for Reset {
+            fn drop(&mut self) {
+                let mut state = direct_host_state().lock().unwrap();
+                state.memory = None;
+                state.pending.clear();
+            }
+        }
+        Reset
+    }
+
+    #[tokio::test]
+    async fn typed_direct_records_a_confirmed_host_and_warns_when_it_changes() {
+        let (_lock, _reset) = lan_test_env();
+        let _memory = memory_direct_hosts();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target = listener.local_addr().unwrap().to_string();
+        let address = normalize_direct_address(&target).unwrap();
+        assert_eq!(address, target);
+        let (public, _) = identity().unwrap();
+        let real = hex::encode(public.0);
+        let server = tokio::spawn(async move {
+            for _ in 0..4 {
+                let (socket, _) = listener.accept().await.unwrap();
+                let local = socket.local_addr().unwrap();
+                let mut stream = Stream::from(socket, local);
+                accept_shared(&mut stream).await.unwrap();
+                let _ = receive(&mut stream).await;
+            }
+        });
+
+        let (stream, kind) = connect_pinned_or_typed(&target).await.unwrap();
+        assert_eq!(kind, UNVERIFIED_DIRECT);
+        assert!(stream.is_secured());
+        assert!(!shows_verified_identity(kind, stream.is_secured()));
+        let prompt = direct_confirm_prompt(&target).unwrap();
+        assert_eq!(prompt.title, "Unverified identity");
+        assert_eq!(prompt.msg_type, "insecure-connection-nocancel-hasclose");
+        assert_eq!(prompt.text, fingerprint_prefix(&real));
+        assert!(!prompt.text.contains(&real));
+        assert!(stored_direct_host(&address).is_none());
+        drop(stream);
+        accept_direct_host(&target);
+        assert_eq!(stored_direct_host(&address).as_deref(), Some(real.as_str()));
+
+        let (stream, kind) = connect_pinned_or_typed(&target).await.unwrap();
+        assert_eq!(kind, "LAN");
+        assert!(stream.is_secured());
+        assert!(shows_verified_identity(kind, stream.is_secured()));
+        assert!(direct_confirm_prompt(&target).is_none());
+        drop(stream);
+
+        let wrong = hex::encode([0xab; 32]);
+        assert_ne!(wrong, real);
+        remember_direct_host(&address, &wrong).unwrap();
+        let (stream, kind) = connect_pinned_or_typed(&target).await.unwrap();
+        assert_eq!(kind, UNVERIFIED_DIRECT);
+        assert!(!shows_verified_identity(kind, stream.is_secured()));
+        let prompt = direct_confirm_prompt(&target).unwrap();
+        assert_eq!(prompt.title, "Host identity changed");
+        assert_eq!(prompt.msg_type, "insecure-connection-changed-error");
+        assert_eq!(
+            prompt.text,
+            format!(
+                "{}\n→\n{}",
+                fingerprint_prefix(&wrong),
+                fingerprint_prefix(&real)
+            )
+        );
+        drop(stream);
+        assert_eq!(stored_direct_host(&address).as_deref(), Some(wrong.as_str()));
+        accept_direct_host(&target);
+        assert_eq!(stored_direct_host(&address).as_deref(), Some(real.as_str()));
+
+        let (stream, kind) = connect_pinned_or_typed(&target).await.unwrap();
+        assert_eq!(kind, "LAN");
+        assert!(shows_verified_identity(kind, stream.is_secured()));
+        assert!(direct_confirm_prompt(&target).is_none());
         drop(stream);
         server.await.unwrap();
     }

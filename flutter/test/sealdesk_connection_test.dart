@@ -28,6 +28,11 @@ void main() {
     expect(sealDeskConnectionDescription('Direct'), isNot(contains('encrypted')));
     expect(sealDeskConnectionShowsSecureGlyph('Direct'), isFalse);
     expect(sealDeskRelaySuffix('Direct', ''), '');
+    expect(sealDeskInsecureDismissLabel('insecure-connection-nocancel-hasclose'),
+        'Disconnect');
+    expect(
+        sealDeskInsecureDismissLabel('insecure-connection-changed-error'),
+        'Cancel');
   });
 
   test('path label and glyph follow unknown, DERP, P2P, then DERP again', () {

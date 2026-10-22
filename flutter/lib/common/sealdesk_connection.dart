@@ -51,6 +51,15 @@ bool sealDeskConnectionShowsSecureGlyph(String streamType) {
   return streamType != 'Direct';
 }
 
+/// Filled button on the unverified-host dialog. A changed key defaults to
+/// cancel; the first confirmation still uses Disconnect.
+String sealDeskInsecureDismissLabel(String type) {
+  if (type.contains('changed')) {
+    return 'Cancel';
+  }
+  return 'Disconnect';
+}
+
 String sealDeskConnectionAsset(
   String secureToken,
   String streamType,

@@ -3283,26 +3283,37 @@ pub async fn confirm_insecure_connection(
     interface: &impl Interface,
     receiver: &mut UnboundedReceiver<Data>,
 ) -> bool {
-    let typed_direct = crate::lan::is_typed_direct(&interface.get_id());
-    interface.msgbox(
-        "insecure-connection-nocancel-hasclose",
-        if typed_direct {
-            "Unverified identity"
-        } else {
-            "Insecure Connection"
-        },
-        if typed_direct {
-            "Unverified identity"
-        } else if hbb_common::is_ip_str(&interface.get_id()) {
-            "Direct and unencrypted connection"
-        } else {
-            "conn-e2ee-unavailable-tip"
-        },
-        "",
-    );
+    let id = interface.get_id();
+    let prompt = crate::lan::direct_confirm_prompt(&id);
+    if let Some(prompt) = prompt.as_ref() {
+        interface.msgbox(prompt.msg_type, prompt.title, &prompt.text, "");
+    } else {
+        let typed_direct = crate::lan::is_typed_direct(&id);
+        interface.msgbox(
+            "insecure-connection-nocancel-hasclose",
+            if typed_direct {
+                "Unverified identity"
+            } else {
+                "Insecure Connection"
+            },
+            if typed_direct {
+                "Unverified identity"
+            } else if hbb_common::is_ip_str(&id) {
+                "Direct and unencrypted connection"
+            } else {
+                "conn-e2ee-unavailable-tip"
+            },
+            "",
+        );
+    }
     while let Some(data) = receiver.recv().await {
         match data {
-            Data::ContinueInsecureConnection => return true,
+            Data::ContinueInsecureConnection => {
+                if prompt.is_some() {
+                    crate::lan::accept_direct_host(&id);
+                }
+                return true;
+            }
             Data::RejectInsecureConnection => return false,
             Data::Close => return false,
             _ => {}
