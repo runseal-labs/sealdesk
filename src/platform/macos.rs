@@ -1060,15 +1060,27 @@ pub fn set_login_autostart(enable: bool) -> ResultType<()> {
 }
 
 fn current_user_home() -> ResultType<PathBuf> {
-    use hbb_common::users::os::unix::UserExt;
-    let uid = hbb_common::users::get_current_uid();
-    let user = hbb_common::users::get_user_by_uid(uid)
-        .ok_or_else(|| anyhow!("Failed to look up the current user"))?;
-    let home = user.home_dir();
+    // `hbb_common::users` is Linux-only. Same passwd lookup, and it ignores `$HOME`.
+    use std::ffi::{CStr, OsString};
+    use std::os::unix::ffi::OsStringExt;
+
+    let pwd = unsafe { hbb_common::libc::getpwuid(hbb_common::libc::getuid()) };
+    if pwd.is_null() {
+        bail!("Failed to look up the current user");
+    }
+    let dir = unsafe { (*pwd).pw_dir };
+    if dir.is_null() {
+        bail!("Failed to look up the current user");
+    }
+    let bytes = unsafe { CStr::from_ptr(dir) }.to_bytes();
+    if bytes.is_empty() {
+        bail!("Home directory does not exist");
+    }
+    let home = PathBuf::from(OsString::from_vec(bytes.to_vec()));
     if !home.is_dir() {
         bail!("Home directory does not exist");
     }
-    Ok(home.to_path_buf())
+    Ok(home)
 }
 
 pub fn update_me() -> ResultType<()> {
