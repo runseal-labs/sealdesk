@@ -179,6 +179,34 @@ fn make_tray() -> hbb_common::ResultType<()> {
 
         if let Ok(event) = menu_channel.try_recv() {
             if event.id == quit_i.id() {
+                // `process::exit` skips the tray destructor. Hide the icon first
+                // or Windows keeps a ghost icon until the pointer passes over it.
+                #[cfg(windows)]
+                {
+                    let _ = _tray_icon
+                        .lock()
+                        .unwrap()
+                        .as_mut()
+                        .map(|t| t.set_visible(false));
+                    if crate::platform::is_self_service_running()
+                        && crate::platform::is_cur_exe_the_installed()
+                    {
+                        // Upstream tray quit. Writes `stop-service=Y`, stops and
+                        // deletes the service, then exits. A failed or cancelled
+                        // UAC prompt clears `stop-service` and returns true.
+                        if !crate::platform::uninstall_service(false, false) {
+                            std::process::exit(0);
+                        }
+                        let _ = _tray_icon
+                            .lock()
+                            .unwrap()
+                            .as_mut()
+                            .map(|t| t.set_visible(true));
+                    } else {
+                        quit_app();
+                    }
+                }
+                #[cfg(not(windows))]
                 quit_app();
             } else if event.id == open_i.id() {
                 open_func();
@@ -225,9 +253,8 @@ fn make_tray() -> hbb_common::ResultType<()> {
     });
 }
 
-/// Upstream's tray item stops the installed service (`uninstall_service`), which also
-/// relaunches the GUI. Quit ends this user's SealDesk processes and does not uninstall
-/// a system service or LaunchDaemon.
+/// Ends this user's SealDesk processes. An installed, running Windows service
+/// is stopped earlier with upstream `uninstall_service` instead of this kill.
 fn quit_app() {
     terminate_other_instances();
     std::process::exit(0);
@@ -275,7 +302,7 @@ fn show_device_id() {
     let id = device_id_text();
     let title = translate("Show this device's ID".to_owned());
     #[cfg(windows)]
-    crate::platform::message_box(&format!("{title}\n{id}"));
+    crate::platform::message_box_ok(&title, &id);
     #[cfg(target_os = "linux")]
     {
         let notified = std::process::Command::new("notify-send")
@@ -292,14 +319,19 @@ fn show_device_id() {
     }
     #[cfg(target_os = "macos")]
     {
-        let script = format!(
-            "display dialog \"{}\" with title \"{}\" buttons {{\"OK\"}} default button \"OK\"",
-            id.replace('\\', "\\\\").replace('"', "\\\""),
-            title.replace('\\', "\\\\").replace('"', "\\\""),
-        );
+        // Pass the text as argv. AppleScript `\"` is not an escape, so
+        // interpolating the id could break out of the string.
         let _ = std::process::Command::new("osascript")
             .arg("-e")
-            .arg(script)
+            .arg(
+                "on run argv\n\
+                 display dialog (item 1 of argv) with title (item 2 of argv) \
+                 buttons {\"OK\"} default button \"OK\"\n\
+                 end run",
+            )
+            .arg("--")
+            .arg(&id)
+            .arg(&title)
             .spawn();
     }
 }

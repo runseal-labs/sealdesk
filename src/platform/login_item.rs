@@ -29,6 +29,14 @@ pub fn linux_autostart_path(home: &Path, app_name: &str) -> PathBuf {
         .join(format!("{}.desktop", app_name.to_lowercase()))
 }
 
+/// `APPIMAGE` is the real file. `current_exe()` inside an AppImage is the mount path.
+pub fn linux_login_program<'a>(appimage: Option<&'a str>, current_exe: &'a str) -> &'a str {
+    match appimage {
+        Some(path) if !path.is_empty() => path,
+        _ => current_exe,
+    }
+}
+
 pub fn linux_autostart_desktop(app_name: &str, exe: &str) -> String {
     format!(
         "[Desktop Entry]\nType=Application\nName={app_name}\nExec={exec}\nNoDisplay=false\nX-GNOME-Autostart-enabled=true\n",
@@ -151,6 +159,25 @@ mod tests {
         assert!(!desktop.contains("--tray"));
         let quoted = linux_autostart_desktop("SealDesk", "/opt/Seal Desk/sealdesk");
         assert!(quoted.contains("Exec=\"/opt/Seal Desk/sealdesk\" --server\n"));
+    }
+
+    #[test]
+    fn appimage_login_uses_the_appimage_path_not_the_mount() {
+        assert_eq!(
+            linux_login_program(
+                Some("/home/user/SealDesk.AppImage"),
+                "/tmp/.mount_sealdesk/usr/bin/sealdesk"
+            ),
+            "/home/user/SealDesk.AppImage"
+        );
+        assert_eq!(
+            linux_login_program(None, "/usr/bin/sealdesk"),
+            "/usr/bin/sealdesk"
+        );
+        assert_eq!(
+            linux_login_program(Some(""), "/usr/bin/sealdesk"),
+            "/usr/bin/sealdesk"
+        );
     }
 
     #[test]

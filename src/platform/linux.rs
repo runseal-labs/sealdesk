@@ -2797,8 +2797,12 @@ pub fn set_login_autostart(enable: bool) -> ResultType<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let exe = std::env::current_exe()?;
-    let body = super::login_item::linux_autostart_desktop(&app_name, &exe.to_string_lossy());
+    let current_exe = std::env::current_exe()?;
+    let current_exe = current_exe.to_string_lossy();
+    // AppImage `current_exe()` is the mount path and is gone at next login.
+    let appimage = std::env::var("APPIMAGE").ok();
+    let exe = super::login_item::linux_login_program(appimage.as_deref(), &current_exe);
+    let body = super::login_item::linux_autostart_desktop(&app_name, exe);
     std::fs::write(&path, body)?;
     Ok(())
 }

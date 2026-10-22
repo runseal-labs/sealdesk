@@ -1036,7 +1036,8 @@ pub fn set_login_autostart(enable: bool) -> ResultType<()> {
     let label = super::login_item::macos_login_label(&crate::get_app_name());
     let path = home.join("Library/LaunchAgents").join(format!("{label}.plist"));
     if !enable {
-        bootout_login_agent(&path);
+        // Delete the plist only. `launchctl unload -w` writes a disabled
+        // override that survives the file and blocks the next login.
         std::fs::remove_file(&path).ok();
         return Ok(());
     }
@@ -1069,23 +1070,6 @@ fn current_user_home() -> ResultType<PathBuf> {
     }
     Ok(home.to_path_buf())
 }
-
-fn login_agent_domain() -> String {
-    format!("gui/{}", hbb_common::users::get_current_uid())
-}
-
-fn bootout_login_agent(plist: &Path) {
-    let domain = login_agent_domain();
-    let _ = std::process::Command::new("/bin/launchctl")
-        .args(["bootout", &domain])
-        .arg(plist)
-        .status();
-    let _ = std::process::Command::new("/bin/launchctl")
-        .args(["unload", "-w"])
-        .arg(plist)
-        .status();
-}
-
 
 pub fn update_me() -> ResultType<()> {
     let cmd = std::env::current_exe()?;

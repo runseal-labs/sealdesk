@@ -476,15 +476,10 @@ class _DesktopTabState extends State<DesktopTab>
     if (await _isLinuxWindowClosed()) return;
 
     await _saveFrame(flush: true);
-    final hidesToTray = sealDeskHidesMainWindowToTray(
-      linux: isLinux,
-      sealDesk: bind.mainGetAppNameSync() == "SealDesk",
-      trayHostEnv: bind.mainGetEnv(key: sealDeskTrayHostEnv),
-    );
     if (isLinux &&
         tabType == DesktopTabType.main &&
         bind.mainGetAppNameSync() == "SealDesk" &&
-        !hidesToTray) {
+        bind.mainGetEnv(key: sealDeskTrayHostEnv) != '1') {
       await bind.mainOnMainWindowClose();
       await rustDeskWinManager.closeAllSubWindows();
       await windowManager.setPreventClose(false);

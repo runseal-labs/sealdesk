@@ -1,15 +1,5 @@
 const sealDeskTrayHostEnv = 'SEALDESK_TRAY_HOST';
 
-/// Linux SealDesk hides the main window only when a StatusNotifier host was
-/// present at startup. Other platforms follow the upstream hide-on-close path.
-bool sealDeskHidesMainWindowToTray({
-  required bool linux,
-  required bool sealDesk,
-  required String trayHostEnv,
-}) {
-  return linux && sealDesk && trayHostEnv == '1';
-}
-
 class SealDeskStartup {
   static String? _target;
 

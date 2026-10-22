@@ -208,14 +208,6 @@ pub fn core_main() -> Option<CoreMainAction> {
     {
         no_server = !service_plan.start_server;
     }
-    #[cfg(target_os = "windows")]
-    if args.is_empty() {
-        let should_check_start_tray = crate::platform::is_self_service_running()
-            && crate::platform::is_cur_exe_the_installed();
-        if should_check_start_tray && !crate::check_process("--tray", true) {
-            hbb_common::allow_err!(crate::run_me(vec!["--tray"]));
-        }
-    }
     #[cfg(not(debug_assertions))]
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     register_breakdown_handler(breakdown_callback);
@@ -322,8 +314,12 @@ pub fn core_main() -> Option<CoreMainAction> {
             }
         }
         crate::platform::sync_login_autostart();
-        note_tray_host();
-        ensure_tray();
+        // `--control` / `--no-server` clear into this empty-arg path.
+        // A `--tray` child sets host mode and starts the service.
+        if !explicit_control && !no_server {
+            note_tray_host();
+            ensure_tray();
+        }
         #[cfg(target_os = "macos")]
         {
             crate::platform::macos::try_remove_temp_update_dir(None);
@@ -508,15 +504,15 @@ pub fn core_main() -> Option<CoreMainAction> {
             log::info!("start --server with user {}", crate::username());
             #[cfg(target_os = "linux")]
             {
-                // Upstream reaps a previous tray, then starts a new one beside the server.
+                // Upstream reaps a previous tray, then always starts a new one.
+                // Checking `--tray` here races with `pkill` and can leave no tray.
                 hbb_common::allow_err!(crate::platform::check_autostart_config());
                 std::process::Command::new("pkill")
                     .arg("-f")
                     .arg(format!("{} --tray", crate::get_app_name().to_lowercase()))
                     .status()
                     .ok();
-                note_tray_host();
-                ensure_tray();
+                hbb_common::allow_err!(crate::run_me(vec!["--tray"]));
             }
             #[cfg(target_os = "macos")]
             crate::platform::sync_login_autostart();
