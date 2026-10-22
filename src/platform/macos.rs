@@ -1038,7 +1038,7 @@ pub fn set_login_autostart(enable: bool) -> ResultType<()> {
     if !enable {
         // Delete the plist only. `launchctl unload -w` writes a disabled
         // override that survives the file and blocks the next login.
-        std::fs::remove_file(&path).ok();
+        super::login_item::ignore_not_found(std::fs::remove_file(&path))?;
         return Ok(());
     }
     let exe = std::env::current_exe()?;

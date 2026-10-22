@@ -2791,7 +2791,7 @@ pub fn set_login_autostart(enable: bool) -> ResultType<()> {
     let app_name = crate::get_app_name();
     let path = super::login_item::linux_autostart_path(&home, &app_name);
     if !enable {
-        std::fs::remove_file(&path).ok();
+        super::login_item::ignore_not_found(std::fs::remove_file(&path))?;
         return Ok(());
     }
     if let Some(parent) = path.parent() {
