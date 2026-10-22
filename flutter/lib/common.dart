@@ -2270,6 +2270,7 @@ bool handleUriLink({List<String>? cmdArgs, Uri? uri, String? uriString}) {
   }
 
   if (args.isEmpty) {
+    sealDeskRequestMainWindowShow();
     windowOnTop(null);
     return true;
   }

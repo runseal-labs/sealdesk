@@ -2,6 +2,33 @@ import 'package:sealdesk/common/sealdesk_startup.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('a show request keeps a uri cold start from hiding the main window', () {
+    sealDeskMainWindowShowRequested = false;
+    expect(
+      sealDeskHideMainWindowOnStartup(
+        handledByUniLinks: true,
+        handledByArgs: false,
+      ),
+      isTrue,
+    );
+    sealDeskRequestMainWindowShow();
+    expect(
+      sealDeskHideMainWindowOnStartup(
+        handledByUniLinks: true,
+        handledByArgs: true,
+      ),
+      isFalse,
+    );
+    sealDeskMainWindowShowRequested = false;
+    expect(
+      sealDeskHideMainWindowOnStartup(
+        handledByUniLinks: false,
+        handledByArgs: false,
+      ),
+      isFalse,
+    );
+  });
+
   test('an install launch does not own the main-window uri server', () {
     expect(sealDeskOwnsMainWindowUriServer(['--install']), isFalse);
     expect(sealDeskOwnsMainWindowUriServer(['--cm', '--install']), isFalse);

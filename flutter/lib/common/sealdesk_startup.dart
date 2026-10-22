@@ -11,6 +11,22 @@ bool sealDeskTrayKeepsProcess(String trayHost) => trayHost == '1';
 bool sealDeskOwnsMainWindowUriServer(Iterable<String> bootArgs) =>
     !bootArgs.contains('--install');
 
+/// A handoff asked to show the main window. A URI cold start hides that
+/// window after startup; the hide must not win if the show already arrived.
+bool sealDeskMainWindowShowRequested = false;
+
+void sealDeskRequestMainWindowShow() {
+  sealDeskMainWindowShowRequested = true;
+}
+
+/// Keep the main window hidden only for a connect/URI launch that has not
+/// been asked to show itself.
+bool sealDeskHideMainWindowOnStartup({
+  required bool handledByUniLinks,
+  required bool handledByArgs,
+}) =>
+    (handledByUniLinks || handledByArgs) && !sealDeskMainWindowShowRequested;
+
 class SealDeskStartup {
   static String? _target;
 

@@ -36,7 +36,8 @@ impl Error for DbusError {}
 /// - use dbus-send command:
 /// `dbus-send --session --print-reply --dest=com.runseal.sealdesk /com/runseal/sealdesk com.runseal.sealdesk.NewConnection string:'PEER_ID'`
 pub fn invoke_new_connection(uni_links: String) -> Result<(), Box<dyn Error>> {
-    log::info!("Starting dbus service for uni");
+    // A second launch retries this until the main window can handle it.
+    log::trace!("invoke new connection on dbus");
     let conn = Connection::new_session()?;
     let proxy = conn.with_proxy(DBUS_NAME, DBUS_PREFIX, DBUS_TIMEOUT);
     let (ret,): (String,) =
@@ -70,10 +71,9 @@ fn handle_client_message(builder: &mut IfaceBuilder<()>) {
         (DBUS_METHOD_NEW_CONNECTION_ID,),
         (DBUS_METHOD_RETURN,),
         move |_, _, (_uni_links,): (String,)| {
-            // Success only when the main window's event stream accepts the
-            // message. The bus name can be owned briefly before that stream
-            // exists; reporting success then would make a second plain launch
-            // exit without showing anything.
+            // The server is started only after Dart installs the event
+            // callback. Success still requires the stream to accept the
+            // event; a name with no stream must not look handled.
             #[cfg(feature = "flutter")]
             let delivered = {
                 use crate::flutter;
