@@ -1264,8 +1264,7 @@ pub fn get_control_permission(
 }
 
 // Align the maximum length of the peer id to the maximum length of the peer id in the server.
-// Byte length. A legal id is at most this many characters, because every character is at least one byte.
-pub(crate) const MAX_UNTRUSTED_PEER_ID_LEN: usize = 253;
+const MAX_UNTRUSTED_PEER_ID_LEN: usize = 253;
 const UNTRUSTED_PEER_ID_FORBIDDEN_CHARS: &[char] = &['"', '<', '>', '/', '\\', '|', '?', '*'];
 
 // Shared validation for peer/connect ids that cross untrusted boundaries before

@@ -66,9 +66,8 @@ fn make_tray() -> hbb_common::ResultType<()> {
 
     let tray_menu = Menu::new();
     let open_i = MenuItem::new(translate("Open main window".to_owned()), true, None);
-    let id_i = MenuItem::new(translate("Show this device's ID".to_owned()), true, None);
     let quit_i = MenuItem::new(translate("Quit".to_owned()), true, None);
-    tray_menu.append_items(&[&open_i, &id_i, &quit_i]).ok();
+    tray_menu.append_items(&[&open_i, &quit_i]).ok();
     let tooltip = |count: usize| {
         if count == 0 {
             format!(
@@ -210,8 +209,6 @@ fn make_tray() -> hbb_common::ResultType<()> {
                 quit_app();
             } else if event.id == open_i.id() {
                 open_func();
-            } else if event.id == id_i.id() {
-                show_device_id();
             }
         }
 
@@ -298,136 +295,6 @@ fn same_exe(left: &std::path::Path, right: &std::path::Path) -> bool {
     }
 }
 
-/// Longest id the dialog must show in full.
-///
-/// Custom ids match `^[a-zA-Z][\w-]{5,15}$` (16 characters). Numeric ids are shorter.
-/// A tailcat address (`tc` + unpadded base64url, `is_addr` requires length > 40) is longer:
-/// the default relay embeds one DERP region and encodes to 229 characters.
-/// [`crate::common::MAX_UNTRUSTED_PEER_ID_LEN`] is the longest peer id accepted before
-/// it is stored or written into a command. That cap covers a tailcat address.
-const DEVICE_ID_MAX_CHARS: usize = crate::common::MAX_UNTRUSTED_PEER_ID_LEN;
-
-/// Other lines are cut to this many characters so they stay inside the fixed width.
-const DEVICE_ID_DIALOG_OTHER_LINE_MAX_CHARS: usize = DEVICE_ID_MAX_CHARS;
-
-/// Pixels of zenity `--width` per id character. 10px is the same ratio as the old
-/// 360px dialog and is wider than a base64url line (about 8.5px), so a max-length
-/// id does not stretch the window.
-const DEVICE_ID_DIALOG_PX_PER_CHAR: usize = 10;
-
-const DEVICE_ID_DIALOG_WIDTH_PX: usize = DEVICE_ID_MAX_CHARS * DEVICE_ID_DIALOG_PX_PER_CHAR;
-
-/// The first line is the device id and is kept whole. Later lines (TCP and the like)
-/// are cut to `max_chars` Unicode scalar values. An over-long line ends with `…`.
-fn truncate_dialog_lines(text: &str, max_chars: usize) -> String {
-    text.lines()
-        .enumerate()
-        .map(|(index, line)| {
-            if index == 0 {
-                line.to_owned()
-            } else {
-                truncate_dialog_line(line, max_chars)
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn truncate_dialog_line(line: &str, max_chars: usize) -> String {
-    if line.chars().count() <= max_chars {
-        return line.to_owned();
-    }
-    let mut out: String = line.chars().take(max_chars.saturating_sub(1)).collect();
-    if max_chars > 0 {
-        out.push('\u{2026}');
-    }
-    out
-}
-
-/// Dialog body. The id line is complete. Other lines are truncated and do not wrap.
-fn device_id_dialog_body(text: &str) -> String {
-    truncate_dialog_lines(text, DEVICE_ID_DIALOG_OTHER_LINE_MAX_CHARS)
-}
-
-/// Info dialog for the device id. `--width` and `--no-wrap` keep a fixed width
-/// that fits the longest legal id.
-#[cfg(any(target_os = "linux", test))]
-fn linux_device_id_dialog_args(title: &str, id: &str) -> Vec<String> {
-    vec![
-        "--info".to_owned(),
-        format!("--width={DEVICE_ID_DIALOG_WIDTH_PX}"),
-        "--no-wrap".to_owned(),
-        "--title".to_owned(),
-        title.to_owned(),
-        "--text".to_owned(),
-        device_id_dialog_body(id),
-    ]
-}
-
-/// `notify-send` has no width flag. The body is the same text as the other dialogs:
-/// the id line is complete.
-#[cfg(any(target_os = "linux", test))]
-fn linux_notify_send_args(title: &str, id: &str) -> Vec<String> {
-    vec![title.to_owned(), device_id_dialog_body(id)]
-}
-
-fn show_device_id() {
-    let id = device_id_text();
-    let title = translate("Show this device's ID".to_owned());
-    // Same body on every platform: the id line is complete, other lines are cut.
-    let body = device_id_dialog_body(&id);
-    #[cfg(windows)]
-    crate::platform::message_box_ok(&title, &body);
-    #[cfg(target_os = "linux")]
-    {
-        let notified = std::process::Command::new("notify-send")
-            .arg(&title)
-            .arg(&body)
-            .status()
-            .map(|status| status.success())
-            .unwrap_or(false);
-        if !notified {
-            let _ = std::process::Command::new("zenity")
-                .args(linux_device_id_dialog_args(&title, &id))
-                .status();
-        }
-    }
-    #[cfg(target_os = "macos")]
-    {
-        // Pass the text as argv. AppleScript `\"` is not an escape, so
-        // interpolating the id could break out of the string.
-        let _ = std::process::Command::new("osascript")
-            .arg("-e")
-            .arg(
-                "on run argv\n\
-                 display dialog (item 1 of argv) with title (item 2 of argv) \
-                 buttons {\"OK\"} default button \"OK\"\n\
-                 end run",
-            )
-            .arg("--")
-            .arg(&body)
-            .arg(&title)
-            .spawn();
-    }
-    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
-    let _ = (&title, &body);
-}
-
-fn device_id_text() -> String {
-    let options = crate::ipc::get_options();
-    if let Some(addr) = options.get(crate::tailcat::OPTION_ADDR) {
-        if !addr.is_empty() {
-            return addr.clone();
-        }
-    }
-    if let Some(id) = options.get("id") {
-        if !id.is_empty() {
-            return id.clone();
-        }
-    }
-    translate("Service is not running".to_owned())
-}
-
 #[cfg(windows)]
 #[tokio::main(flavor = "current_thread")]
 async fn start_query_session_count(sender: std::sync::mpsc::Sender<Data>) {
@@ -481,75 +348,4 @@ fn load_icon_from_asset() -> Option<image::DynamicImage> {
         }
     }
     None
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        device_id_dialog_body, linux_device_id_dialog_args, linux_notify_send_args,
-        truncate_dialog_lines, DEVICE_ID_DIALOG_OTHER_LINE_MAX_CHARS, DEVICE_ID_DIALOG_WIDTH_PX,
-        DEVICE_ID_MAX_CHARS,
-    };
-
-    #[test]
-    fn linux_id_dialog_keeps_a_fixed_width_without_wrapping() {
-        let args = linux_device_id_dialog_args("Show this device's ID", "tc-addr");
-        assert_eq!(
-            args,
-            vec![
-                "--info".to_owned(),
-                format!("--width={DEVICE_ID_DIALOG_WIDTH_PX}"),
-                "--no-wrap".to_owned(),
-                "--title".to_owned(),
-                "Show this device's ID".to_owned(),
-                "--text".to_owned(),
-                "tc-addr".to_owned(),
-            ]
-        );
-        assert!(DEVICE_ID_DIALOG_WIDTH_PX >= DEVICE_ID_MAX_CHARS);
-        assert_eq!(DEVICE_ID_MAX_CHARS, 253);
-    }
-
-    #[test]
-    fn device_id_dialog_keeps_the_id_and_truncates_other_lines() {
-        let max = DEVICE_ID_DIALOG_OTHER_LINE_MAX_CHARS;
-        let id = format!("tc{}", "A".repeat(DEVICE_ID_MAX_CHARS - 2));
-        assert_eq!(id.chars().count(), DEVICE_ID_MAX_CHARS);
-        let tcp = format!("TCP: {}", "1".repeat(max));
-        assert!(tcp.chars().count() > max);
-
-        let body = device_id_dialog_body(&format!("{id}\n{tcp}"));
-        let mut lines = body.lines();
-        assert_eq!(lines.next().unwrap(), id);
-        let tcp_line = lines.next().unwrap();
-        assert_eq!(tcp_line.chars().count(), max);
-        assert!(tcp_line.ends_with('\u{2026}'));
-        assert_eq!(
-            tcp_line.chars().take(max - 1).collect::<String>(),
-            tcp.chars().take(max - 1).collect::<String>()
-        );
-        assert!(lines.next().is_none());
-
-        let args = linux_device_id_dialog_args("Show this device's ID", &format!("{id}\n{tcp}"));
-        assert_eq!(args.last().map(String::as_str), Some(body.as_str()));
-        assert_eq!(
-            linux_notify_send_args("Show this device's ID", &format!("{id}\n{tcp}")),
-            vec!["Show this device's ID".to_owned(), body]
-        );
-
-        // The id line is not cut, even past the other-line limit.
-        let long_id = "abc".repeat(max);
-        assert_eq!(truncate_dialog_lines(&long_id, max), long_id);
-
-        // `é` and `你` are multiple bytes and one scalar value each.
-        // The first line is the id. Only the following lines are cut.
-        assert_eq!(truncate_dialog_lines("ééééé\néééé", 4), "ééééé\néééé");
-        assert_eq!(truncate_dialog_lines("éééé\nééééé", 4), "éééé\nééé…");
-        assert_eq!(truncate_dialog_lines("id\n你你你你你", 4), "id\n你你你…");
-
-        assert_eq!(
-            truncate_dialog_lines("ok\n123456789\nend", 8),
-            "ok\n1234567…\nend"
-        );
-    }
 }

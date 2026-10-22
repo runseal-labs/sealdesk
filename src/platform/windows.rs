@@ -4044,16 +4044,6 @@ pub fn message_box(text: &str) {
     unsafe { MessageBoxW(std::ptr::null_mut(), text.as_ptr(), caption.as_ptr(), MB_OK) };
 }
 
-/// Same dialog as [`message_box`] without copying `text` to the clipboard.
-pub fn message_box_ok(caption: &str, text: &str) {
-    fn wide(value: &str) -> Vec<u16> {
-        value.encode_utf16().chain(std::iter::once(0)).collect()
-    }
-    let text = wide(text);
-    let caption = wide(caption);
-    unsafe { MessageBoxW(std::ptr::null_mut(), text.as_ptr(), caption.as_ptr(), MB_OK) };
-}
-
 pub fn alloc_console() {
     unsafe {
         alloc_console_and_redirect();
