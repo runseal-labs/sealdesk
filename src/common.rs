@@ -946,10 +946,15 @@ async fn fetch_newer_update_url() -> ResultType<Option<String>> {
         crate::hbbs_http::create_http_client_async_with_url_strict(GITHUB_LATEST_RELEASE_URL)
             .await?;
     // GitHub REST rejects a missing User-Agent with 403, which this check treats as no update.
+    // The shared client sets no deadline. This covers connect and the body read so a
+    // stalled api.github.com cannot pin the update thread or the macOS update lock.
     let response = client
         .get(GITHUB_LATEST_RELEASE_URL)
         .header("User-Agent", format!("SealDesk/{}", crate::VERSION))
         .header("Accept", "application/vnd.github+json")
+        .timeout(Duration::from_millis(
+            CONNECT_TIMEOUT.saturating_add(READ_TIMEOUT),
+        ))
         .send()
         .await
         .map_err(|err| anyhow!("Software update check failed: {err}"))?;
