@@ -23,6 +23,11 @@ pub mod linux;
 #[cfg(target_os = "linux")]
 pub mod gtk_sudo;
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod ipc_listen;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub use ipc_listen::ipc_socket_is_listening;
+
 pub mod login_item;
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
