@@ -584,9 +584,8 @@ pub async fn start_server(is_server: bool, no_server: bool) {
                     "",
                 )) {
                     log::info!("IPC listener already running; not replacing it");
-                    // Do not exit. macOS `--server` already hosts the tray on the main
-                    // thread; a UI `start_server(true)` is the GUI. Dropping the sender
-                    // makes `start_server` return before the host starts.
+                    // Returning drops the sender so `start_server` stops before the host
+                    // starts. macOS `--server` exits only when another `--server` is live.
                     if !crate::platform::should_exit_process_after_lost_ipc_bind(crate::is_server())
                     {
                         return;

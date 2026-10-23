@@ -14,13 +14,25 @@ pub fn ipc_socket_is_listening(path: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Lost the main IPC bind to a live listener. Never `process::exit` from that
-/// path: macOS `--server` is hosting the tray on the main thread (LaunchAgent
-/// treats exit 0 as a normal stop and will not restart it), and a UI process
-/// that called `start_server(true)` is the GUI. Linux `--server` still ends,
-/// because `start_server` returns to `core_main`.
-pub fn should_exit_process_after_lost_ipc_bind(_is_server_process: bool) -> bool {
-    false
+/// Lost the main IPC bind to a live listener.
+///
+/// macOS `--server` is already blocked in `start_tray`, so the loser keeps a
+/// second icon unless it exits. Exit only when another same-user `--server`
+/// is running. A UI-owned socket keeps this process: the GUI does not start
+/// `--tray` while `--server` exists, and LaunchAgent does not restart exit 0.
+/// Any other process never exits here. Linux ends by returning from
+/// `start_server`, not from this path.
+pub fn should_exit_process_after_lost_ipc_bind(is_server_process: bool) -> bool {
+    #[cfg(target_os = "macos")]
+    let another_server = crate::check_process("--server", true);
+    // Linux `--server` returns from `start_server` and the process ends.
+    #[cfg(not(target_os = "macos"))]
+    let another_server = false;
+    lost_ipc_bind_should_exit(is_server_process, another_server)
+}
+
+fn lost_ipc_bind_should_exit(is_server_process: bool, another_server: bool) -> bool {
+    is_server_process && another_server
 }
 
 /// `--server` must not replace a live IPC listener: binding fails closed and
@@ -43,7 +55,9 @@ pub fn server_defers_to_live_ipc() -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{ipc_socket_is_listening, should_exit_process_after_lost_ipc_bind};
+    use super::{
+        ipc_socket_is_listening, lost_ipc_bind_should_exit, should_exit_process_after_lost_ipc_bind,
+    };
 
     #[test]
     fn live_socket_is_listening_and_a_stale_file_is_not() {
@@ -70,8 +84,11 @@ mod tests {
     }
 
     #[test]
-    fn lost_ipc_bind_does_not_exit_the_process() {
+    fn lost_bind_exits_only_when_another_server_is_live() {
+        assert!(!lost_ipc_bind_should_exit(false, false));
+        assert!(!lost_ipc_bind_should_exit(false, true));
+        assert!(!lost_ipc_bind_should_exit(true, false));
+        assert!(lost_ipc_bind_should_exit(true, true));
         assert!(!should_exit_process_after_lost_ipc_bind(false));
-        assert!(!should_exit_process_after_lost_ipc_bind(true));
     }
 }
