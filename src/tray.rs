@@ -43,7 +43,9 @@ fn make_tray() -> hbb_common::ResultType<()> {
     let icon;
     #[cfg(target_os = "macos")]
     {
-        icon = include_bytes!("../res/mac-tray-dark-x2.png"); // use as template, so color is not important
+        // Black shape, transparent background. Template mode follows the menu bar
+        // appearance only when the bitmap is black with a real alpha channel.
+        icon = include_bytes!("../res/mac-tray-dark-x2.png");
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -51,7 +53,15 @@ fn make_tray() -> hbb_common::ResultType<()> {
     }
 
     let (icon_rgba, icon_width, icon_height) = {
-        let image = load_icon_from_asset()
+        // macOS draws this with `with_icon_as_template(true)`. The Flutter app
+        // icon is a nearly opaque rounded tile, so using it as the template
+        // mask paints a solid black status item. Other platforms still prefer
+        // a replaced asset icon for custom clients.
+        #[cfg(not(target_os = "macos"))]
+        let image = load_icon_from_asset();
+        #[cfg(target_os = "macos")]
+        let image = None;
+        let image = image
             .unwrap_or(image::load_from_memory(icon).context("Failed to open icon path")?)
             .into_rgba8();
         let (width, height) = image.dimensions();
@@ -331,13 +341,14 @@ async fn start_query_session_count(sender: std::sync::mpsc::Sender<Data>) {
     }
 }
 
+// Not used on macOS: the status item is a template image and must be the
+// monochrome glyph embedded above, not the full-color app icon.
+#[cfg(not(target_os = "macos"))]
 fn load_icon_from_asset() -> Option<image::DynamicImage> {
     let Some(path) = std::env::current_exe().map_or(None, |x| x.parent().map(|x| x.to_path_buf()))
     else {
         return None;
     };
-    #[cfg(target_os = "macos")]
-    let path = path.join("../Frameworks/App.framework/Resources/flutter_assets/assets/icon.png");
     #[cfg(windows)]
     let path = path.join(r"data\flutter_assets\assets\icon.png");
     #[cfg(target_os = "linux")]

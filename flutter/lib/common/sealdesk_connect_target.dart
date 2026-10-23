@@ -124,10 +124,20 @@ bool _lanAddress(String value) {
 bool _ipAddress(String value) {
   final matched =
       RegExp(r'^(\d{1,3}(?:\.\d{1,3}){3})(?::(\d{1,5}))?$').firstMatch(value);
-  if (matched == null) return false;
-  if (!_ipv4(matched.group(1)!)) return false;
-  final port = matched.group(2);
-  return port == null || _port(port);
+  if (matched != null) {
+    if (!_ipv4(matched.group(1)!)) return false;
+    final port = matched.group(2);
+    return port == null || _port(port);
+  }
+  return _ipv6(value);
+}
+
+/// Same grammar as `hbb_common::is_ipv6_str`. Leading or trailing `::`
+/// (`::1`, `fd00::`) and a bracketed address with no port (`[fd00::1]`) do not match.
+bool _ipv6(String value) {
+  return RegExp(
+    r'^((([a-fA-F0-9]{1,4}:{1,2})+[a-fA-F0-9]{1,4})|(\[([a-fA-F0-9]{1,4}:{1,2})+[a-fA-F0-9]{1,4}\]:\d+))$',
+  ).hasMatch(value);
 }
 
 bool _ipv4(String value) {

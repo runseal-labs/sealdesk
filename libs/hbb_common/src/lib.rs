@@ -564,6 +564,17 @@ mod test {
     fn test_ipv6() {
         assert!(is_ipv6_str("1:2:3"));
         assert!(is_ipv6_str("[ab:2:3]:12"));
+        assert!(is_ipv6_str("fd00::1"));
+        assert!(is_ipv6_str("[fd00::1]:21118"));
+        assert!(is_ip_str("[fd12::abcd]:21118"));
+        assert_eq!(
+            socket_client::check_port("[fd00::1]:21118", 1),
+            "[fd00::1]:21118"
+        );
+        assert_eq!(
+            socket_client::check_port("fd00::1", 21118),
+            "[fd00::1]:21118"
+        );
         assert!(is_ipv6_str("[ABEF:2a:3]:12"));
         assert!(!is_ipv6_str("[ABEG:2a:3]:12"));
         assert!(!is_ipv6_str("1[ab:2:3]:12"));
@@ -581,6 +592,29 @@ mod test {
         assert!(is_ipv4_str("1.2.3.4"));
         assert!(is_ipv4_str("1.2.3.4:90"));
         assert!(is_ipv4_str("192.168.0.1"));
+        assert!(is_ip_str("100.64.0.8"));
+        assert!(is_ip_str("100.127.255.1"));
+        assert!(is_ip_str("100.64.12.9:21118"));
+        assert!(is_ip_str("10.1.2.3"));
+        assert!(is_ip_str("10.1.2.3:21118"));
+        assert!(is_ip_str("192.168.1.20:21118"));
+        assert!(!is_domain_port_str("100.64.0.8:21118"));
+        assert_eq!(
+            socket_client::check_port("100.64.0.8", 21118),
+            "100.64.0.8:21118"
+        );
+        assert_eq!(
+            socket_client::check_port("100.64.0.8:21119", 21118),
+            "100.64.0.8:21119"
+        );
+        assert_eq!(
+            socket_client::check_port("192.168.1.20", 21118),
+            "192.168.1.20:21118"
+        );
+        assert_eq!(
+            socket_client::check_port("10.2.3.4:21118", 1),
+            "10.2.3.4:21118"
+        );
         assert!(is_ipv4_str("0.0.0.0"));
         assert!(is_ipv4_str("255.255.255.255"));
         assert!(!is_ipv4_str("256.0.0.0"));
