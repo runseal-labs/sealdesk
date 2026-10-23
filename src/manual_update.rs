@@ -168,8 +168,8 @@ mod tests {
         assert_eq!(
             MacosUpdateArguments::VerifiedDmg {
                 dmg_path: "update.dmg",
-                metadata_path: "rustdesk-update.json",
-                signature_path: "rustdesk-update.json.sig",
+                metadata_path: "sealdesk-update.json",
+                signature_path: "sealdesk-update.json.sig",
             },
             parse_macos_update_args(&args(&[
                 "--update",
