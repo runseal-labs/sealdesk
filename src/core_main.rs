@@ -324,7 +324,7 @@ pub fn core_main() -> Option<CoreMainAction> {
     }
     if args.is_empty() || crate::common::is_empty_uni_link(&args[0]) {
         if let Some(mode) = service_plan.request_mode {
-            if let Err(error) = crate::tailcat::host::request_mode(mode) {
+            if let Err(error) = crate::tailcat::host::request_startup_mode(mode) {
                 return Some(CoreMainAction::ExitFailure(error));
             }
         }

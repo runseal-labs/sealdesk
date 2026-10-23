@@ -243,6 +243,38 @@ pub(crate) fn request_mode(mode: &str) -> hbb_common::ResultType<()> {
     }
 }
 
+/// A running instance that accepts IPC but never replies (for example it is
+/// stopped) is not a reason to quit. The caller opens this process's window.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub(crate) fn request_startup_mode(mode: &str) -> hbb_common::ResultType<()> {
+    continue_after_unanswered_peer(request_mode(mode))
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn continue_after_unanswered_peer(
+    result: hbb_common::ResultType<()>,
+) -> hbb_common::ResultType<()> {
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) if peer_did_not_answer(&error) => {
+            hbb_common::log::error!(
+                "Existing instance did not answer host-mode IPC within the timeout ({error}); starting this instance"
+            );
+            Ok(())
+        }
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn peer_did_not_answer(error: &hbb_common::anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<hbb_common::tokio::time::error::Elapsed>()
+            .is_some()
+    })
+}
+
 #[cfg(all(target_os = "linux", feature = "flutter"))]
 pub(crate) fn stop_for_exit() {
     if let Err(error) = request_mode("control") {
@@ -458,6 +490,30 @@ mod tests {
         assert!(!daemon_absent(&hbb_common::anyhow::anyhow!(
             "invalid response"
         )));
+    }
+
+    #[test]
+    fn unanswered_ipc_still_starts_and_other_errors_do_not() {
+        let elapsed = hbb_common::tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap()
+            .block_on(async {
+                hbb_common::tokio::time::timeout(
+                    std::time::Duration::from_millis(1),
+                    std::future::pending::<()>(),
+                )
+                .await
+                .unwrap_err()
+            });
+        assert!(continue_after_unanswered_peer(Err(elapsed.into())).is_ok());
+        let err = continue_after_unanswered_peer(Err(hbb_common::anyhow::anyhow!(
+            "当前应用配置仅允许控制其他设备"
+        )))
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("仅允许控制"));
+        assert!(continue_after_unanswered_peer(Ok(())).is_ok());
     }
 }
 
