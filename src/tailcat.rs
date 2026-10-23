@@ -47,13 +47,24 @@ extern "C" {
 
 #[cfg(target_os = "android")]
 static ANDROID_INTERFACES: Mutex<String> = Mutex::new(String::new());
+/// CGNAT addresses kept from the raw interface list. Discovery JSON drops VPN
+/// and point-to-point interfaces, so Tailscale 100.64.0.0/10 would otherwise
+/// never reach the TCP 21118 bind.
+#[cfg(target_os = "android")]
+static ANDROID_CGNAT: Mutex<Vec<Ipv4Addr>> = Mutex::new(Vec::new());
 
 #[cfg(target_os = "android")]
 pub(crate) fn set_android_interfaces(payload: &std::ffi::CStr) {
     if let Ok(text) = payload.to_str() {
         *ANDROID_INTERFACES.lock().unwrap() = android_lan_interface_json(text);
+        *ANDROID_CGNAT.lock().unwrap() = crate::lan::cgnat_v4_from_interface_json(text);
     }
     unsafe { TcSetAndroidInterfaces(payload.as_ptr()) }
+}
+
+#[cfg(target_os = "android")]
+pub(crate) fn android_cgnat_ipv4() -> Vec<Ipv4Addr> {
+    ANDROID_CGNAT.lock().unwrap().clone()
 }
 
 #[cfg(target_os = "android")]
