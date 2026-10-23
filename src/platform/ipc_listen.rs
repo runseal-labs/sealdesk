@@ -1,8 +1,26 @@
 /// True when something is already accepting connections on this IPC socket.
 /// A stale socket file is not alive: connect fails with `ConnectionRefused`.
+///
+/// `connect` blocks once the accept queue is full, so the probe gives up after
+/// the same 1s budget `check_pid` uses. A timeout is not proof of a listener.
 pub fn ipc_socket_is_listening(path: &str) -> bool {
-    use std::os::unix::net::UnixStream;
-    UnixStream::connect(path).is_ok()
+    let path = path.to_owned();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let ok = std::os::unix::net::UnixStream::connect(&path).is_ok();
+        let _ = tx.send(ok);
+    });
+    rx.recv_timeout(std::time::Duration::from_secs(1))
+        .unwrap_or(false)
+}
+
+/// Lost the main IPC bind to a live listener. Never `process::exit` from that
+/// path: macOS `--server` is hosting the tray on the main thread (LaunchAgent
+/// treats exit 0 as a normal stop and will not restart it), and a UI process
+/// that called `start_server(true)` is the GUI. Linux `--server` still ends,
+/// because `start_server` returns to `core_main`.
+pub fn should_exit_process_after_lost_ipc_bind(_is_server_process: bool) -> bool {
+    false
 }
 
 /// `--server` must not replace a live IPC listener: binding fails closed and
@@ -25,7 +43,7 @@ pub fn server_defers_to_live_ipc() -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::ipc_socket_is_listening;
+    use super::{ipc_socket_is_listening, should_exit_process_after_lost_ipc_bind};
 
     #[test]
     fn live_socket_is_listening_and_a_stale_file_is_not() {
@@ -49,5 +67,11 @@ mod tests {
             "a leftover socket file is not a listener"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn lost_ipc_bind_does_not_exit_the_process() {
+        assert!(!should_exit_process_after_lost_ipc_bind(false));
+        assert!(!should_exit_process_after_lost_ipc_bind(true));
     }
 }
