@@ -159,10 +159,10 @@ void runMainApp(bool startService) async {
     final handledByUniLinks = await initUniLinks();
     debugPrint("handled by uni links: $handledByUniLinks");
     if (handledByUniLinks || handleUriLink(cmdArgs: kBootArgs)) {
-      windowManager.hide();
+      await windowManager.hide();
     } else {
-      windowManager.show();
-      windowManager.focus();
+      await windowManager.show();
+      await windowManager.focus();
       // Move registration of active main window here to prevent from async visible check.
       rustDeskWinManager.registerActiveWindow(kWindowMainId);
     }
@@ -170,6 +170,9 @@ void runMainApp(bool startService) async {
     windowManager.setTitle(getWindowName());
     // Do not use `windowManager.setResizable()` here.
     setResizable(!bind.isIncomingOnly());
+    if (startService) {
+      platformFFI.startMainWindowUriServer();
+    }
   });
 }
 

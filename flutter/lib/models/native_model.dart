@@ -13,6 +13,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../common.dart';
+import '../common/sealdesk_startup.dart';
 import '../generated_bridge.dart';
 
 final class RgbaFrame extends Struct {
@@ -171,15 +172,7 @@ class PlatformFFI {
       _ffiBind = SealdeskImpl(dylib);
       _ffiBindInitialized = true;
 
-      if (isLinux) {
-        if (isMain) {
-          // Start a dbus service for uri links, no need to await
-          _ffiBind.mainStartDbusServer();
-        }
-      } else if (isMacOS && isMain) {
-        // Start ipc service for uri links.
-        _ffiBind.mainStartIpcUrlServer();
-      }
+      // The URI server starts after the first main-window hide or show.
       _startListenEvent(_ffiBind); // global event
       try {
         if (isAndroid) {
@@ -294,6 +287,13 @@ class PlatformFFI {
 
   void setEventCallback(StreamEventHandler fun) async {
     _eventCallback = fun;
+  }
+
+  void startMainWindowUriServer() {
+    if (isWeb || !_ffiBindInitialized || !isMain) return;
+    if (!sealDeskOwnsMainWindowUriServer(kBootArgs)) return;
+    if (isLinux) _ffiBind.mainStartDbusServer();
+    if (isMacOS) _ffiBind.mainStartIpcUrlServer();
   }
 
   void setRgbaCallback(void Function(int, Uint8List) fun) async {}

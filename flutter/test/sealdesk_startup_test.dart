@@ -2,6 +2,14 @@ import 'package:sealdesk/common/sealdesk_startup.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('an install launch does not own the main-window uri server', () {
+    expect(sealDeskOwnsMainWindowUriServer(['--install']), isFalse);
+    expect(sealDeskOwnsMainWindowUriServer(['--cm', '--install']), isFalse);
+    expect(sealDeskOwnsMainWindowUriServer([]), isTrue);
+    expect(sealDeskOwnsMainWindowUriServer(['--cm']), isTrue);
+    expect(sealDeskOwnsMainWindowUriServer(['--server']), isTrue);
+  });
+
   test('only an advertised tray host keeps the process on close', () {
     expect(sealDeskTrayKeepsProcess('1'), isTrue);
     for (final value in ['', '0', 'true', 'Y']) {
