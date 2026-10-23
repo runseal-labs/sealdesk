@@ -864,8 +864,9 @@ jobs:
             sealdesk*-${{ matrix.job.arch }}.dmg
 
   publish-signed-update-metadata:
+    needs: [build-for-windows-flutter, build-for-macOS]
     runs-on: ubuntu-22.04
-    if: ${{ inputs.upload-artifact && inputs.publish-update-metadata && github.repository == 'rustdesk/rustdesk' }}
+    if: ${{ inputs.upload-artifact && inputs.publish-update-metadata && github.repository == 'runseal-labs/sealdesk' }}
     concurrency:
       group: signed-update-${{ inputs.upload-tag }}
       cancel-in-progress: false
@@ -894,7 +895,7 @@ jobs:
             exit 0
           fi
           assets="$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets?per_page=100")"
-          if jq -e 'any(.[][]; .name == "rustdesk-update.json")' <<<"$assets" >/dev/null; then
+          if jq -e 'any(.[][]; .name == "sealdesk-update.json")' <<<"$assets" >/dev/null; then
             echo "::error::Signed update metadata is already published for ${TAG_NAME}; use a new release tag for corrected artifacts."
             exit 1
           fi
@@ -938,19 +939,19 @@ jobs:
             --artifact macos aarch64 dmg "./artifacts/sealdesk-${VERSION}-aarch64.dmg" \
             --artifact macos x86_64 dmg "./artifacts/sealdesk-${VERSION}-x86_64.dmg" \
             --version "$VERSION" --release-id "$TAG_NAME" \
-            --package-id rustdesk \
-            --release-base-url https://github.com/rustdesk/rustdesk/releases/download \
+            --package-id sealdesk \
+            --release-base-url https://github.com/runseal-labs/sealdesk/releases/download \
             --published-at "$(git log -1 --format=%cI)" \
-            --metadata-out ./rustdesk-update.json \
-            --signature-out ./rustdesk-update.json.sig
+            --metadata-out ./sealdesk-update.json \
+            --signature-out ./sealdesk-update.json.sig
 
       - name: Verify update metadata
         env:
           RUSTDESK_UPDATE_ED25519_PUBLIC_KEY: ${{ vars.RUSTDESK_UPDATE_ED25519_PUBLIC_KEY }}
         run: |
           python res/update/generate_update_metadata.py verify \
-            --metadata ./rustdesk-update.json \
-            --signature ./rustdesk-update.json.sig \
+            --metadata ./sealdesk-update.json \
+            --signature ./sealdesk-update.json.sig \
             --artifact "./artifacts/sealdesk-${VERSION}-x86_64.exe" \
             --artifact "./artifacts/sealdesk-${VERSION}-x86_64.msi" \
             --artifact "./artifacts/sealdesk-${VERSION}-aarch64.exe" \
@@ -958,8 +959,8 @@ jobs:
             --artifact "./artifacts/sealdesk-${VERSION}-aarch64.dmg" \
             --artifact "./artifacts/sealdesk-${VERSION}-x86_64.dmg" \
             --version "$VERSION" --release-id "$TAG_NAME" \
-            --package-id rustdesk \
-            --release-base-url https://github.com/rustdesk/rustdesk/releases/download
+            --package-id sealdesk \
+            --release-base-url https://github.com/runseal-labs/sealdesk/releases/download
 
       - name: Upload signed update artifacts
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
@@ -985,7 +986,7 @@ jobs:
           prerelease: true
           fail_on_unmatched_files: true
           tag_name: ${{ env.TAG_NAME }}
-          files: ./rustdesk-update.json.sig
+          files: ./sealdesk-update.json.sig
 
       # Clients discover the release through metadata, so publish it only after every referenced asset.
       - name: Publish signed update metadata
@@ -995,7 +996,7 @@ jobs:
           prerelease: true
           fail_on_unmatched_files: true
           tag_name: ${{ env.TAG_NAME }}
-          files: ./rustdesk-update.json
+          files: ./sealdesk-update.json
 
   publish_unsigned:
     needs:

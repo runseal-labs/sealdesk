@@ -6,7 +6,7 @@ use std::{io::Read, path::Path};
 
 const UPDATE_SIDECAR_MAX_BYTES: u64 = 1024 * 1024;
 const PUBLIC_MACOS_BUNDLE_ID: &str = "com.runseal.sealdesk";
-const MACOS_UPDATE_USAGE: &str = "Usage: --update [update.dmg --metadata rustdesk-update.json --signature rustdesk-update.json.sig]";
+const MACOS_UPDATE_USAGE: &str = "Usage: --update [update.dmg --metadata sealdesk-update.json --signature sealdesk-update.json.sig]";
 const LEGACY_UPDATE_WARNING: &str =
     "legacy offline update: signed metadata not found; release hash was not verified";
 
@@ -175,9 +175,9 @@ mod tests {
                 "--update",
                 "update.dmg",
                 "--metadata",
-                "rustdesk-update.json",
+                "sealdesk-update.json",
                 "--signature",
-                "rustdesk-update.json.sig",
+                "sealdesk-update.json.sig",
             ]))
             .unwrap()
         );
@@ -186,7 +186,7 @@ mod tests {
     #[test]
     fn resolves_public_and_custom_update_package_identity() {
         assert_eq!(
-            "rustdesk",
+            "sealdesk",
             expected_update_package_id(false, Some("com.runseal.sealdesk".to_owned())).unwrap()
         );
         assert_eq!(

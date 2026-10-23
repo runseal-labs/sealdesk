@@ -11,7 +11,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
 SCRIPT = Path(__file__).with_name("generate_update_metadata.py")
-OFFICIAL_RELEASE_BASE_URL = "https://github.com/rustdesk/rustdesk/releases/download"
+OFFICIAL_RELEASE_BASE_URL = "https://github.com/runseal-labs/sealdesk/releases/download"
 
 
 class GenerateUpdateMetadataTest(unittest.TestCase):
@@ -127,7 +127,7 @@ class GenerateUpdateMetadataTest(unittest.TestCase):
         key_bytes = base64.b64decode(public_key or self.public_key)
         source = self.root / "update_metadata.rs"
         source.write_text(
-            'TrustedUpdateKey { key_id: "2026-ed25519-main", public_key: ['
+            'TrustedUpdateKey { key_id: "sealdesk-2026-ed25519", public_key: ['
             + ",".join(str(byte) for byte in key_bytes)
             + "] }",
             encoding="utf-8",

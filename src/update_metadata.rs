@@ -21,18 +21,18 @@ use artifact::{validate_artifact, validate_artifact_file_name, ArtifactUrlPolicy
 pub(crate) use offline::{verify_offline_update_metadata, OfflineUpdateMetadataRequirements};
 
 const UPDATE_METADATA_SIGNATURE_CONTEXT: &[u8] = b"RustDesk update metadata v1\n";
-const UPDATE_APP: &str = "rustdesk";
-pub(crate) const PUBLIC_UPDATE_PACKAGE_ID: &str = "rustdesk";
+const UPDATE_APP: &str = "sealdesk";
+pub(crate) const PUBLIC_UPDATE_PACKAGE_ID: &str = "sealdesk";
 const METADATA_SCHEMA_VERSION: u32 = 1;
 const SIGNATURE_SCHEMA_VERSION: u32 = 1;
 const SIGNATURE_ALGORITHM: &str = "ed25519";
 
 const TRUSTED_UPDATE_KEYS: &[TrustedUpdateKey] = &[TrustedUpdateKey {
-    key_id: "2026-ed25519-main",
+    key_id: "sealdesk-2026-ed25519",
     algorithm: SIGNATURE_ALGORITHM,
     public_key: [
-        118, 252, 116, 215, 49, 217, 220, 109, 145, 119, 210, 101, 225, 198, 63, 2, 41, 127, 197,
-        127, 52, 251, 6, 204, 125, 117, 96, 204, 187, 166, 85, 59,
+        20, 46, 187, 113, 2, 68, 198, 243, 127, 242, 248, 133, 28, 213, 100, 245, 207, 57, 153,
+        193, 54, 61, 51, 254, 5, 115, 173, 33, 245, 116, 192, 49,
     ],
 }];
 
