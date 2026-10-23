@@ -572,6 +572,12 @@ pub async fn start_server(is_server: bool, no_server: bool) {
         std::thread::spawn(move || {
             if let Err(err) = crate::ipc::start("") {
                 log::error!("Failed to start ipc: {}", err);
+                // Lost the bind race to a live listener (e.g. the UI): leave it running.
+                #[cfg(any(target_os = "linux", target_os = "macos"))]
+                if crate::platform::ipc_socket_is_listening(&hbb_common::config::Config::ipc_path("")) {
+                    log::info!("IPC listener already running; not replacing it");
+                    std::process::exit(0);
+                }
                 if crate::is_server() {
                     log::error!("ipc is occupied by another process, try kill it");
                     std::thread::spawn(stop_main_window_process).join().ok();

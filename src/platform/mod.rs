@@ -26,7 +26,7 @@ pub mod gtk_sudo;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod ipc_listen;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-pub use ipc_listen::ipc_socket_is_listening;
+pub use ipc_listen::{ipc_socket_is_listening, server_defers_to_live_ipc};
 
 pub mod login_item;
 

@@ -518,25 +518,10 @@ pub fn core_main() -> Option<CoreMainAction> {
             return None;
         } else if args[0] == "--server" {
             log::info!("start --server with user {}", crate::username());
-            // The UI process (or an earlier server) already owns this socket.
-            // Binding fails closed, and `start_server` then sends `Data::Close`,
-            // which quits that UI. Linux also `pkill`s `--tray` before the bind.
-            // Leave the existing listener alone. On macOS the GUI skips `--tray`
-            // while this `--server` exists. Run the tray here only when no other
-            // same-user `--server` or `--tray` already has it; an earlier `--server`
-            // runs `start_tray` on its own main thread.
-            #[cfg(target_os = "linux")]
-            if crate::platform::ipc_socket_is_listening(&hbb_common::config::Config::ipc_path("")) {
-                log::info!("IPC listener already running; not replacing it");
-                return None;
-            }
-            #[cfg(target_os = "macos")]
-            if crate::platform::ipc_socket_is_listening(&hbb_common::config::Config::ipc_path("")) {
-                log::info!("IPC listener already running; not replacing it");
-                if !crate::check_process("--server", true) && !crate::check_process("--tray", true)
-                {
-                    crate::tray::start_tray();
-                }
+            // Leave a live IPC listener (UI or earlier server) alone; see
+            // `platform::server_defers_to_live_ipc`.
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            if crate::platform::server_defers_to_live_ipc() {
                 return None;
             }
             #[cfg(target_os = "linux")]

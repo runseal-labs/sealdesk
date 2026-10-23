@@ -5,6 +5,24 @@ pub fn ipc_socket_is_listening(path: &str) -> bool {
     UnixStream::connect(path).is_ok()
 }
 
+/// `--server` must not replace a live IPC listener: binding fails closed and
+/// `start_server` then sends `Data::Close`, which quits the UI. Linux also
+/// `pkill`s `--tray` before the bind. Returns true when the caller should exit.
+/// On macOS the GUI skips `--tray` while this `--server` exists, so run the
+/// tray here unless another same-user `--server` or `--tray` already has it
+/// (an earlier `--server` runs `start_tray` on its own main thread).
+pub fn server_defers_to_live_ipc() -> bool {
+    if !ipc_socket_is_listening(&hbb_common::config::Config::ipc_path("")) {
+        return false;
+    }
+    hbb_common::log::info!("IPC listener already running; not replacing it");
+    #[cfg(target_os = "macos")]
+    if !crate::check_process("--server", true) && !crate::check_process("--tray", true) {
+        crate::tray::start_tray();
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::ipc_socket_is_listening;
