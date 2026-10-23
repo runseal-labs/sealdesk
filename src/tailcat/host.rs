@@ -203,6 +203,11 @@ pub(crate) fn request_mode(mode: &str) -> hbb_common::ResultType<()> {
     host_request_action(mode, outgoing_only, true)?;
     let absent = match crate::ipc::get_config(keys::OPTION_SEALDESK_HOST_MODE) {
         Err(error) if daemon_absent(&error) => true,
+        // Only the first probe is marked. A later timeout (set/confirm) must
+        // stay an error so startup does not skip `set_mode`.
+        Err(error) if cfg!(unix) && peer_did_not_answer(&error) => {
+            return Err(error.context(StartupProbeUnanswered));
+        }
         Err(error) => return Err(error),
         Ok(_) => false,
     };
@@ -241,6 +246,69 @@ pub(crate) fn request_mode(mode: &str) -> hbb_common::ResultType<()> {
         }
         std::thread::sleep(Duration::from_millis(100));
     }
+}
+
+/// Ordinary host startup continues when the first host-mode probe times out,
+/// so this process can open its window. Unix only: on Windows that timeout is
+/// also a live pipe with no free instance, and continuing makes
+/// `start_server(false)` fall through to a competing `first_pipe_instance`
+/// bind, which calls `process::exit`. Control-only launches and any later
+/// timeout return the error unchanged.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub(crate) fn request_startup_mode(mode: &str) -> hbb_common::ResultType<()> {
+    finish_startup_request(mode, request_mode(mode))
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn finish_startup_request(
+    mode: &str,
+    result: hbb_common::ResultType<()>,
+) -> hbb_common::ResultType<()> {
+    if let Err(error) = &result {
+        if host_startup_swallows_probe(cfg!(unix), mode, error) {
+            hbb_common::log::error!(
+                "Existing instance did not answer host-mode IPC within the timeout ({error}); starting this instance"
+            );
+            return Ok(());
+        }
+    }
+    result
+}
+
+/// `unix_ipc` is false on Windows. Swallowing the probe there is followed by
+/// `start_server(false)`, whose connect hits the same timeout and then binds
+/// a second pipe server.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn host_startup_swallows_probe(
+    unix_ipc: bool,
+    mode: &str,
+    error: &hbb_common::anyhow::Error,
+) -> bool {
+    unix_ipc && mode == "host" && error.downcast_ref::<StartupProbeUnanswered>().is_some()
+}
+
+/// Marks the initial host-mode probe timeout. Display stays "deadline has elapsed".
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[derive(Debug)]
+struct StartupProbeUnanswered;
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+impl std::fmt::Display for StartupProbeUnanswered {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("deadline has elapsed")
+    }
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+impl std::error::Error for StartupProbeUnanswered {}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn peer_did_not_answer(error: &hbb_common::anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<hbb_common::tokio::time::error::Elapsed>()
+            .is_some()
+    })
 }
 
 #[cfg(all(target_os = "linux", feature = "flutter"))]
@@ -458,6 +526,55 @@ mod tests {
         assert!(!daemon_absent(&hbb_common::anyhow::anyhow!(
             "invalid response"
         )));
+    }
+
+    fn deadline_elapsed() -> hbb_common::anyhow::Error {
+        let runtime = hbb_common::tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap();
+        runtime
+            .block_on(async {
+                hbb_common::tokio::time::timeout(
+                    std::time::Duration::ZERO,
+                    std::future::pending::<()>(),
+                )
+                .await
+                .unwrap_err()
+            })
+            .into()
+    }
+
+    #[test]
+    fn unanswered_peer_continues_host_startup() {
+        let elapsed = deadline_elapsed();
+        assert!(peer_did_not_answer(&elapsed));
+        assert!(!peer_did_not_answer(&hbb_common::anyhow::anyhow!(
+            "refused"
+        )));
+
+        let probe = elapsed.context(StartupProbeUnanswered);
+        assert_eq!(probe.to_string(), "deadline has elapsed");
+        assert!(host_startup_swallows_probe(true, "host", &probe));
+        assert!(!host_startup_swallows_probe(false, "host", &probe));
+        assert!(!host_startup_swallows_probe(true, "control", &probe));
+        assert_eq!(
+            finish_startup_request("host", Err(probe)).is_ok(),
+            cfg!(unix)
+        );
+
+        assert!(!host_startup_swallows_probe(
+            true,
+            "host",
+            &deadline_elapsed()
+        ));
+        assert!(finish_startup_request("host", Err(deadline_elapsed())).is_err());
+        assert!(finish_startup_request(
+            "control",
+            Err(deadline_elapsed().context(StartupProbeUnanswered))
+        )
+        .is_err());
+        assert!(finish_startup_request("host", Ok(())).is_ok());
     }
 }
 
