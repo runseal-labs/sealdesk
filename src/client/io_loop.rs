@@ -199,7 +199,9 @@ impl<T: InvokeUiSession> Remote<T> {
             return;
         }
         match connection {
-            Ok(((mut peer, direct, _pk, stream_type), _)) => {
+            Ok(((mut peer, direct, direct_host_key, stream_type), _)) => {
+                let direct_host_key =
+                    direct_host_key.and_then(|bytes| String::from_utf8(bytes).ok());
                 self.handler
                     .connection_round_state
                     .lock()
@@ -208,12 +210,20 @@ impl<T: InvokeUiSession> Remote<T> {
                 // A tailcat tunnel is WireGuard end to end, keyed to the peer's address (its
                 // public key plus a pre-shared key), so it is secured without RustDesk's own key
                 // exchange, which needs the rendezvous server's signature.
-                let is_secured =
+                let transport_secured =
                     peer.is_secured() || crate::tailcat::is_addr(&self.handler.get_id());
+                // A typed host is verified only when its key matches the one saved for that address.
+                let shows_verified =
+                    crate::lan::shows_verified_identity(stream_type, transport_secured);
                 self.handler
-                    .set_connection_type(is_secured, direct, stream_type); // flutter -> connection_ready
-                if !is_secured
-                    && !client::confirm_insecure_connection(&self.handler, &mut self.receiver).await
+                    .set_connection_type(shows_verified, direct, stream_type); // flutter -> connection_ready
+                if !shows_verified
+                    && !client::confirm_insecure_connection(
+                        &self.handler,
+                        &mut self.receiver,
+                        direct_host_key.as_deref(),
+                    )
+                    .await
                 {
                     self.send_close_reason(&mut peer, "").await;
                     self.handle_disconnected(round);

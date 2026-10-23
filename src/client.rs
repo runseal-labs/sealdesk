@@ -25,7 +25,6 @@ use std::{
 use uuid::Uuid;
 
 use crate::{
-    check_port,
     common::input::{MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT, MOUSE_TYPE_DOWN, MOUSE_TYPE_UP},
     is_keyboard_mode_supported,
     ui_interface::{get_builtin_option, resolve_avatar_url, use_texture_render},
@@ -51,7 +50,6 @@ use hbb_common::{
     rendezvous_proto::*,
     rand,
     sha2::{Digest, Sha256},
-    socket_client::{connect_tcp, connect_tcp_local},
     sodiumoxide::base64,
     tokio::{
         self,
@@ -208,17 +206,24 @@ impl Client {
         if config::is_incoming_only() && !is_switch_sides_back(conn_type, &interface).await {
             bail!("Incoming only mode");
         }
-        if crate::lan::is_addr(peer) {
-            let stream = hbb_common::tokio::time::timeout(std::time::Duration::from_millis(CONNECT_TIMEOUT), crate::lan::connect(peer)).await??;
-            return Ok(((stream, Some(true), None, "LAN"), (0, String::new())));
-        }
-        if hbb_common::is_ip_str(peer) {
-            let stream = connect_tcp_local(
-                check_port(peer, i32::from(crate::lan::TCP_PORT)),
-                None,
-                CONNECT_TIMEOUT,
-            ).await?;
-            return Ok(((stream, Some(true), None, "TCP"), (0, String::new())));
+        if crate::lan::is_pinned_or_typed(peer) {
+            // A typed address is not `lan:<endpoint>/<key>`. It still sends the
+            // SealDesk preface. A pinned dial that fails does not fall through.
+            let (stream, stream_type, direct_host_key) = hbb_common::tokio::time::timeout(
+                std::time::Duration::from_millis(CONNECT_TIMEOUT),
+                crate::lan::connect_pinned_or_typed(peer),
+            )
+            .await??;
+            // This slot is the host key negotiated by this dial, and only while it still needs confirmation.
+            return Ok((
+                (
+                    stream,
+                    Some(true),
+                    direct_host_key.map(String::into_bytes),
+                    stream_type,
+                ),
+                (0, String::new()),
+            ));
         }
         // A peer is reached only through its tailcat address; the tunnel does the rest.
         if !crate::tailcat::is_addr(peer) {
@@ -3286,20 +3291,42 @@ pub enum Data {
 pub async fn confirm_insecure_connection(
     interface: &impl Interface,
     receiver: &mut UnboundedReceiver<Data>,
+    direct_host_key: Option<&str>,
 ) -> bool {
-    interface.msgbox(
-        "insecure-connection-nocancel-hasclose",
-        "Insecure Connection",
-        if hbb_common::is_ip_str(&interface.get_id()) {
-            "Direct and unencrypted connection"
-        } else {
-            "conn-e2ee-unavailable-tip"
-        },
-        "",
-    );
+    let id = interface.get_id();
+    let prompt =
+        direct_host_key.and_then(|key| crate::lan::direct_confirm_prompt(&id, key));
+    if let Some(prompt) = prompt.as_ref() {
+        interface.msgbox(prompt.msg_type, prompt.title, &prompt.text, "");
+    } else {
+        let typed_direct = crate::lan::is_typed_direct(&id);
+        interface.msgbox(
+            "insecure-connection-nocancel-hasclose",
+            if typed_direct {
+                "Unverified identity"
+            } else {
+                "Insecure Connection"
+            },
+            if typed_direct {
+                "Unverified identity"
+            } else if hbb_common::is_ip_str(&id) {
+                "Direct and unencrypted connection"
+            } else {
+                "conn-e2ee-unavailable-tip"
+            },
+            "",
+        );
+    }
     while let Some(data) = receiver.recv().await {
         match data {
-            Data::ContinueInsecureConnection => return true,
+            Data::ContinueInsecureConnection => {
+                if let Some(key) = direct_host_key {
+                    if prompt.is_some() {
+                        crate::lan::accept_direct_host(&id, key);
+                    }
+                }
+                return true;
+            }
             Data::RejectInsecureConnection => return false,
             Data::Close => return false,
             _ => {}

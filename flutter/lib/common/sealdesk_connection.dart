@@ -8,6 +8,8 @@ String? sealDeskConnectionLabel(String streamType) {
       return 'DERP relay';
     case 'LAN':
       return 'LAN direct';
+    case 'Direct':
+      return 'Unverified identity';
     default:
       return null;
   }
@@ -16,6 +18,9 @@ String? sealDeskConnectionLabel(String streamType) {
 String? sealDeskConnectionDescription(String streamType) {
   final label = sealDeskConnectionLabel(streamType);
   if (label == null) return null;
+  if (streamType == 'Direct') {
+    return label;
+  }
   if (streamType == 'LAN') {
     return '$label · encrypted connection';
   }
@@ -35,10 +40,24 @@ String sealDeskRelaySuffix(String streamType, String directToken) {
     case 'Tailcat/DERP':
       return '_relay';
     case 'LAN':
+    case 'Direct':
       return '';
     default:
       return directToken == '_relay' ? '_relay' : '';
   }
+}
+
+bool sealDeskConnectionShowsSecureGlyph(String streamType) {
+  return streamType != 'Direct';
+}
+
+/// Filled button on the unverified-host dialog. A changed key defaults to
+/// cancel; the first confirmation still uses Disconnect.
+String sealDeskInsecureDismissLabel(String type) {
+  if (type.contains('changed')) {
+    return 'Cancel';
+  }
+  return 'Disconnect';
 }
 
 String sealDeskConnectionAsset(

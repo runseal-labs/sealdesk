@@ -22,6 +22,17 @@ void main() {
         'LAN direct · encrypted connection');
     expect(sealDeskRelaySuffix('LAN', ''), '');
     expect(sealDeskConnectionAsset('secure', 'LAN', ''), 'assets/secure.svg');
+    expect(sealDeskConnectionShowsSecureGlyph('LAN'), isTrue);
+    expect(sealDeskConnectionLabel('Direct'), 'Unverified identity');
+    expect(sealDeskConnectionDescription('Direct'), 'Unverified identity');
+    expect(sealDeskConnectionDescription('Direct'), isNot(contains('encrypted')));
+    expect(sealDeskConnectionShowsSecureGlyph('Direct'), isFalse);
+    expect(sealDeskRelaySuffix('Direct', ''), '');
+    expect(sealDeskInsecureDismissLabel('insecure-connection-nocancel-hasclose'),
+        'Disconnect');
+    expect(
+        sealDeskInsecureDismissLabel('insecure-connection-changed-error'),
+        'Cancel');
   });
 
   test('path label and glyph follow unknown, DERP, P2P, then DERP again', () {
