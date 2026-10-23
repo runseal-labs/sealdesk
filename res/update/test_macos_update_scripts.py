@@ -40,8 +40,12 @@ class MacosUpdateScriptTests(unittest.TestCase):
                     listener.listen(1)
                     script = DAEMON_SCRIPT.split("  set sh to", 1)[0]
                     script += f"  return {check}\nend run\n"
-                    script = script.replace("/tmp/RustDesk-service/ipc_service", path)
-                    script = script.replace("/tmp/RustDesk-$uid/ipc", path)
+                    for old in (
+                        "/tmp/SealDesk-service/ipc_service",
+                        "/tmp/SealDesk-$uid/ipc",
+                    ):
+                        self.assertIn(old, script, f"replacement target not found: {old}")
+                        script = script.replace(old, path)
                     command = subprocess.check_output(
                         ["osascript", "-e", script, "test", "0", "", ""],
                         text=True,
