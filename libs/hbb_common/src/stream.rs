@@ -63,6 +63,16 @@ impl Stream {
     }
 
     #[inline]
+    pub fn set_login_binder(&mut self, binder: [u8; 32]) {
+        self.0.set_login_binder(binder)
+    }
+
+    #[inline]
+    pub fn login_binder(&self) -> Option<[u8; 32]> {
+        self.0.login_binder()
+    }
+
+    #[inline]
     pub fn is_secured(&self) -> bool {
         self.0.is_secured()
     }

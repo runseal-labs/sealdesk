@@ -66,6 +66,7 @@ pub struct FramedStream(
     pub SocketAddr,
     pub Option<Encrypt>,
     pub u64,
+    Option<[u8; 32]>,
 );
 
 impl Deref for FramedStream {
@@ -137,6 +138,7 @@ impl FramedStream {
                         addr,
                         None,
                         0,
+                        None,
                     ));
                 }
             }
@@ -158,6 +160,7 @@ impl FramedStream {
             addr,
             None,
             0,
+            None,
         )
     }
 
@@ -229,6 +232,14 @@ impl FramedStream {
     ) -> ResultType<()> {
         self.2 = Some(Encrypt::new_split(key, is_initiator, t)?);
         Ok(())
+    }
+
+    pub fn set_login_binder(&mut self, binder: [u8; 32]) {
+        self.4 = Some(binder);
+    }
+
+    pub fn login_binder(&self) -> Option<[u8; 32]> {
+        self.4
     }
 
     fn get_nonce(seqnum: u64) -> Nonce {
