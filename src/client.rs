@@ -3061,10 +3061,11 @@ pub async fn handle_hash(
         interface.msgbox("input-password", "Password Required", "", "");
         Vec::new()
     } else {
-        let mut hasher = Sha256::new();
-        hasher.update(&password);
-        hasher.update(&hash.challenge);
-        hasher.finalize()[..].into()
+        crate::lan::password_response(
+            &password,
+            hash.challenge.as_bytes(),
+            peer.login_binder().as_ref(),
+        )
     };
 
     send_login(lc.clone(), String::new(), String::new(), password, peer).await;
@@ -3157,10 +3158,11 @@ pub async fn handle_login_from_ui(
         res[..].into()
     };
     lc.write().unwrap().password = hash_password.clone();
-    let mut hasher2 = Sha256::new();
-    hasher2.update(&hash_password[..]);
-    hasher2.update(&lc.read().unwrap().hash.challenge);
-    hash_password = hasher2.finalize()[..].to_vec();
+    hash_password = crate::lan::password_response(
+        &hash_password,
+        lc.read().unwrap().hash.challenge.as_bytes(),
+        peer.login_binder().as_ref(),
+    );
 
     send_login(lc.clone(), os_username, os_password, hash_password, peer).await;
 }

@@ -2260,14 +2260,16 @@ impl Connection {
     }
 
     fn verify_h1(&self, h1: &[u8]) -> bool {
-        let mut hasher2 = Sha256::new();
-        hasher2.update(h1);
-        hasher2.update(self.hash.challenge.as_bytes());
+        let response = crate::lan::password_response(
+            h1,
+            self.hash.challenge.as_bytes(),
+            self.stream.login_binder().as_ref(),
+        );
         // A normal `==` on slices may short-circuit on the first mismatch, which can leak how many leading
         // bytes matched via timing. In typical remote scenarios this is difficult to exploit due to network
         // jitter, changing challenges, and login attempt throttling, but a constant-time comparison here is
         // low-cost defensive programming.
-        constant_time_eq(&hasher2.finalize()[..], &self.lr.password[..])
+        constant_time_eq(&response, &self.lr.password[..])
     }
 
     fn validate_password_plain(&self, password: &str) -> bool {
@@ -2494,6 +2496,13 @@ impl Connection {
         }
     }
 
+    fn trusted_device_lan_ok(stored: &str, lan_peer: Option<&str>) -> bool {
+        match lan_peer {
+            Some(key) => stored == key,
+            None => true,
+        }
+    }
+
     #[inline]
     fn enable_trusted_devices() -> bool {
         config::option2bool(
@@ -2609,6 +2618,7 @@ impl Connection {
                     && device.id == lr.my_id
                     && device.name == lr.my_name
                     && device.platform == lr.my_platform
+                    && Self::trusted_device_lan_ok(&device.lan_peer, self.lan_peer.as_deref())
                 {
                     log::info!("2FA bypassed by trusted devices");
                     self.require_2fa = None;
@@ -2921,6 +2931,7 @@ impl Connection {
                                 id: self.lr.my_id.clone(),
                                 name: self.lr.my_name.clone(),
                                 platform: self.lr.my_platform.clone(),
+                                lan_peer: self.lan_peer.clone().unwrap_or_default(),
                             });
                         }
                     } else {
@@ -6916,6 +6927,21 @@ mod test {
         UNAUTHORIZED_CONNS.lock().unwrap().len()
     }
 
+
+    #[test]
+    fn trusted_device_lan_key_must_match_and_old_records_do_not() {
+        assert!(Connection::trusted_device_lan_ok("aa", Some("aa")));
+        assert!(!Connection::trusted_device_lan_ok("aa", Some("bb")));
+        assert!(!Connection::trusted_device_lan_ok("", Some("aa")));
+        assert!(Connection::trusted_device_lan_ok("", None));
+        assert!(Connection::trusted_device_lan_ok("aa", None));
+        let old: TrustedDevice = serde_json::from_str(
+            r#"{"hwid":[1],"time":1,"id":"a","name":"b","platform":"c"}"#,
+        )
+        .unwrap();
+        assert!(old.lan_peer.is_empty());
+        assert!(!Connection::trusted_device_lan_ok(&old.lan_peer, Some("aa")));
+    }
 
     #[test]
     fn lan_resume_is_key_bound_and_revocation_clears_recovery() {

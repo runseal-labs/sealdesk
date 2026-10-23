@@ -9,7 +9,8 @@ use hbb_common::{
     rendezvous_proto::{rendezvous_message, PeerDiscovery, RendezvousMessage},
     sodiumoxide::{
         crypto::{
-            aead::xchacha20poly1305_ietf, box_, scalarmult::curve25519, secretbox, sign,
+            aead::xchacha20poly1305_ietf, box_, generichash, scalarmult::curve25519, secretbox,
+            sign,
         },
         randombytes,
     },
@@ -595,6 +596,56 @@ async fn receive(stream: &mut Stream) -> ResultType<Vec<u8>> {
         .context("LAN handshake closed")??
         .to_vec())
 }
+const LOGIN_BIND_DOMAIN: &[u8] = b"sealdesk-login-bind-v1";
+
+fn login_binder_for(
+    shared: &[u8; 32],
+    local: &Hello,
+    remote: &Hello,
+    initiator: bool,
+) -> ResultType<[u8; 32]> {
+    let (host, client) = if initiator {
+        (remote, local)
+    } else {
+        (local, remote)
+    };
+    let parts = [
+        host.key.as_slice(),
+        client.key.as_slice(),
+        host.ephemeral.as_slice(),
+        client.ephemeral.as_slice(),
+        host.nonce.as_slice(),
+        client.nonce.as_slice(),
+    ];
+    if parts.iter().any(|part| part.len() != 32) {
+        bail!("invalid LAN handshake");
+    }
+    let failed = |_| anyhow!("login binder failed");
+    let mut state = generichash::State::new(Some(32), Some(shared)).map_err(failed)?;
+    state.update(LOGIN_BIND_DOMAIN).map_err(failed)?;
+    for part in parts {
+        state.update(part).map_err(failed)?;
+    }
+    let mut binder = [0u8; 32];
+    binder.copy_from_slice(state.finalize().map_err(failed)?.as_ref());
+    Ok(binder)
+}
+
+pub(crate) fn password_response(
+    h1: &[u8],
+    challenge: &[u8],
+    binder: Option<&[u8; 32]>,
+) -> Vec<u8> {
+    use hbb_common::sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(h1);
+    hasher.update(challenge);
+    if let Some(binder) = binder {
+        hasher.update(binder);
+    }
+    hasher.finalize().to_vec()
+}
+
 fn encrypt(
     stream: &mut Stream,
     local: &Hello,
@@ -608,6 +659,8 @@ fn encrypt(
     let point = curve25519::GroupElement(peer.0);
     let shared = curve25519::scalarmult(&scalar, &point)
         .map_err(|_| anyhow!("invalid ephemeral public key"))?;
+    // Traffic subkeys must not be reused as a login key.
+    let binder = login_binder_for(&shared.0, local, remote, initiator)?;
     let key = secretbox::Key(shared.0);
     let (client, server) = if initiator {
         (&local.ephemeral, &remote.ephemeral)
@@ -623,7 +676,9 @@ fn encrypt(
             advertised: 1,
             picked: 1,
         },
-    )
+    )?;
+    stream.set_login_binder(binder);
+    Ok(())
 }
 pub async fn accept_shared(stream: &mut Stream) -> ResultType<Option<String>> {
     stream.set_max_packet_length(FRAME_LIMIT);
@@ -4180,6 +4235,65 @@ mod tests {
             bound,
             vec![SocketAddr::new("192.168.1.10".parse().unwrap(), TCP_PORT)]
         );
+    }
+
+    fn hello_parts(key: [u8; 32], ephemeral: [u8; 32], nonce: [u8; 32]) -> Hello {
+        Hello {
+            key: key.to_vec(),
+            ephemeral: ephemeral.to_vec(),
+            nonce: nonce.to_vec(),
+            signature: vec![],
+        }
+    }
+
+    #[test]
+    fn login_binder_agrees_across_roles_and_differs_per_hop() {
+        let host = hello_parts([1u8; 32], [2u8; 32], [3u8; 32]);
+        let client = hello_parts([4u8; 32], [5u8; 32], [6u8; 32]);
+        let shared = [7u8; 32];
+        let from_client = login_binder_for(&shared, &client, &host, true).unwrap();
+        let from_host = login_binder_for(&shared, &host, &client, false).unwrap();
+        assert_eq!(from_client, from_host);
+        let other_hop = [8u8; 32];
+        assert_ne!(
+            from_client,
+            login_binder_for(&other_hop, &client, &host, true).unwrap()
+        );
+    }
+
+    #[test]
+    fn bound_password_response_is_required_only_when_a_binder_exists() {
+        let h1 = b"h1";
+        let challenge = b"challenge";
+        let binder = [9u8; 32];
+        let bound = password_response(h1, challenge, Some(&binder));
+        let unbound = password_response(h1, challenge, None);
+        assert_ne!(bound, unbound);
+        let accepts = |presented: &[u8], binder: Option<&[u8; 32]>| {
+            presented == password_response(h1, challenge, binder)
+        };
+        assert!(accepts(&bound, Some(&binder)));
+        assert!(!accepts(&unbound, Some(&binder)));
+        assert!(accepts(&unbound, None));
+        assert!(!accepts(&bound, None));
+    }
+
+    #[tokio::test]
+    async fn lan_login_binder_matches_on_both_peers() {
+        let (_lock, _reset) = lan_test_env();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let local = socket.local_addr().unwrap();
+            let mut stream = Stream::from(socket, local);
+            accept_shared(&mut stream).await.unwrap().unwrap();
+            stream.login_binder().unwrap()
+        });
+        let (public, _) = identity().unwrap();
+        let pinned = format!("lan:{addr}/{}", hex::encode(public.0));
+        let client = connect(&pinned).await.unwrap();
+        assert_eq!(client.login_binder().unwrap(), server.await.unwrap());
     }
 
     #[test]

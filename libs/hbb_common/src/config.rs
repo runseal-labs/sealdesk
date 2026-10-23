@@ -2433,6 +2433,8 @@ pub struct TrustedDevice {
     pub id: String,
     pub name: String,
     pub platform: String,
+    #[serde(default)]
+    pub lan_peer: String,
 }
 
 impl TrustedDevice {
