@@ -569,9 +569,29 @@ pub async fn start_server(is_server: bool, no_server: bool) {
 
     if is_server {
         crate::common::set_server_running(true);
+        // Linux/macOS: do not start the host until this process owns the main IPC
+        // socket. `ipc::start` only returns on bind failure; the signal is how we
+        // tell a successful bind from a lost race without exiting the process.
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        let (ipc_bound_tx, ipc_bound_rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            crate::ipc::arm_ipc_bound_notify(ipc_bound_tx);
             if let Err(err) = crate::ipc::start("") {
                 log::error!("Failed to start ipc: {}", err);
+                #[cfg(any(target_os = "linux", target_os = "macos"))]
+                if crate::platform::ipc_socket_is_listening(&hbb_common::config::Config::ipc_path(
+                    "",
+                )) {
+                    log::info!("IPC listener already running; not replacing it");
+                    // Returning drops the sender so `start_server` stops before the host
+                    // starts. macOS `--server` exits only when another `--server` is live.
+                    if !crate::platform::should_exit_process_after_lost_ipc_bind(crate::is_server())
+                    {
+                        return;
+                    }
+                    std::process::exit(0);
+                }
                 if crate::is_server() {
                     log::error!("ipc is occupied by another process, try kill it");
                     std::thread::spawn(stop_main_window_process).join().ok();
@@ -579,6 +599,16 @@ pub async fn start_server(is_server: bool, no_server: bool) {
                 std::process::exit(-1);
             }
         });
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        {
+            let bound = tokio::task::spawn_blocking(move || ipc_bound_rx.recv().is_ok())
+                .await
+                .unwrap_or(false);
+            if !bound {
+                crate::common::set_server_running(false);
+                return;
+            }
+        }
         // Warm the DRM availability cache before any client connects, so the first connection does
         // not race a cold `_drm` probe and ship an empty display list ("No displays" + retry).
         // X11 is skipped -- probing there makes the root service open DRM readers for a path this

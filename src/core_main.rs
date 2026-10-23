@@ -518,6 +518,12 @@ pub fn core_main() -> Option<CoreMainAction> {
             return None;
         } else if args[0] == "--server" {
             log::info!("start --server with user {}", crate::username());
+            // Leave a live IPC listener (UI or earlier server) alone; see
+            // `platform::server_defers_to_live_ipc`.
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            if crate::platform::server_defers_to_live_ipc() {
+                return None;
+            }
             #[cfg(target_os = "linux")]
             {
                 // Upstream reaps a previous tray, then always starts a new one.

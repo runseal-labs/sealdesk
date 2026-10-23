@@ -104,6 +104,25 @@ pub static EXIT_RECV_CLOSE: AtomicBool = AtomicBool::new(true);
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 thread_local! {
     static USE_USER_MAIN_IPC: Cell<bool> = Cell::new(false);
+    // Armed only by `start_server`'s IPC thread. Fired once the main listener is bound
+    // so host startup can wait without a second probe (a probe cannot tell our socket
+    // from the one that won the race).
+    static IPC_BOUND_TX: Cell<Option<std::sync::mpsc::Sender<()>>> = Cell::new(None);
+}
+
+/// Ask `start` to signal after this thread's listener is bound.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub fn arm_ipc_bound_notify(tx: std::sync::mpsc::Sender<()>) {
+    IPC_BOUND_TX.with(|slot| slot.set(Some(tx)));
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn fire_ipc_bound_notify() {
+    IPC_BOUND_TX.with(|slot| {
+        if let Some(tx) = slot.take() {
+            let _ = tx.send(());
+        }
+    });
 }
 
 #[must_use = "bind this guard to a local variable to keep the IPC scope active"]
@@ -595,6 +614,8 @@ fn legacy_hot_measured() -> bool {
 #[tokio::main(flavor = "current_thread")]
 pub async fn start(postfix: &str) -> ResultType<()> {
     let mut incoming = new_listener(postfix).await?;
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fire_ipc_bound_notify();
     loop {
         if let Some(result) = incoming.next().await {
             match result {
