@@ -945,8 +945,11 @@ async fn fetch_newer_update_url() -> ResultType<Option<String>> {
     let client =
         crate::hbbs_http::create_http_client_async_with_url_strict(GITHUB_LATEST_RELEASE_URL)
             .await?;
+    // GitHub REST rejects a missing User-Agent with 403, which this check treats as no update.
     let response = client
         .get(GITHUB_LATEST_RELEASE_URL)
+        .header("User-Agent", format!("SealDesk/{}", crate::VERSION))
+        .header("Accept", "application/vnd.github+json")
         .send()
         .await
         .map_err(|err| anyhow!("Software update check failed: {err}"))?;
@@ -965,7 +968,6 @@ fn apply_software_update_url(update_url: Option<String>) {
     }
 }
 
-#[tokio::main(flavor = "current_thread")]
 pub async fn do_check_software_update() -> ResultType<()> {
     if is_custom_client() {
         clear_software_update_url();
@@ -989,8 +991,18 @@ pub fn check_software_update() {
     }
     let opt = LocalConfig::get_option(keys::OPTION_ENABLE_CHECK_UPDATE);
     if config::option2bool(keys::OPTION_ENABLE_CHECK_UPDATE, &opt) {
-        std::thread::spawn(move || allow_err!(do_check_software_update()));
+        std::thread::spawn(move || match software_update_runtime() {
+            Ok(rt) => allow_err!(rt.block_on(do_check_software_update())),
+            Err(err) => log::error!("Failed to create software update runtime: {err}"),
+        });
     }
+}
+
+pub(crate) fn software_update_runtime() -> ResultType<tokio::runtime::Runtime> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|err| anyhow!("failed to create update-check runtime: {err}"))
 }
 
 #[inline]
