@@ -243,11 +243,18 @@ pub(crate) fn request_mode(mode: &str) -> hbb_common::ResultType<()> {
     }
 }
 
-/// A running instance that accepts IPC but never replies (for example it is
-/// stopped) is not a reason to quit. The caller opens this process's window.
+/// Ordinary host startup continues when the peer accepts IPC and never replies,
+/// so this process can open its window. Control-only launches (`--control`,
+/// `--no-server`, outgoing-only) return that error unchanged; swallowing it
+/// would start the UI while the frozen daemon kept host mode.
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) fn request_startup_mode(mode: &str) -> hbb_common::ResultType<()> {
-    continue_after_unanswered_peer(request_mode(mode))
+    let result = request_mode(mode);
+    if mode == "host" {
+        continue_after_unanswered_peer(result)
+    } else {
+        result
+    }
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -492,28 +499,144 @@ mod tests {
         )));
     }
 
+    /// `APP_NAME` selects the IPC socket, and other tests in this process read it
+    /// too, so the peer lives in a child run of this same test.
+    #[cfg(unix)]
     #[test]
-    fn unanswered_ipc_still_starts_and_other_errors_do_not() {
-        let elapsed = hbb_common::tokio::runtime::Builder::new_current_thread()
-            .enable_time()
-            .build()
+    fn unanswered_peer_continues_host_startup_only() {
+        if std::env::var_os("SEALDESK_UNANSWERED_IPC_CHILD").is_some() {
+            unanswered_peer_child();
+            return;
+        }
+        let marker =
+            std::env::temp_dir().join(format!("sealdesk-unanswered-ipc-{}", std::process::id()));
+        let _ = std::fs::remove_file(&marker);
+        let log_path = std::env::temp_dir().join(format!(
+            "sealdesk-unanswered-ipc-{}.log",
+            std::process::id()
+        ));
+        let log_file = std::fs::File::create(&log_path).unwrap();
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("unanswered_peer_continues_host_startup_only")
+            .env("SEALDESK_UNANSWERED_IPC_CHILD", "1")
+            .env("SEALDESK_UNANSWERED_IPC_MARKER", &marker)
+            .stdout(std::process::Stdio::from(log_file.try_clone().unwrap()))
+            .stderr(std::process::Stdio::from(log_file))
+            .spawn()
+            .unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let status = loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                break status;
+            }
+            if std::time::Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                let log = std::fs::read_to_string(&log_path).unwrap_or_default();
+                let _ = std::fs::remove_file(&log_path);
+                panic!("unanswered ipc child exceeded 30s\n{log}");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        };
+        let log = std::fs::read_to_string(&log_path).unwrap_or_default();
+        let _ = std::fs::remove_file(&log_path);
+        assert!(
+            status.success(),
+            "unanswered ipc child failed: {status}\n{log}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&marker).unwrap_or_default(),
+            "ok",
+            "child exited without running the peer check\n{log}"
+        );
+        let _ = std::fs::remove_file(&marker);
+    }
+
+    #[cfg(unix)]
+    fn unanswered_peer_child() {
+        let home =
+            std::env::temp_dir().join(format!("sealdesk-unanswered-home-{}", std::process::id()));
+        std::fs::create_dir_all(&home).unwrap();
+        std::env::set_var("HOME", &home);
+        std::env::set_var("XDG_CONFIG_HOME", &home);
+        let _home_guard = RemoveDir(home);
+
+        hbb_common::config::HARD_SETTINGS
+            .write()
             .unwrap()
-            .block_on(async {
-                hbb_common::tokio::time::timeout(
-                    std::time::Duration::from_millis(1),
-                    std::future::pending::<()>(),
-                )
-                .await
-                .unwrap_err()
-            });
-        assert!(continue_after_unanswered_peer(Err(elapsed.into())).is_ok());
-        let err = continue_after_unanswered_peer(Err(hbb_common::anyhow::anyhow!(
-            "当前应用配置仅允许控制其他设备"
-        )))
-        .unwrap_err()
-        .to_string();
-        assert!(err.contains("仅允许控制"));
-        assert!(continue_after_unanswered_peer(Ok(())).is_ok());
+            .insert("conn-type".to_owned(), "outgoing".to_owned());
+        let outgoing =
+            request_startup_mode("host").expect_err("host startup must keep non-timeout errors");
+        assert!(outgoing.to_string().contains("仅允许控制"));
+        hbb_common::config::HARD_SETTINGS.write().unwrap().clear();
+
+        let previous = hbb_common::config::APP_NAME.read().unwrap().clone();
+        *hbb_common::config::APP_NAME.write().unwrap() =
+            format!("SealDeskIpc{}", std::process::id());
+        let _app_name = AppNameGuard(previous);
+        let path = hbb_common::config::Config::ipc_path("");
+        let parent = std::path::Path::new(&path)
+            .parent()
+            .expect("ipc parent")
+            .to_path_buf();
+        std::fs::create_dir_all(&parent).unwrap();
+        let _ = std::fs::remove_file(&path);
+        let _ipc_dir = RemoveDir(parent);
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let accept_stop = stop.clone();
+        let accept = std::thread::spawn(move || {
+            let mut held = Vec::new();
+            while !accept_stop.load(std::sync::atomic::Ordering::Relaxed) {
+                match listener.accept() {
+                    Ok((stream, _)) => held.push(stream),
+                    Err(error)
+                        if error.kind() == std::io::ErrorKind::WouldBlock
+                            || error.kind() == std::io::ErrorKind::Interrupted =>
+                    {
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        assert!(
+            request_startup_mode("host").is_ok(),
+            "host startup should continue when the peer accepts and never replies"
+        );
+        let control = request_startup_mode("control")
+            .expect_err("control startup must keep an unanswered-peer error");
+        assert!(
+            peer_did_not_answer(&control),
+            "control error was not the IPC timeout: {control}"
+        );
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        accept.join().unwrap();
+        let marker = std::env::var("SEALDESK_UNANSWERED_IPC_MARKER").unwrap();
+        std::fs::write(marker, "ok").unwrap();
+    }
+
+    #[cfg(unix)]
+    struct AppNameGuard(String);
+
+    #[cfg(unix)]
+    impl Drop for AppNameGuard {
+        fn drop(&mut self) {
+            *hbb_common::config::APP_NAME.write().unwrap() = self.0.clone();
+        }
+    }
+
+    #[cfg(unix)]
+    struct RemoveDir(std::path::PathBuf);
+
+    #[cfg(unix)]
+    impl Drop for RemoveDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
     }
 }
 
