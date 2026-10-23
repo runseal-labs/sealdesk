@@ -124,7 +124,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       if (!isOutgoingOnly && sealDesk) _sealDeskQrPane(),
       if (!isOutgoingOnly && !sealDesk) buildIDBoard(context),
       if (!isOutgoingOnly && !sealDesk) buildPasswordBoard(context),
-      buildHelpCards(),
+      Obx(() => buildHelpCards(stateGlobal.updateUrl.value)),
     ];
     if (isIncomingOnly) {
       children.addAll([
@@ -469,7 +469,27 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     }
   }
 
-  Widget buildHelpCards() {
+  Widget buildHelpCards(String updateUrl) {
+    if (!bind.isCustomClient() && updateUrl.isNotEmpty && !isCardClosed) {
+      final isToUpdate = (isWindows || isMacOS) && bind.mainIsInstalled();
+      String btnText = isToUpdate ? 'Update' : 'Download';
+      GestureTapCallback onPressed = () async {
+        await launchUrl(Uri.parse(updateUrl));
+      };
+      if (isToUpdate) {
+        onPressed = () {
+          handleUpdate(updateUrl);
+        };
+      }
+      return buildInstallCard(
+          "Status",
+          "${translate("new-version-of-{${bind.mainGetAppNameSync()}}-tip")} (${bind.mainGetNewVersion()}).",
+          btnText,
+          onPressed,
+          closeButton: true,
+          help: isToUpdate ? 'Changelog' : null,
+          link: isToUpdate ? updateUrl : null);
+    }
     if (systemError.isNotEmpty) {
       return buildInstallCard("", systemError, "", () {});
     }

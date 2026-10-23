@@ -36,6 +36,7 @@ pub const OPTION_TEXTURE_RENDER: &str = "use-texture-render";
 pub const OPTION_TEXTURE_RENDER_HEALTH: &str = "texture-render-health";
 pub const OPTION_ALLOW_D3D_RENDER: &str = "allow-d3d-render";
 pub const OPTION_ALLOW_AUTO_UPDATE: &str = "allow-auto-update";
+pub const OPTION_ENABLE_CHECK_UPDATE: &str = "enable-check-update";
 pub const OPTION_ACCESS_MODE: &str = "access-mode";
 pub const OPTION_ENABLE_KEYBOARD: &str = "enable-keyboard";
 pub const OPTION_ENABLE_CLIPBOARD: &str = "enable-clipboard";

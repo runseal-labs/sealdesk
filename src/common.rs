@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     future::Future,
     net::SocketAddr,
     sync::{Arc, Mutex, RwLock},
@@ -867,6 +866,133 @@ pub(crate) fn display_version_from_release_id(release_id: &str) -> ResultType<St
     Ok(display_version.to_owned())
 }
 
+const GITHUB_LATEST_RELEASE_URL: &str =
+    "https://api.github.com/repos/runseal-labs/sealdesk/releases/latest";
+
+lazy_static::lazy_static! {
+    static ref SOFTWARE_UPDATE_URL: Arc<Mutex<String>> = Default::default();
+}
+
+pub fn software_update_url() -> String {
+    SOFTWARE_UPDATE_URL.lock().unwrap().clone()
+}
+
+fn clear_software_update_url() {
+    *SOFTWARE_UPDATE_URL.lock().unwrap() = String::new();
+}
+
+fn publish_software_update_url(update_url: &str) {
+    #[cfg(feature = "flutter")]
+    {
+        let mut event = std::collections::HashMap::new();
+        event.insert("name", "check_software_update_finish");
+        event.insert("url", update_url);
+        if let Ok(data) = serde_json::to_string(&event) {
+            let _ = crate::flutter::push_global_event(crate::flutter::APP_TYPE_MAIN, data);
+        }
+    }
+    *SOFTWARE_UPDATE_URL.lock().unwrap() = update_url.to_owned();
+}
+
+fn release_page_url(tag: &str) -> String {
+    format!("https://github.com/runseal-labs/sealdesk/releases/tag/{tag}")
+}
+
+/// Picks a release-page URL only when GitHub `releases/latest` names a stable
+/// tag newer than `current_version`. Drafts, prereleases, and `vX.Y.Z-N` tags
+/// are not updates. `html_url` is ignored; the URL is built from `tag_name`.
+fn select_newer_update_url(body: &[u8], current_version: &str) -> ResultType<Option<String>> {
+    let value: serde_json::Value = serde_json::from_slice(body)?;
+    if value.get("draft").and_then(|v| v.as_bool()) == Some(true)
+        || value.get("prerelease").and_then(|v| v.as_bool()) == Some(true)
+    {
+        return Ok(None);
+    }
+    let Some(tag) = value.get("tag_name").and_then(|v| v.as_str()) else {
+        bail!("Latest release has no tag_name");
+    };
+    let url = release_page_url(tag);
+    let Ok(release_id) = release_id_from_update_url(&url) else {
+        return Ok(None);
+    };
+    let Ok(latest) = display_version_from_release_id(&release_id) else {
+        return Ok(None);
+    };
+    if get_version_number(&latest) > get_version_number(current_version) {
+        Ok(Some(url))
+    } else {
+        Ok(None)
+    }
+}
+
+fn newer_update_url_from_latest_http(
+    status: u16,
+    body: &[u8],
+    current_version: &str,
+) -> ResultType<Option<String>> {
+    // Unauthenticated GitHub REST is 60/hour/IP. A shared NAT can 403; that is
+    // "no update this time", not a retry loop.
+    if status == 403 {
+        return Ok(None);
+    }
+    if !(200..300).contains(&status) {
+        bail!("Software update check failed with HTTP status: {status}");
+    }
+    select_newer_update_url(body, current_version)
+}
+
+async fn fetch_newer_update_url() -> ResultType<Option<String>> {
+    let client =
+        crate::hbbs_http::create_http_client_async_with_url_strict(GITHUB_LATEST_RELEASE_URL)
+            .await?;
+    let response = client
+        .get(GITHUB_LATEST_RELEASE_URL)
+        .send()
+        .await
+        .map_err(|err| anyhow!("Software update check failed: {err}"))?;
+    let status = response.status().as_u16();
+    let body = response
+        .bytes()
+        .await
+        .map_err(|err| anyhow!("Software update check failed: {err}"))?;
+    newer_update_url_from_latest_http(status, &body, crate::VERSION)
+}
+
+fn apply_software_update_url(update_url: Option<String>) {
+    match update_url {
+        Some(url) => publish_software_update_url(&url),
+        None => clear_software_update_url(),
+    }
+}
+
+#[tokio::main(flavor = "current_thread")]
+pub async fn do_check_software_update() -> ResultType<()> {
+    if is_custom_client() {
+        clear_software_update_url();
+        return Ok(());
+    }
+    match fetch_newer_update_url().await {
+        Ok(update_url) => {
+            apply_software_update_url(update_url);
+            Ok(())
+        }
+        Err(err) => {
+            clear_software_update_url();
+            Err(err)
+        }
+    }
+}
+
+pub fn check_software_update() {
+    if is_custom_client() {
+        return;
+    }
+    let opt = LocalConfig::get_option(keys::OPTION_ENABLE_CHECK_UPDATE);
+    if config::option2bool(keys::OPTION_ENABLE_CHECK_UPDATE, &opt) {
+        std::thread::spawn(move || allow_err!(do_check_software_update()));
+    }
+}
+
 #[inline]
 pub fn get_app_name() -> String {
     hbb_common::config::APP_NAME.read().unwrap().clone()
@@ -1319,6 +1445,83 @@ mod tests {
         for release_id in ["v1.4.6-rc1", "nightly", "v9223372036854775807.1.1"] {
             assert!(display_version_from_release_id(release_id).is_err());
         }
+    }
+
+    fn latest_release_body(tag: &str, draft: bool, prerelease: bool) -> String {
+        format!(
+            r#"{{"tag_name":"{tag}","html_url":"https://evil.example/releases/tag/{tag}","draft":{draft},"prerelease":{prerelease}}}"#,
+            draft = draft,
+            prerelease = prerelease,
+        )
+    }
+
+    #[test]
+    fn selects_only_a_newer_stable_github_release() {
+        let newer = newer_update_url_from_latest_http(
+            200,
+            latest_release_body("v0.5.10", false, false).as_bytes(),
+            "0.5.9",
+        )
+        .unwrap();
+        assert_eq!(
+            newer.as_deref(),
+            Some("https://github.com/runseal-labs/sealdesk/releases/tag/v0.5.10")
+        );
+
+        let same = newer_update_url_from_latest_http(
+            200,
+            latest_release_body("v0.5.3", false, false).as_bytes(),
+            "0.5.3",
+        )
+        .unwrap();
+        assert_eq!(same, None);
+
+        let older = newer_update_url_from_latest_http(
+            200,
+            latest_release_body("v0.4.2", false, false).as_bytes(),
+            "0.5.3",
+        )
+        .unwrap();
+        assert_eq!(older, None);
+
+        let patched_tag = newer_update_url_from_latest_http(
+            200,
+            latest_release_body("v0.9.0-1", false, false).as_bytes(),
+            "0.5.3",
+        )
+        .unwrap();
+        assert_eq!(patched_tag, None);
+
+        let prerelease = newer_update_url_from_latest_http(
+            200,
+            latest_release_body("v9.0.0", false, true).as_bytes(),
+            "0.5.3",
+        )
+        .unwrap();
+        assert_eq!(prerelease, None);
+
+        let draft = newer_update_url_from_latest_http(
+            200,
+            latest_release_body("v9.0.0", true, false).as_bytes(),
+            "0.5.3",
+        )
+        .unwrap();
+        assert_eq!(draft, None);
+
+        let unsafe_tag = newer_update_url_from_latest_http(
+            200,
+            br#"{"tag_name":"v1.2.3/extra","draft":false,"prerelease":false}"#,
+            "0.5.3",
+        )
+        .unwrap();
+        assert_eq!(unsafe_tag, None);
+
+        assert!(newer_update_url_from_latest_http(200, br#"{"draft":false}"#, "0.5.3").is_err());
+        assert_eq!(
+            newer_update_url_from_latest_http(403, br#"not json"#, "0.5.3").unwrap(),
+            None
+        );
+        assert!(newer_update_url_from_latest_http(500, b"", "0.5.3").is_err());
     }
 
     #[test]

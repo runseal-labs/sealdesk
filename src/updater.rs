@@ -199,8 +199,9 @@ fn check_update(manually: bool) -> ResultType<()> {
     if !(manually || config::Config::get_bool_option(keys::OPTION_ALLOW_AUTO_UPDATE)) {
         return Ok(());
     }
+    crate::common::do_check_software_update()?;
 
-    let update_url = String::new();
+    let update_url = crate::common::software_update_url();
     if update_url.is_empty() {
         log::debug!("No update available.");
     } else {
@@ -555,7 +556,10 @@ pub fn check_update_as_root() -> ResultType<bool> {
             }
         }
     }
-    let update_url = String::new();
+    if let Err(e) = crate::common::do_check_software_update() {
+        bail!("[root-update] Failed to check for software update: {}", e);
+    }
+    let update_url = crate::common::software_update_url();
     if update_url.is_empty() {
         log::info!("[root-update] No update available.");
         return Ok(false);

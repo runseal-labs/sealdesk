@@ -944,6 +944,7 @@ pub fn lock_screen() {
 /// silent auto-update thread.
 pub fn start_os_service() {
     log::info!("Username: {}", crate::username());
+    crate::updater::start_auto_update_macos();
     if let Err(err) = crate::ipc::start("_service") {
         log::error!("Failed to start ipc_service: {}", err);
     }

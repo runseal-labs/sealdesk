@@ -110,6 +110,16 @@ pub fn update_me(_path: String) {
 }
 
 #[inline]
+pub fn get_new_version() -> String {
+    let url = crate::common::software_update_url();
+    url.trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or("")
+        .to_owned()
+}
+
+#[inline]
 pub fn run_without_install() {
     crate::run_me(vec!["--noinstall"]).ok();
     std::process::exit(0);
