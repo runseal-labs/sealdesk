@@ -869,6 +869,9 @@ pub(crate) fn display_version_from_release_id(release_id: &str) -> ResultType<St
 const GITHUB_LATEST_RELEASE_URL: &str =
     "https://api.github.com/repos/runseal-labs/sealdesk/releases/latest";
 
+/// `releases/latest` JSON is normally a few KB. A larger body is a failed check.
+const UPDATE_CHECK_MAX_BODY: usize = 1024 * 1024;
+
 lazy_static::lazy_static! {
     static ref SOFTWARE_UPDATE_URL: Arc<Mutex<String>> = Default::default();
 }
@@ -959,11 +962,50 @@ async fn fetch_newer_update_url() -> ResultType<Option<String>> {
         .await
         .map_err(|err| anyhow!("Software update check failed: {err}"))?;
     let status = response.status().as_u16();
-    let body = response
-        .bytes()
-        .await
-        .map_err(|err| anyhow!("Software update check failed: {err}"))?;
+    let body = read_limited_update_body(response).await?;
     newer_update_url_from_latest_http(status, &body, crate::VERSION)
+}
+
+fn update_body_too_large(len: u64) -> bool {
+    len > UPDATE_CHECK_MAX_BODY as u64
+}
+
+fn ensure_update_body_within_limit(
+    content_length: Option<u64>,
+    accumulated: u64,
+) -> ResultType<()> {
+    if content_length.is_some_and(update_body_too_large) || update_body_too_large(accumulated) {
+        bail!("Software update check failed: response exceeds {UPDATE_CHECK_MAX_BODY} bytes");
+    }
+    Ok(())
+}
+
+fn declared_update_body_len(response: &reqwest::Response) -> Option<u64> {
+    let header_len = response
+        .headers()
+        .get(reqwest::header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok());
+    match (response.content_length(), header_len) {
+        (Some(hint), Some(header)) => Some(hint.max(header)),
+        (Some(hint), None) => Some(hint),
+        (None, header) => header,
+    }
+}
+
+async fn read_limited_update_body(mut response: reqwest::Response) -> ResultType<Vec<u8>> {
+    ensure_update_body_within_limit(declared_update_body_len(&response), 0)?;
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|err| anyhow!("Software update check failed: {err}"))?
+    {
+        let next = (body.len() as u64).saturating_add(chunk.len() as u64);
+        ensure_update_body_within_limit(None, next)?;
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
 }
 
 fn apply_software_update_url(update_url: Option<String>) {
@@ -1539,6 +1581,19 @@ mod tests {
             None
         );
         assert!(newer_update_url_from_latest_http(500, b"", "0.5.3").is_err());
+    }
+
+    #[test]
+    fn update_check_body_over_the_cap_is_an_error() {
+        assert!(ensure_update_body_within_limit(None, 0).is_ok());
+        assert!(ensure_update_body_within_limit(
+            Some(UPDATE_CHECK_MAX_BODY as u64),
+            UPDATE_CHECK_MAX_BODY as u64,
+        )
+        .is_ok());
+        let oversized = (UPDATE_CHECK_MAX_BODY as u64).saturating_add(1);
+        assert!(ensure_update_body_within_limit(Some(oversized), 0).is_err());
+        assert!(ensure_update_body_within_limit(None, oversized).is_err());
     }
 
     #[test]
