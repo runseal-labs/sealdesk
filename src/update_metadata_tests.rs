@@ -20,7 +20,7 @@ fn artifact() -> Value {
 }
 
 fn metadata() -> Value {
-    json!({"schema_version":1,"app":"rustdesk","package_id":"rustdesk","version":"1.4.6","release_id":"v1.4.6","published_at":"2026-05-14T00:00:00Z","signature_key_id":KEY_ID,"artifacts":[artifact()]})
+    json!({"schema_version":1,"app":"sealdesk","package_id":"sealdesk","version":"1.4.6","release_id":"v1.4.6","published_at":"2026-05-14T00:00:00Z","signature_key_id":KEY_ID,"artifacts":[artifact()]})
 }
 
 fn set_value(metadata: &mut Value, key: &str, value: Value, artifact_field: bool) {
@@ -175,14 +175,14 @@ fn rejects_artifact_file_name_path_components() {
 #[test]
 fn verifies_metadata_generated_by_python_release_script_fixture() {
     const PYTHON_KEY_ID: &str = "python-test-ed25519-main";
-    let metadata = br#"{"schema_version":1,"app":"rustdesk","package_id":"rustdesk","version":"1.4.6","release_id":"v1.4.6","published_at":"2026-05-14T00:00:00Z","signature_key_id":"python-test-ed25519-main","artifacts":[{"platform":"windows","arch":"x86_64","format":"exe","url":"https://github.com/rustdesk/rustdesk/releases/download/v1.4.6/rustdesk-1.4.6-x86_64.exe","file_name":"rustdesk-1.4.6-x86_64.exe","size":8,"sha256":"304ca1638c5effa6832e0e15b958a8f74847efe4df9c3f3187216e921c168fed"}]}"#;
-    let signature = br#"{"schema_version":1,"algorithm":"ed25519","key_id":"python-test-ed25519-main","signature":"ZMcod9VNaEGTYK0gIfGmMQ44HAvrYAkYDyIL9JTKjzUH+hVFYs8KpvnGSlteAHwqiJuJDdiKBVCPEdtcRRAJCA=="}"#;
+    let metadata = br#"{"schema_version":1,"app":"sealdesk","package_id":"sealdesk","version":"1.4.6","release_id":"v1.4.6","published_at":"2026-05-14T00:00:00Z","signature_key_id":"python-test-ed25519-main","artifacts":[{"platform":"windows","arch":"x86_64","format":"exe","url":"https://github.com/rustdesk/rustdesk/releases/download/v1.4.6/rustdesk-1.4.6-x86_64.exe","file_name":"rustdesk-1.4.6-x86_64.exe","size":8,"sha256":"304ca1638c5effa6832e0e15b958a8f74847efe4df9c3f3187216e921c168fed"}]}"#;
+    let signature = br#"{"schema_version":1,"algorithm":"ed25519","key_id":"python-test-ed25519-main","signature":"wk3gDPIjPoQ1KSiAuHD8A+8rXZIXFl/cidH8aOtnRHFfOYgLi6SlKUcmFwmWmZhdKGuM28i7nxDzuAVrDQzACg=="}"#;
     let trusted_key = TrustedUpdateKey {
         key_id: PYTHON_KEY_ID,
         algorithm: "ed25519",
         public_key: [
-            3, 161, 7, 191, 243, 206, 16, 190, 29, 112, 221, 24, 231, 75, 192, 153, 103, 228, 214,
-            48, 155, 165, 13, 95, 29, 220, 134, 100, 18, 85, 49, 184,
+            171, 39, 199, 67, 96, 234, 212, 10, 61, 229, 62, 85, 208, 10, 229, 92, 115, 52, 28,
+            177, 250, 226, 217, 247, 46, 229, 4, 107, 182, 8, 213, 127,
         ],
     };
 

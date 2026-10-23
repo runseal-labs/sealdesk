@@ -20,4 +20,4 @@ jobs:
       upload-artifact: true
       publish-release: true
       upload-tag: ${{ github.ref_name }}
-      publish-update-metadata: ${{ github.repository == 'rustdesk/rustdesk' }}
+      publish-update-metadata: ${{ github.repository == 'runseal-labs/sealdesk' && !contains(github.ref_name, '-') }}

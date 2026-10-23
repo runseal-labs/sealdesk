@@ -56,7 +56,7 @@ class UpdateMetadataCliTests(unittest.TestCase):
                     "--release-id", "v1.4.6",
                     "--package-id", "sealdesk",
                     "--release-base-url",
-                    "https://github.com/rustdesk/rustdesk/releases/download",
+                    "https://github.com/runseal-labs/sealdesk/releases/download",
                     "--published-at", "2026-05-14T00:00:00Z",
                     "--metadata-out", str(Path(directory) / "metadata.json"),
                     "--signature-out", str(Path(directory) / "metadata.json.sig"),
