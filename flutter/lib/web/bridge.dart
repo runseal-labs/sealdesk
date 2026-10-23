@@ -1246,6 +1246,10 @@ class SealdeskImpl {
     return Future(() => mainGetLocalOption(key: 'last_remote_id'));
   }
 
+  Future<void> mainGetSoftwareUpdateUrl({dynamic hint}) {
+    return Future.value();
+  }
+
   Future<String> mainGetHomeDir({dynamic hint}) {
     return Future.value('');
   }
@@ -1627,6 +1631,10 @@ class SealdeskImpl {
 
   bool mainGotoInstall({dynamic hint}) {
     throw UnimplementedError("mainGotoInstall");
+  }
+
+  String mainGetNewVersion({dynamic hint}) {
+    return '';
   }
 
   bool mainUpdateMe({dynamic hint}) {

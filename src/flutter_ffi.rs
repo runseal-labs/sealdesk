@@ -1690,6 +1690,10 @@ pub fn main_get_last_remote_id() -> String {
     LocalConfig::get_remote_id()
 }
 
+pub fn main_get_software_update_url() {
+    crate::common::check_software_update();
+}
+
 pub fn main_get_home_dir() -> String {
     fs::get_home_as_string()
 }
@@ -2231,6 +2235,10 @@ pub fn main_goto_install() -> SyncReturn<bool> {
     SyncReturn(true)
 }
 
+pub fn main_get_new_version() -> SyncReturn<String> {
+    SyncReturn(get_new_version())
+}
+
 pub fn main_update_me() -> SyncReturn<bool> {
     update_me("".to_owned());
     SyncReturn(true)
@@ -2335,6 +2343,10 @@ pub fn main_test_wallpaper(_second: u64) {
 
 pub fn main_support_remove_wallpaper() -> bool {
     support_remove_wallpaper()
+}
+
+pub fn is_custom_client() -> SyncReturn<bool> {
+    SyncReturn(crate::common::is_custom_client())
 }
 
 pub fn is_incoming_only() -> SyncReturn<bool> {
