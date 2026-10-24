@@ -52,6 +52,9 @@ def main() -> None:
     values = {}
     for prop_key, env_name in env_for_key:
         value = os.environ.get(env_name, "")
+        # An empty key password uses the keystore password. Do not print either value.
+        if value == "" and env_name == "ANDROID_KEY_PASSWORD":
+            value = os.environ.get("ANDROID_KEY_STORE_PASSWORD", "")
         if value == "":
             print("Android signing secrets are incomplete", file=sys.stderr)
             sys.exit(1)

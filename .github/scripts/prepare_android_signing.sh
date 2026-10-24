@@ -53,6 +53,11 @@ if [ ! -s "$keystore" ]; then
 fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# An empty key password uses the keystore password. Do not print either value.
+if [ -z "${ANDROID_KEY_PASSWORD:-}" ]; then
+  ANDROID_KEY_PASSWORD="${ANDROID_KEY_STORE_PASSWORD:-}"
+  export ANDROID_KEY_PASSWORD
+fi
 if ! python3 "${script_dir}/android_signing_properties.py" "$props" "$keystore"; then
   echo "Failed to write Android signing properties" >&2
   exit 1
