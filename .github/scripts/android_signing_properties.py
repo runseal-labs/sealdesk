@@ -20,7 +20,17 @@ def encode_properties_value(value: str) -> str:
         elif ch in " =:#!":
             out.append("\\" + ch)
         elif code < 32 or code > 126:
-            out.append("\\u%04x" % code)
+            if code > 0xFFFF:
+                # Java Properties.load() reads exactly four hex digits per \\u.
+                encoded = ch.encode("utf-16-be")
+                out.append(
+                    "".join(
+                        "\\u%04x" % int.from_bytes(encoded[i : i + 2], "big")
+                        for i in range(0, len(encoded), 2)
+                    )
+                )
+            else:
+                out.append("\\u%04x" % code)
         else:
             out.append(ch)
     return "".join(out)
