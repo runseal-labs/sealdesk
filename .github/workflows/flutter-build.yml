@@ -933,7 +933,6 @@ jobs:
 
       - name: Download Android APKs
         if: needs.build-rustdesk-android.result == 'success'
-        continue-on-error: true
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: android-*-apk
@@ -945,6 +944,7 @@ jobs:
           RUSTDESK_UPDATE_ED25519_SEED: ${{ secrets.RUSTDESK_UPDATE_ED25519_SEED }}
           WINDOWS_RESULT: ${{ needs.build-for-windows-flutter.result }}
           MACOS_RESULT: ${{ needs.build-for-macOS.result }}
+          ANDROID_RESULT: ${{ needs.build-rustdesk-android.result }}
         run: |
           set -euo pipefail
           args=()
@@ -982,14 +982,19 @@ jobs:
               apk_count=$((apk_count + 1))
             fi
           done
-          if [ "$apk_count" -ne 0 ] && [ "$apk_count" -ne 3 ]; then
-            echo "::error::Android update metadata needs the aarch64, armv7, and x86_64 APKs"
-            exit 1
-          fi
-          if [ "$apk_count" -eq 3 ]; then
+          # A successful Android build must publish all three ABIs. A skipped
+          # Windows/macOS-only dispatch leaves this job with no Android entries.
+          if [ "$ANDROID_RESULT" = "success" ]; then
+            if [ "$apk_count" -ne 3 ]; then
+              echo "::error::Android update metadata needs the aarch64, armv7, and x86_64 APKs"
+              exit 1
+            fi
             add android aarch64 apk "./artifacts/sealdesk-${VERSION}-aarch64.apk"
             add android armv7 apk "./artifacts/sealdesk-${VERSION}-armv7.apk"
             add android x86_64 apk "./artifacts/sealdesk-${VERSION}-x86_64.apk"
+          elif [ "$apk_count" -ne 0 ]; then
+            echo "::error::Android APKs are present but the Android build did not succeed"
+            exit 1
           fi
           if [ "${#args[@]}" -eq 0 ]; then
             echo "::error::No update artifacts to sign"

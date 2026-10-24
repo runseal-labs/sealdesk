@@ -183,6 +183,9 @@ void runMobileApp() async {
   if (isAndroid) platformFFI.syncAndroidServiceAppDirConfigPath();
   if (isAndroid) await enableAndroidEdgeToEdge();
   draggablePositions.load();
+  // Saved allow-auto-update=Y must check after restart. checkUpdate() does
+  // no network while that option is off (the default).
+  if (isAndroid) checkUpdate();
   runApp(App());
   await initUniLinks();
 }
