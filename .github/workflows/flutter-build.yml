@@ -85,7 +85,8 @@ jobs:
           python -m unittest \
             res/update/test_generate_update_metadata.py \
             res/update/test_update_metadata_cli.py \
-            res/update/test_macos_update_scripts.py
+            res/update/test_macos_update_scripts.py \
+            res/update/test_stage_macos_update_dmgs.py
 
       - name: Validate update metadata keys
         if: ${{ inputs.publish-update-metadata }}
@@ -923,12 +924,23 @@ jobs:
           path: ./artifacts/
           merge-multiple: true
 
-      - name: Download macOS artifacts
+      # OS signing uploads macos-<arch>-dmg. Without a certificate the
+      # same file name is only in sealdesk-unsigned-macos-<arch>. Keep them
+      # apart: both artifacts contain sealdesk-<version>-<arch>.dmg.
+      - name: Download signed macOS DMGs
         if: needs.build-for-macOS.result == 'success'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: macos-*
-          path: ./artifacts/
+          pattern: macos-*-dmg
+          path: ./artifacts/macos-signed/
+          merge-multiple: true
+
+      - name: Download unsigned macOS DMGs
+        if: needs.build-for-macOS.result == 'success'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: sealdesk-unsigned-macos-*
+          path: ./artifacts/macos-unsigned/
           merge-multiple: true
 
       - name: Download Android APKs
@@ -973,9 +985,11 @@ jobs:
             add windows aarch64 msi "./artifacts/sealdesk-${VERSION}-aarch64.msi"
           fi
           if [ "$MACOS_RESULT" = "success" ]; then
-            require_files \
-              "./artifacts/sealdesk-${VERSION}-aarch64.dmg" \
-              "./artifacts/sealdesk-${VERSION}-x86_64.dmg"
+            bash res/update/stage_macos_update_dmgs.sh \
+              "$VERSION" \
+              ./artifacts/macos-signed \
+              ./artifacts/macos-unsigned \
+              ./artifacts
             add macos aarch64 dmg "./artifacts/sealdesk-${VERSION}-aarch64.dmg"
             add macos x86_64 dmg "./artifacts/sealdesk-${VERSION}-x86_64.dmg"
           fi
