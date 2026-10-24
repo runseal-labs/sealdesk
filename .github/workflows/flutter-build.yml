@@ -1530,6 +1530,32 @@ jobs:
           files: |
             signed-apk/sealdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.apk
 
+      - name: Remove signing material from the build directory
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          delete_signing_config() {
+            local root="$1"
+            if [ -d "$root" ]; then
+              find "$root" -type f -name 'signing-config-data.json' -delete
+            fi
+          }
+          delete_signing_config flutter/build
+          if [ -d flutter/android ]; then
+            while IFS= read -r -d '' dir; do
+              delete_signing_config "$dir"
+            done < <(find flutter/android -type d -name build -print0)
+          fi
+          if [ -n "${RUNNER_TEMP:-}" ]; then
+            signing_dir="${RUNNER_TEMP}/sealdesk-android-signing"
+            case "$signing_dir" in
+              "${RUNNER_TEMP}"/*)
+                rm -f "${signing_dir}/key.properties" "${signing_dir}/release.keystore"
+                ;;
+            esac
+          fi
+
   build-rustdesk-android-universal:
     needs: [build-rustdesk-android]
     name: build rustdesk android universal apk
@@ -1738,6 +1764,32 @@ jobs:
           tag_name: ${{ env.TAG_NAME }}
           files: |
             signed-apk/sealdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk
+
+      - name: Remove signing material from the build directory
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          delete_signing_config() {
+            local root="$1"
+            if [ -d "$root" ]; then
+              find "$root" -type f -name 'signing-config-data.json' -delete
+            fi
+          }
+          delete_signing_config flutter/build
+          if [ -d flutter/android ]; then
+            while IFS= read -r -d '' dir; do
+              delete_signing_config "$dir"
+            done < <(find flutter/android -type d -name build -print0)
+          fi
+          if [ -n "${RUNNER_TEMP:-}" ]; then
+            signing_dir="${RUNNER_TEMP}/sealdesk-android-signing"
+            case "$signing_dir" in
+              "${RUNNER_TEMP}"/*)
+                rm -f "${signing_dir}/key.properties" "${signing_dir}/release.keystore"
+                ;;
+            esac
+          fi
 
   build-rustdesk-linux:
     if: ${{ inputs.platforms == 'all' || contains(inputs.platforms, 'linux') }}
