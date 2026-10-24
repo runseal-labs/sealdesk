@@ -1,6 +1,6 @@
 [package]
 name = "rustdesk-portable-packer"
-version = "0.5.5"
+version = "0.5.6"
 edition = "2021"
 description = "SealDesk Remote Desktop"
 
