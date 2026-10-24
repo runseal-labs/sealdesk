@@ -1,8 +1,6 @@
 name: One-off Android build
 on:
   workflow_dispatch:
-  push:
-    branches: [fix/android-release-signing]
 jobs:
   build:
     permissions:
