@@ -2560,6 +2560,28 @@ pub fn main_get_common(key: String) -> String {
             {
                 "error:unsupported".to_owned()
             }
+        } else if let Some(rest) = key.strip_prefix("download-verified-android-apk\n") {
+            let Some((release_page_url, cache_dir)) = rest.split_once('\n') else {
+                return "error:invalid update request".to_owned();
+            };
+            if release_page_url.is_empty() || cache_dir.is_empty() {
+                return "error:invalid update request".to_owned();
+            }
+            #[cfg(target_os = "android")]
+            {
+                return match crate::updater::download_verified_android_apk(
+                    release_page_url,
+                    std::path::Path::new(cache_dir),
+                ) {
+                    Ok(path) => path.to_string_lossy().into_owned(),
+                    Err(err) => format!("error:{err}"),
+                };
+            }
+            #[cfg(not(target_os = "android"))]
+            {
+                let _ = (release_page_url, cache_dir);
+                "error:unsupported".to_owned()
+            }
         } else {
             "".to_owned()
         }
@@ -2569,7 +2591,9 @@ pub fn main_get_common(key: String) -> String {
 pub fn main_get_common_sync(key: String) -> SyncReturn<String> {
     // Metadata verification performs blocking network requests. Keep this key on
     // the asynchronous FFI path to avoid blocking the calling Flutter isolate.
-    if key.starts_with("verified-download-url-") {
+    if key.starts_with("verified-download-url-")
+        || key.starts_with("download-verified-android-apk\n")
+    {
         return SyncReturn("error:unsupported".to_owned());
     }
     SyncReturn(main_get_common(key))

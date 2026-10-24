@@ -1032,17 +1032,31 @@ pub async fn do_check_software_update() -> ResultType<()> {
     }
 }
 
+fn software_update_check_enabled() -> bool {
+    // Android has no separate startup-check switch. The auto-update option,
+    // default off, is the only gate for the network check.
+    #[cfg(target_os = "android")]
+    {
+        return config::Config::get_bool_option(keys::OPTION_ALLOW_AUTO_UPDATE);
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let opt = LocalConfig::get_option(keys::OPTION_ENABLE_CHECK_UPDATE);
+        config::option2bool(keys::OPTION_ENABLE_CHECK_UPDATE, &opt)
+    }
+}
+
 pub fn check_software_update() {
     if is_custom_client() {
         return;
     }
-    let opt = LocalConfig::get_option(keys::OPTION_ENABLE_CHECK_UPDATE);
-    if config::option2bool(keys::OPTION_ENABLE_CHECK_UPDATE, &opt) {
-        std::thread::spawn(move || match software_update_runtime() {
-            Ok(rt) => allow_err!(rt.block_on(do_check_software_update())),
-            Err(err) => log::error!("Failed to create software update runtime: {err}"),
-        });
+    if !software_update_check_enabled() {
+        return;
     }
+    std::thread::spawn(move || match software_update_runtime() {
+        Ok(rt) => allow_err!(rt.block_on(do_check_software_update())),
+        Err(err) => log::error!("Failed to create software update runtime: {err}"),
+    });
 }
 
 pub(crate) fn software_update_runtime() -> ResultType<tokio::runtime::Runtime> {

@@ -31,6 +31,32 @@ fn copy_and_verify_update_artifact_hashes_open_file_handle() {
     assert_eq!(position, Some(0));
 }
 
+#[test]
+fn mismatched_sha256_removes_the_update_file() {
+    let test_dir = std::env::temp_dir().join(format!(
+        "sealdesk-updater-mismatch-test-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&test_dir);
+    std::fs::create_dir_all(&test_dir).unwrap();
+    let final_path = test_dir.join("sealdesk-1.4.6-aarch64.apk");
+    let bytes = b"not-an-apk";
+    let mut data: &[u8] = bytes;
+
+    let error = write_verified_update_artifact(
+        &final_path,
+        &mut data,
+        bytes.len() as u64,
+        "0000000000000000000000000000000000000000000000000000000000000000",
+    )
+    .expect_err("sha256 mismatch");
+
+    assert!(error.to_string().contains("SHA256 mismatch"));
+    assert!(!final_path.exists());
+    assert_eq!(std::fs::read_dir(&test_dir).unwrap().count(), 0);
+    std::fs::remove_dir_all(&test_dir).unwrap();
+}
+
 #[cfg(unix)]
 #[test]
 fn verified_download_replaces_symlink_without_touching_target() {

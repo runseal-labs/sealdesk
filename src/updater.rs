@@ -185,6 +185,26 @@ fn start_auto_update_check_(rx_msg: Receiver<UpdateMsg>) {
     }
 }
 
+#[cfg(target_os = "android")]
+pub fn download_verified_android_apk(
+    release_page_url: &str,
+    cache_dir: &Path,
+) -> ResultType<std::path::PathBuf> {
+    if !config::Config::get_bool_option(keys::OPTION_ALLOW_AUTO_UPDATE) {
+        bail!("automatic update is disabled");
+    }
+    let query = artifact::android_update_query(std::env::consts::ARCH)?;
+    let verified = verified_update_artifact_from_release_page_url(release_page_url, &query)?;
+    let file_path = artifact::android_update_apk_path(cache_dir, &verified.url)?;
+    if let Err(err) =
+        ensure_verified_update_artifact(&verified.url, &file_path, verified.size, &verified.sha256)
+    {
+        remove_update_file(&file_path);
+        return Err(err);
+    }
+    Ok(file_path)
+}
+
 fn check_update(manually: bool) -> ResultType<()> {
     // On macOS, auto-update is handled by check_update_as_root() in the service process.
     // The shared check_update() path is only used for manual update checks from the GUI.

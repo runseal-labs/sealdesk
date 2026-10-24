@@ -269,3 +269,7 @@ fn select_artifact<'a>(
 #[cfg(test)]
 #[path = "update_metadata_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "update_metadata/android_update_tests.rs"]
+mod android_update_tests;
