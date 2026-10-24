@@ -935,5 +935,6 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Unverified identity", "未验证对方身份"),
         ("Host identity changed", "对方身份已变化"),
         ("Direct connection allows only a private, 100.64.0.0/10, link-local, or loopback address", "直连只允许私有地址、100.64.0.0/10、链路本地地址或回环地址"),
+        ("Allow installs from this app, then try the update again", "请先允许此应用安装未知应用，然后再试一次更新"),
     ].iter().cloned().collect();
 }

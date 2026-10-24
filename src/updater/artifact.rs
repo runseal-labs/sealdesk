@@ -79,6 +79,49 @@ pub fn current_update_artifact_query(update_msi: bool) -> UpdateArtifactQuery<'s
     }
 }
 
+/// Rust `std::env::consts::ARCH` on 32-bit ARM is `arm`. The signed manifest uses `armv7`.
+pub(crate) fn android_update_arch(rust_arch: &str) -> Option<&'static str> {
+    match rust_arch {
+        "aarch64" => Some("aarch64"),
+        "arm" => Some("armv7"),
+        "x86_64" => Some("x86_64"),
+        _ => None,
+    }
+}
+
+pub(crate) fn android_update_query(rust_arch: &str) -> ResultType<UpdateArtifactQuery<'static>> {
+    let Some(arch) = android_update_arch(rust_arch) else {
+        bail!("unsupported Android ABI: {}", rust_arch);
+    };
+    Ok(UpdateArtifactQuery {
+        platform: "android",
+        arch,
+        format: "apk",
+    })
+}
+
+pub(crate) fn android_update_apk_path(cache_dir: &Path, download_url: &str) -> ResultType<PathBuf> {
+    if !cache_dir.is_absolute() {
+        bail!("Android update directory must be absolute");
+    }
+    let Some(parsed) = get_update_download_file_from_url(download_url) else {
+        bail!("Failed to get the file path from the URL: {}", download_url);
+    };
+    let Some(file_name) = parsed.file_name().and_then(|name| name.to_str()) else {
+        bail!("Update artifact has no file name");
+    };
+    if !file_name.ends_with(".apk") {
+        bail!("update artifact is not an apk");
+    }
+    let updates_dir = cache_dir.join("updates");
+    std::fs::create_dir_all(&updates_dir)?;
+    let file_path = updates_dir.join(file_name);
+    if file_path.parent() != Some(updates_dir.as_path()) {
+        bail!("update artifact path escaped the download directory");
+    }
+    Ok(file_path)
+}
+
 pub fn verified_update_artifact_for_release_page_url(
     release_page_url: &str,
     query: UpdateArtifactQuery<'_>,
@@ -242,5 +285,49 @@ mod tests {
         ] {
             assert!(get_update_download_file_from_url(url).is_none(), "{url}");
         }
+    }
+
+    #[test]
+    fn android_update_arch_maps_device_abi_and_rejects_unknown() {
+        assert_eq!(android_update_arch("aarch64"), Some("aarch64"));
+        assert_eq!(android_update_arch("arm"), Some("armv7"));
+        assert_eq!(android_update_arch("x86_64"), Some("x86_64"));
+        assert_eq!(android_update_arch("x86"), None);
+        assert!(android_update_query("x86").is_err());
+        let query = android_update_query("arm").expect("armv7");
+        assert_eq!(
+            (query.platform, query.arch, query.format),
+            ("android", "armv7", "apk")
+        );
+    }
+
+    #[test]
+    fn android_update_apk_path_stays_inside_the_cache_updates_dir() {
+        let cache_dir = std::env::temp_dir().join(format!(
+            "sealdesk-android-update-path-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&cache_dir);
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let path = android_update_apk_path(
+            &cache_dir,
+            "https://github.com/runseal-labs/sealdesk/releases/download/v1.4.6/sealdesk-1.4.6-aarch64.apk",
+        )
+        .expect("apk path");
+        assert_eq!(
+            path,
+            cache_dir.join("updates").join("sealdesk-1.4.6-aarch64.apk")
+        );
+        assert!(android_update_apk_path(
+            &cache_dir,
+            "https://github.com/runseal-labs/sealdesk/releases/download/v1.4.6/sealdesk-1.4.6-x86_64.exe",
+        )
+        .is_err());
+        assert!(android_update_apk_path(
+            Path::new("relative"),
+            "https://github.com/runseal-labs/sealdesk/releases/download/v1.4.6/sealdesk-1.4.6-aarch64.apk",
+        )
+        .is_err());
+        std::fs::remove_dir_all(&cache_dir).unwrap();
     }
 }

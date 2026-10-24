@@ -16,7 +16,9 @@ import '../../common/widgets/dialog.dart';
 import '../../consts.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
+import '../../models/state_model.dart';
 import '../../models/shortcut_model.dart';
+import '../widgets/android_update_banner.dart';
 import '../widgets/dialog.dart';
 import '../../desktop/pages/sealdesk_home_page.dart';
 import 'home_page.dart';
@@ -90,6 +92,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   var _enableTrustedDevices = false;
   var _allowRustDeskCompat = true;
   var _preventSleepWhileConnected = true;
+  var _allowAutoUpdate = false;
 
   _SettingsState() {
     _enableAbr = option2bool(
@@ -119,6 +122,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
         mainGetBoolOptionSync(kOptionSealDeskRustDeskCompat);
     _preventSleepWhileConnected =
         mainGetLocalBoolOptionSync(kOptionKeepAwakeDuringOutgoingSessions);
+    _allowAutoUpdate = mainGetBoolOptionSync(kOptionAllowAutoUpdate);
     _showTerminalExtraKeys =
         mainGetLocalBoolOptionSync(kOptionEnableShowTerminalExtraKeys);
   }
@@ -813,6 +817,27 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
         SettingsSection(
           title: Text(translate("About")),
           tiles: [
+            if (isAndroid && !disabledSettings && !bind.isCustomClient())
+              SettingsTile.switchTile(
+                title: Text(translate('Auto update')),
+                initialValue: _allowAutoUpdate,
+                onToggle: (v) async {
+                  await mainSetBoolOption(kOptionAllowAutoUpdate, v);
+                  if (!mounted) return;
+                  setState(() {
+                    _allowAutoUpdate = v;
+                  });
+                  if (v) {
+                    checkUpdate();
+                  } else {
+                    stateGlobal.updateUrl.value = '';
+                  }
+                },
+              ),
+            if (isAndroid && !disabledSettings && !bind.isCustomClient())
+              CustomSettingsTile(
+                child: const AndroidUpdateBanner(),
+              ),
             SettingsTile(
                 title: Text(translate("Version: ") + version),
                 leading: Icon(Icons.info)),

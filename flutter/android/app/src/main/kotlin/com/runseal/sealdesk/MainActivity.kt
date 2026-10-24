@@ -10,6 +10,7 @@ package com.runseal.sealdesk
 import ffi.FFI
 
 import android.app.Activity
+import android.content.ClipData
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -29,9 +30,11 @@ import android.media.MediaFormat
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
+import android.provider.Settings
 import android.webkit.MimeTypeMap
 import android.util.DisplayMetrics
 import androidx.annotation.RequiresApi
+import androidx.core.content.FileProvider
 import org.json.JSONArray
 import org.json.JSONObject
 import com.hjq.permissions.XXPermissions
@@ -671,11 +674,60 @@ class MainActivity : FlutterActivity() {
                 "on_voice_call_closed" -> {
                     onVoiceCallClosed()
                 }
+                "install_verified_apk" -> {
+                    val path = call.arguments as? String
+                    if (path.isNullOrEmpty()) {
+                        result.error("invalid_path", "Missing APK path", null)
+                    } else {
+                        try {
+                            installVerifiedApk(path)
+                            result.success(true)
+                        } catch (e: IllegalStateException) {
+                            result.error("install_permission", e.message, null)
+                        } catch (e: Exception) {
+                            Log.e(logTag, "Failed to open the update installer", e)
+                            result.error("install_failed", e.message, null)
+                        }
+                    }
+                }
                 else -> {
                     result.error("-1", "No such method", null)
                 }
             }
         }
+    }
+
+    private fun installVerifiedApk(path: String) {
+        val apk = verifiedUpdateApk(path)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            !packageManager.canRequestPackageInstalls()
+        ) {
+            startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:$packageName")
+                )
+            )
+            throw IllegalStateException("install permission required")
+        }
+        val uri = FileProvider.getUriForFile(this, "$packageName.update", apk)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            clipData = ClipData.newRawUri("", uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        startActivity(intent)
+    }
+
+    private fun verifiedUpdateApk(path: String): File {
+        val file = File(path).canonicalFile
+        val root = File(cacheDir, "updates").canonicalFile
+        val parent = file.parentFile?.canonicalFile
+        if (parent != root || !file.isFile || !file.name.endsWith(".apk")) {
+            throw IllegalArgumentException("Refusing to install an APK outside the update directory")
+        }
+        return file
     }
 
     private fun canonicalAppScopedFile(path: String): File? {

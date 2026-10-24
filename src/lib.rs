@@ -66,7 +66,9 @@ mod tray;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod whiteboard;
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+// Android uses the verified-APK download. Desktop service, install, and restart
+// stay cfg-gated inside the module. iOS has no updater.
+#[cfg(not(target_os = "ios"))]
 mod updater;
 
 mod ui_cm_interface;

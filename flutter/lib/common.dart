@@ -3819,20 +3819,29 @@ void earlyAssert() {
 }
 
 void checkUpdate() {
-  if (!isWeb) {
-    if (!bind.isCustomClient()) {
-      platformFFI.registerEventHandler(
-          kCheckSoftwareUpdateFinish, kCheckSoftwareUpdateFinish,
-          (Map<String, dynamic> evt) async {
-        if (evt['url'] is String) {
-          stateGlobal.updateUrl.value = evt['url'];
-        }
-      });
-      Timer(const Duration(seconds: 1), () async {
-        bind.mainGetSoftwareUpdateUrl();
-      });
-    }
+  if (isWeb || bind.isCustomClient()) {
+    return;
   }
+  // Android reuses the auto-update switch, which defaults off. While it is
+  // off, do not ask the network whether a newer build exists.
+  if (isAndroid && !mainGetBoolOptionSync(kOptionAllowAutoUpdate)) {
+    stateGlobal.updateUrl.value = '';
+    return;
+  }
+  platformFFI.registerEventHandler(
+      kCheckSoftwareUpdateFinish, kCheckSoftwareUpdateFinish,
+      (Map<String, dynamic> evt) async {
+    if (isAndroid && !mainGetBoolOptionSync(kOptionAllowAutoUpdate)) {
+      stateGlobal.updateUrl.value = '';
+      return;
+    }
+    if (evt['url'] is String) {
+      stateGlobal.updateUrl.value = evt['url'];
+    }
+  });
+  Timer(const Duration(seconds: 1), () async {
+    bind.mainGetSoftwareUpdateUrl();
+  });
 }
 
 // https://github.com/flutter/flutter/issues/153560#issuecomment-2497160535

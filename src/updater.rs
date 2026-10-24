@@ -2,7 +2,9 @@ mod artifact;
 mod download;
 
 use artifact::verified_update_artifact_from_release_page_url;
+#[cfg(not(target_os = "android"))]
 pub(crate) use artifact::{current_update_arch, current_update_format, current_update_platform};
+#[cfg(not(target_os = "android"))]
 pub use artifact::{
     current_update_artifact_query, get_update_download_file_from_url,
     verified_update_artifact_for_download_url, verified_update_artifact_for_release_page_url,
@@ -10,9 +12,12 @@ pub use artifact::{
 use base::config::keys;
 use download::ensure_verified_update_artifact;
 pub(crate) use download::remove_update_file;
-use hbb_common::{bail, config, log, ResultType};
+#[cfg(not(target_os = "android"))]
+use hbb_common::log;
+use hbb_common::{bail, config, ResultType};
+use std::path::Path;
+#[cfg(not(target_os = "android"))]
 use std::{
-    path::Path,
     sync::{
         atomic::{AtomicUsize, Ordering},
         mpsc::{channel, Receiver, Sender},
@@ -69,38 +74,48 @@ fn acquire_mac_update_lock() -> ResultType<MacUpdateLock> {
     Ok(MacUpdateLock { _file: handle })
 }
 
+#[cfg(not(target_os = "android"))]
 enum UpdateMsg {
     CheckUpdate,
     Exit,
 }
 
+#[cfg(not(target_os = "android"))]
 lazy_static::lazy_static! {
     static ref TX_MSG : Mutex<Sender<UpdateMsg>> = Mutex::new(start_auto_update_check());
 }
 
+#[cfg(not(target_os = "android"))]
 static CONTROLLING_SESSION_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 /// Initial wait after startup before the first update check (30 seconds).
+#[cfg(not(target_os = "android"))]
 pub const INITIAL_CHECK_DELAY: Duration = Duration::from_secs(30);
 
 /// One full day — default interval between update checks.
+#[cfg(not(target_os = "android"))]
 pub const DUR_ONE_DAY: Duration = Duration::from_secs(60 * 60 * 24);
 
 /// Minimum interval between consecutive update checks (10 minutes).
+#[cfg(not(target_os = "android"))]
 pub const MIN_INTERVAL: Duration = Duration::from_secs(60 * 10);
 
 /// Retry interval when an update check fails or a session is active (30 minutes).
+#[cfg(not(target_os = "android"))]
 pub const RETRY_INTERVAL: Duration = Duration::from_secs(60 * 30);
 
+#[cfg(not(target_os = "android"))]
 pub fn update_controlling_session_count(count: usize) {
     CONTROLLING_SESSION_COUNT.store(count, Ordering::SeqCst);
 }
 
+#[cfg(not(target_os = "android"))]
 #[allow(dead_code)]
 pub fn start_auto_update() {
     let _sender = TX_MSG.lock().unwrap();
 }
 
+#[cfg(not(target_os = "android"))]
 #[allow(dead_code)]
 pub fn manually_check_update() -> ResultType<()> {
     let sender = TX_MSG.lock().unwrap();
@@ -108,12 +123,14 @@ pub fn manually_check_update() -> ResultType<()> {
     Ok(())
 }
 
+#[cfg(not(target_os = "android"))]
 #[allow(dead_code)]
 pub fn stop_auto_update() {
     let sender = TX_MSG.lock().unwrap();
     sender.send(UpdateMsg::Exit).unwrap_or_default();
 }
 
+#[cfg(not(target_os = "android"))]
 #[inline]
 /// Returns true when there are no active incoming or outgoing connections.
 /// Used to avoid updating while a remote session is in progress.
@@ -122,11 +139,13 @@ pub fn has_no_active_conns() -> bool {
     conns.is_empty() && has_no_controlling_conns()
 }
 
+#[cfg(not(target_os = "android"))]
 #[cfg(any(not(target_os = "windows"), feature = "flutter"))]
 fn has_no_controlling_conns() -> bool {
     CONTROLLING_SESSION_COUNT.load(Ordering::SeqCst) == 0
 }
 
+#[cfg(not(target_os = "android"))]
 #[cfg(not(any(not(target_os = "windows"), feature = "flutter")))]
 fn has_no_controlling_conns() -> bool {
     let app_exe = format!("{}.exe", crate::get_app_name().to_lowercase());
@@ -145,12 +164,14 @@ fn has_no_controlling_conns() -> bool {
     true
 }
 
+#[cfg(not(target_os = "android"))]
 fn start_auto_update_check() -> Sender<UpdateMsg> {
     let (tx, rx) = channel();
     std::thread::spawn(move || start_auto_update_check_(rx));
     return tx;
 }
 
+#[cfg(not(target_os = "android"))]
 fn start_auto_update_check_(rx_msg: Receiver<UpdateMsg>) {
     std::thread::sleep(INITIAL_CHECK_DELAY);
     if let Err(e) = check_update(false) {
@@ -185,6 +206,27 @@ fn start_auto_update_check_(rx_msg: Receiver<UpdateMsg>) {
     }
 }
 
+#[cfg(target_os = "android")]
+pub fn download_verified_android_apk(
+    release_page_url: &str,
+    cache_dir: &Path,
+) -> ResultType<std::path::PathBuf> {
+    if !config::Config::get_bool_option(keys::OPTION_ALLOW_AUTO_UPDATE) {
+        bail!("automatic update is disabled");
+    }
+    let query = artifact::android_update_query(std::env::consts::ARCH)?;
+    let verified = verified_update_artifact_from_release_page_url(release_page_url, &query)?;
+    let file_path = artifact::android_update_apk_path(cache_dir, &verified.url)?;
+    if let Err(err) =
+        ensure_verified_update_artifact(&verified.url, &file_path, verified.size, &verified.sha256)
+    {
+        remove_update_file(&file_path);
+        return Err(err);
+    }
+    Ok(file_path)
+}
+
+#[cfg(not(target_os = "android"))]
 fn check_update(manually: bool) -> ResultType<()> {
     // On macOS, auto-update is handled by check_update_as_root() in the service process.
     // The shared check_update() path is only used for manual update checks from the GUI.
