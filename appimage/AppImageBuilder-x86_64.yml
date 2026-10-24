@@ -18,7 +18,7 @@ AppDir:
     id: sealdesk
     name: sealdesk
     icon: com.runseal.sealdesk
-    version: 0.5.5
+    version: 0.5.6
     exec: usr/share/sealdesk/sealdesk
     exec_args: $@
   apt:
