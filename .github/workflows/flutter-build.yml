@@ -1386,16 +1386,14 @@ jobs:
         shell: bash
         env:
           JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+          ANDROID_ALIAS: ${{ secrets.ANDROID_ALIAS }}
+          ANDROID_KEY_STORE_PASSWORD: ${{ secrets.ANDROID_KEY_STORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           export PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH
           # Increase Gradle JVM memory for CI builds
           sed -i "s/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx2g/g" ./flutter/android/gradle.properties
-          if [ -z "${ANDROID_SIGNING_KEY}" ]; then
-            export SEALDESK_ANDROID_ALLOW_UNSIGNED=1
-            echo "ANDROID_SIGNING_KEY is empty; allowing an unsigned release APK"
-          else
-            export SEALDESK_ANDROID_ALLOW_UNSIGNED=0
-          fi
+          source .github/scripts/prepare_android_signing.sh || exit 1
           resolve_flutter_apk() {
             local preferred="$1"
             local unsigned="${preferred%.apk}-unsigned.apk"
@@ -1468,19 +1466,26 @@ jobs:
           echo "ANDROID_SIGN_TOOL_VERSION=$BUILD_TOOL_VERSION" >> $GITHUB_ENV
           echo Last build tool version is: $BUILD_TOOL_VERSION
 
-      - uses: r0adkll/sign-android-release@349ebdef58775b1e0d8099458af0816dc79b6407 # v1
-        name: Sign app APK
+      # Gradle already signed the APK from key.properties. Recording the path
+      # keeps the upload and metadata steps on that file; signing again would
+      # add a second signature.
+      - name: Record signed APK
         if: env.ANDROID_SIGNING_KEY != ''
         id: sign-rustdesk
-        with:
-          releaseDirectory: ./signed-apk
-          signingKeyBase64: ${{ secrets.ANDROID_SIGNING_KEY }}
-          alias: ${{ secrets.ANDROID_ALIAS }}
-          keyStorePassword: ${{ secrets.ANDROID_KEY_STORE_PASSWORD }}
-          keyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        env:
-          # env.ANDROID_SIGN_TOOL_VERSION is set by Step "Setup sign tool version variable"
-          BUILD_TOOLS_VERSION: ${{ env.ANDROID_SIGN_TOOL_VERSION }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="signed-apk/sealdesk-${VERSION}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
+          if [ ! -f "$apk" ]; then
+            echo "Signed APK was not produced" >&2
+            exit 1
+          fi
+          echo "signedReleaseFile=${apk}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify APK signature
+        if: env.ANDROID_SIGNING_KEY != ''
+        shell: bash
+        run: bash .github/scripts/verify_android_apk.sh "${{ steps.sign-rustdesk.outputs.signedReleaseFile }}"
 
       - name: Stage signed APK for update metadata
         if: env.ANDROID_SIGNING_KEY != '' && env.UPLOAD_ARTIFACT == 'true' && env.PUBLISH_UPDATE_METADATA == 'true'
@@ -1640,16 +1645,14 @@ jobs:
         shell: bash
         env:
           JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+          ANDROID_ALIAS: ${{ secrets.ANDROID_ALIAS }}
+          ANDROID_KEY_STORE_PASSWORD: ${{ secrets.ANDROID_KEY_STORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           export PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH
           # Increase Gradle JVM memory for CI builds
           sed -i "s/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx2g/g" ./flutter/android/gradle.properties
-          if [ -z "${ANDROID_SIGNING_KEY}" ]; then
-            export SEALDESK_ANDROID_ALLOW_UNSIGNED=1
-            echo "ANDROID_SIGNING_KEY is empty; allowing an unsigned release APK"
-          else
-            export SEALDESK_ANDROID_ALLOW_UNSIGNED=0
-          fi
+          source .github/scripts/prepare_android_signing.sh || exit 1
           resolve_flutter_apk() {
             local preferred="$1"
             local unsigned="${preferred%.apk}-unsigned.apk"
@@ -1691,19 +1694,25 @@ jobs:
           echo "ANDROID_SIGN_TOOL_VERSION=$BUILD_TOOL_VERSION" >> $GITHUB_ENV
           echo Last build tool version is: $BUILD_TOOL_VERSION
 
-      - uses: r0adkll/sign-android-release@349ebdef58775b1e0d8099458af0816dc79b6407 # v1
-        name: Sign app APK
+      # Gradle already signed the APK from key.properties. Recording the path
+      # keeps the upload steps on that file; signing again would add a second signature.
+      - name: Record signed APK
         if: env.ANDROID_SIGNING_KEY != ''
         id: sign-rustdesk
-        with:
-          releaseDirectory: ./signed-apk
-          signingKeyBase64: ${{ secrets.ANDROID_SIGNING_KEY }}
-          alias: ${{ secrets.ANDROID_ALIAS }}
-          keyStorePassword: ${{ secrets.ANDROID_KEY_STORE_PASSWORD }}
-          keyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        env:
-          # env.ANDROID_SIGN_TOOL_VERSION is set by Step "Setup sign tool version variable"
-          BUILD_TOOLS_VERSION: ${{ env.ANDROID_SIGN_TOOL_VERSION }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="signed-apk/sealdesk-${VERSION}-universal${{ env.suffix }}.apk"
+          if [ ! -f "$apk" ]; then
+            echo "Signed APK was not produced" >&2
+            exit 1
+          fi
+          echo "signedReleaseFile=${apk}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify APK signature
+        if: env.ANDROID_SIGNING_KEY != ''
+        shell: bash
+        run: bash .github/scripts/verify_android_apk.sh "${{ steps.sign-rustdesk.outputs.signedReleaseFile }}"
 
       - name: Upload Artifacts
         if: env.ANDROID_SIGNING_KEY != '' && env.UPLOAD_ARTIFACT == 'true'
