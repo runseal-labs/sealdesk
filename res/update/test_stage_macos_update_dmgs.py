@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 SCRIPT = Path(__file__).with_name("stage_macos_update_dmgs.sh")
-VERSION = "0.5.6"
+VERSION = "0.5.7"
 
 
 def write_dmg(directory, arch, payload):
