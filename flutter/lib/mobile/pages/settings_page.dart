@@ -18,6 +18,7 @@ import '../../models/model.dart';
 import '../../models/platform_model.dart';
 import '../../models/state_model.dart';
 import '../../models/shortcut_model.dart';
+import '../widgets/android_update_banner.dart';
 import '../widgets/dialog.dart';
 import '../../desktop/pages/sealdesk_home_page.dart';
 import 'home_page.dart';
@@ -832,6 +833,10 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                     stateGlobal.updateUrl.value = '';
                   }
                 },
+              ),
+            if (isAndroid && !disabledSettings && !bind.isCustomClient())
+              CustomSettingsTile(
+                child: const AndroidUpdateBanner(),
               ),
             SettingsTile(
                 title: Text(translate("Version: ") + version),

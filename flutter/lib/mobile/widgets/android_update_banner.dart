@@ -7,8 +7,9 @@ import '../../common.dart';
 import '../../models/platform_model.dart';
 import '../../models/state_model.dart';
 
-/// Home-page update prompt. Shown only after the Android auto-update switch
-/// has allowed a check and that check found a newer stable release.
+/// About-section update prompt on the Android settings page. Shown only
+/// after the auto-update switch has allowed a check and that check found a
+/// newer stable release.
 class AndroidUpdateBanner extends StatefulWidget {
   const AndroidUpdateBanner({Key? key}) : super(key: key);
 

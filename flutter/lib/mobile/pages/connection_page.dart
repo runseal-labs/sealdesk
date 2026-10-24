@@ -19,7 +19,6 @@ import '../../models/model.dart';
 import '../../models/platform_model.dart';
 import 'home_page.dart';
 import '../sealdesk_scan.dart';
-import '../widgets/android_update_banner.dart';
 
 /// Connection page for connecting to a remote peer.
 class ConnectionPage extends StatefulWidget implements PageShape {
@@ -89,7 +88,6 @@ class _ConnectionPageState extends State<ConnectionPage> {
     if (isSealDeskApp()) {
       return Column(
         children: [
-          const AndroidUpdateBanner(),
           SealDeskConnectField(
             controller: _idEditingController,
             onScan: () => scanAndConnectSealDesk(context),
@@ -102,7 +100,6 @@ class _ConnectionPageState extends State<ConnectionPage> {
       slivers: [
         SliverList(
             delegate: SliverChildListDelegate([
-          const AndroidUpdateBanner(),
           _buildRemoteIDTextField(),
         ])),
         SliverFillRemaining(
