@@ -45,10 +45,8 @@ use std::{
     },
 };
 pub use update_temp::try_remove_temp_update_dir;
-use update_temp::{copy_dmg_to_update_temp_file, get_update_temp_dir_string};
 use verified_dmg::{
-    attach_dmg, copy_and_verify_dmg_file, extract_dmg_inner, verified_dmg_path, verify_stored_dmg,
-    VerifiedDmg,
+    copy_and_verify_dmg_file, extract_dmg_inner, verified_dmg_path, verify_stored_dmg, VerifiedDmg,
 };
 
 // macOS boolean_t is defined as `int` in <mach/boolean.h>
@@ -1210,24 +1208,6 @@ fn update_me_from_source(update_source: UpdateSource) -> ResultType<()> {
     }
     // leave open a little time
     std::thread::sleep(std::time::Duration::from_millis(300));
-    Ok(())
-}
-
-pub fn update_from_dmg(dmg_path: &str) -> ResultType<()> {
-    let update_temp_dir = get_update_temp_dir_string();
-    println!("Starting update from DMG: {}", dmg_path);
-    let update_result = (|| {
-        let copied_dmg = copy_dmg_to_update_temp_file(dmg_path)?;
-        let guard = attach_dmg(&copied_dmg.to_string_lossy())?;
-        update_me_from_app_dir(format!(
-            "{}/{}.app",
-            guard.mount_point(),
-            crate::get_app_name()
-        ))
-    })();
-    try_remove_temp_update_dir(Some(&update_temp_dir));
-    update_result?;
-    println!("Update process started");
     Ok(())
 }
 

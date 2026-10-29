@@ -55,8 +55,14 @@ the background.
 
 ```bash
 sealdesk --host                     # start sharing
-sealdesk --control 'SEALDESK:...'   # connect with a pairing code
-sealdesk --control code.png         # or with a QR image
+sealdesk --control -                # read a pairing code from stdin
+sealdesk --control-file ./code.txt  # Linux/macOS: 0600 file you own
+sealdesk --control code.png         # or with a QR image (no password in the path)
+# SEALDESK_CONTROL_CODE is read by --control, then removed from the environment.
+# It wins over a password-less inline --control <code>, not over --control - or --control-file.
+# --control - reads stdin. --control-file reads the file. Neither argument is the code.
+# A code that contains a password is rejected on the command line, even if the variable is set.
+# Windows does not support --control-file; use --control - or SEALDESK_CONTROL_CODE.
 sealdesk --tc-reset-address         # revoke the current address
 ```
 

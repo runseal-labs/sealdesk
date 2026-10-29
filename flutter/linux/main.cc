@@ -7,6 +7,7 @@
 
 #define RUSTDESK_LIB_PATH "libsealdesk.so"
 typedef bool (*RustDeskCoreMain)();
+typedef void (*RustDeskApplyUiArgv)(int*, char**);
 bool gIsConnectionManager = false;
 
 void print_help_install_pkg(const char* so);
@@ -36,7 +37,7 @@ static void* dlopen_bundled_lib() {
   return libsealdesk;
 }
 
-bool flutter_sealdesk_core_main() {
+bool flutter_sealdesk_core_main(int* argc, char** argv) {
    void* libsealdesk = dlopen_bundled_lib();
    if (!libsealdesk) {
       libsealdesk = dlopen(RUSTDESK_LIB_PATH, RTLD_LAZY);
@@ -62,11 +63,22 @@ bool flutter_sealdesk_core_main() {
        fprintf(stderr, "Program entry \"sealdesk_core_main\" is not found: %s\n", error);
        return false;
    }
-   return core_main();
+   if (!core_main()) {
+       return false;
+   }
+   // Password-bearing launches stage SEALDESK_CONTROL_CODE and replace the
+   // process argv with `--control` so the UI does not keep the original
+   // `--control -` / `--control-file` arguments.
+   dlerror();
+   auto apply = (RustDeskApplyUiArgv) dlsym(libsealdesk, "sealdesk_apply_ui_argv");
+   if (apply != nullptr && argc != nullptr && argv != nullptr) {
+       apply(argc, argv);
+   }
+   return true;
 }
 
 int main(int argc, char** argv) {
-  if (!flutter_sealdesk_core_main()) {
+  if (!flutter_sealdesk_core_main(&argc, argv)) {
       return 0;
   }
   for (int i = 0; i < argc; i++) {

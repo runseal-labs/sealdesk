@@ -72,6 +72,22 @@ fn rejects_signed_offline_artifact_from_unsafe_url() {
 }
 
 #[test]
+fn rejects_tampered_offline_metadata_or_signature() {
+    let file_name = "rustdesk-1.4.6-x86_64.exe";
+    assert!(verify_offline(&valid_fixture(), file_name).is_ok());
+
+    let mut tampered = valid_fixture();
+    let last = tampered.metadata.len() - 1;
+    tampered.metadata[last] ^= 0x01;
+    assert!(verify_offline(&tampered, file_name).is_err());
+
+    let mut tampered = valid_fixture();
+    let last = tampered.signature.len() - 1;
+    tampered.signature[last] ^= 0x01;
+    assert!(verify_offline(&tampered, file_name).is_err());
+}
+
+#[test]
 fn rejects_offline_artifact_name_or_release_mismatch() {
     assert!(verify_offline(&valid_fixture(), "renamed-update.exe").is_err());
 

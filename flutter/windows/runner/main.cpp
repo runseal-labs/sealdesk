@@ -18,6 +18,41 @@ typedef int (*FUNC_RUSTDESK_IS_DISABLE_INSTALLATION)();
 /// Note: `--server`, `--service` are already handled in [core_main.rs].
 const std::vector<std::string> parameters_white_list = {"--install", "--cm"};
 
+static bool is_control_switch(const std::string& arg) {
+  return arg == "--control" || arg == "--control-file";
+}
+
+// Dart receives the original Win32 command line plus the rewritten Rust
+// arguments. Drop the original `--control` / `--control-file` values when
+// Rust rewrote the launch, so a code or file path is not also a Dart entry
+// argument. The password stays in SEALDESK_CONTROL_CODE, not in either list.
+static void drop_original_control_arguments(
+    std::vector<std::string>& arguments,
+    const std::vector<std::string>& rust_args) {
+  bool rewritten = false;
+  for (const auto& arg : rust_args) {
+    if (is_control_switch(arg)) {
+      rewritten = true;
+      break;
+    }
+  }
+  if (!rewritten) {
+    return;
+  }
+  std::vector<std::string> kept;
+  for (size_t i = 0; i < arguments.size(); ++i) {
+    if (is_control_switch(arguments[i])) {
+      if (i + 1 < arguments.size() &&
+          (arguments[i + 1].empty() || arguments[i + 1].rfind("--", 0) != 0)) {
+        ++i;
+      }
+      continue;
+    }
+    kept.push_back(arguments[i]);
+  }
+  arguments.swap(kept);
+}
+
 const wchar_t* getWindowClassName();
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
@@ -147,6 +182,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     is_install_page = true;
   }
 
+  drop_original_control_arguments(command_line_arguments, rust_args);
   command_line_arguments.insert(command_line_arguments.end(), rust_args.begin(), rust_args.end());
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 

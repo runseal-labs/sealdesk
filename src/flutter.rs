@@ -124,7 +124,13 @@ pub extern "C" fn rustdesk_core_main() -> bool {
     }
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     match crate::core_main::core_main() {
-        Some(crate::core_main::CoreMainAction::StartUi(_)) => return true,
+        Some(crate::core_main::CoreMainAction::StartUi(_)) => {
+            // macOS reads the process argv. Linux applies the same replacement
+            // from the runner, which still has the argv pointer.
+            #[cfg(target_os = "macos")]
+            crate::tailcat::launch::apply_staged_process_argv();
+            return true;
+        }
         Some(crate::core_main::CoreMainAction::ExitFailure(err)) => {
             eprintln!("Command failed: {err}");
             log::error!("Command failed: {err}");
@@ -138,6 +144,17 @@ pub extern "C" fn rustdesk_core_main() -> bool {
     }
     #[cfg(not(target_os = "macos"))]
     false
+}
+
+// Linux replaces argv from the runner. Android and iOS do not build the
+// desktop CLI launch parser (`tailcat::launch`).
+#[cfg(not(any(windows, target_os = "android", target_os = "ios")))]
+#[no_mangle]
+pub extern "C" fn sealdesk_apply_ui_argv(argc: *mut c_int, argv: *mut *mut c_char) {
+    if !crate::tailcat::launch::take_ui_argv_replacement() {
+        return;
+    }
+    crate::tailcat::launch::apply_control_marker_argv(argc, argv);
 }
 
 #[cfg(target_os = "macos")]

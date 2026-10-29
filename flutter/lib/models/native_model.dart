@@ -171,6 +171,9 @@ class PlatformFFI {
       }
       _ffiBind = SealdeskImpl(dylib);
       _ffiBindInitialized = true;
+      SealDeskStartup.clearStagedControlCode((key) {
+        _ffiBind.mainSetEnv(key: key, value: null);
+      });
 
       // The URI server starts after the first main-window hide or show.
       _startListenEvent(_ffiBind); // global event
