@@ -124,6 +124,19 @@ func saveJSON(path string, v any) error {
 	return os.Chmod(path, 0o600)
 }
 
+// persistFreshNodeKey writes a freshly created node key before relay bootstrap.
+// Existing files are not rewritten. A failed write must not abort start: the
+// relay can still come up on the in-memory key, matching the post-start save.
+// Only the filesystem error is logged, never the key.
+func persistFreshNodeKey(path string, pk *serverKeyFile, fresh bool) {
+	if !fresh {
+		return
+	}
+	if err := saveJSON(path, pk); err != nil {
+		logf("save new node key before relay bootstrap failed: %v", err)
+	}
+}
+
 func stageForServeErr(err error) string {
 	msg := ""
 	if err != nil {
@@ -164,20 +177,12 @@ func TcServe(keyPath, allow *C.char, targetPort C.int, localToken *C.char) *C.ch
 
 //export TcServeWithDERPMap
 func TcServeWithDERPMap(keyPath, allow *C.char, targetPort C.int, localToken, derpMapURL *C.char) *C.char {
-	addr, err := serveWithDERPMap(C.GoString(keyPath), C.GoString(allow), C.GoString(localToken), C.GoString(derpMapURL), int(targetPort))
-	if err != nil {
-		return cerr(err)
-	}
-	return cstr(addr)
-}
-
-func serveWithDERPMap(keyPath, allow, localToken, derpMapURL string, targetPort int) (string, error) {
-	source, err := derpMapSource(derpMapURL)
+	source, err := derpMapSource(C.GoString(derpMapURL))
 	if err != nil {
 		mu.Lock()
 		recordServeFailureLocked(err, "")
 		mu.Unlock()
-		return "", err
+		return cerr(err)
 	}
 	mu.Lock()
 	defer mu.Unlock()
@@ -185,34 +190,26 @@ func serveWithDERPMap(keyPath, allow, localToken, derpMapURL string, targetPort 
 		if server.DERPMapURL != source {
 			err = errors.New("host configuration: stop host before changing DERP map")
 			recordServeFailureLocked(err, "")
-			return "", err
+			return cerr(err)
 		}
-		return string(server.TailcatAddr()), nil
+		return cstr(string(server.TailcatAddr()))
 	}
-	token, err := decodeLocalToken(localToken)
+	token, err := decodeLocalToken(C.GoString(localToken))
 	if err != nil {
 		recordServeFailureLocked(err, "")
-		return "", err
+		return cerr(err)
 	}
-	path := keyPath
+	path := C.GoString(keyPath)
 	pk, fresh, err := loadOrCreateKey(path)
 	if err != nil {
 		err = errors.New("host identity: could not read or parse saved key")
 		recordServeFailureLocked(err, path)
-		return "", err
+		return cerr(err)
 	}
 	// Persist a new identity before relay bootstrap so LAN discovery can seal
 	// a possession proof while the relay is still unreachable. An existing key
 	// is left untouched; the region is written back only after start succeeds.
-	if fresh {
-		// A failed write must not abort start: the relay can still come up on
-		// the in-memory key, matching the post-start save. Discovery has no
-		// proof until a later start persists the file. Log the filesystem
-		// error only; never the key.
-		if err := saveJSON(path, pk); err != nil {
-			logf("save new node key before relay bootstrap failed: %v", err)
-		}
-	}
+	persistFreshNodeKey(path, pk, fresh)
 	previousSource, _ := derpMapSource(pk.DERPMapURL)
 	sourceChanged := previousSource != source
 	if sourceChanged {
@@ -229,18 +226,18 @@ func serveWithDERPMap(keyPath, allow, localToken, derpMapURL string, targetPort 
 		if pk.Public.Region[0] == nil {
 			err = errors.New("invalid saved DERP region")
 			recordServeFailureLocked(err, path)
-			return "", err
+			return cerr(err)
 		}
 		s.Region = pk.Public.Region[0]
 	}
-	if list := strings.TrimSpace(allow); list != "" {
+	if list := strings.TrimSpace(C.GoString(allow)); list != "" {
 		allowed := map[key.NodePublic]bool{}
 		for _, k := range strings.Split(list, ",") {
 			var nk key.NodePublic
 			if err := nk.UnmarshalText([]byte(strings.TrimSpace(k))); err != nil {
 				err = errors.New("host allow list: invalid node key")
 				recordServeFailureLocked(err, path)
-				return "", err
+				return cerr(err)
 			}
 			allowed[nk] = true
 		}
@@ -250,7 +247,7 @@ func serveWithDERPMap(keyPath, allow, localToken, derpMapURL string, targetPort 
 	// The server never acks a meow AllowClient rejects.
 	probeKey := key.NewNode()
 	s.AllowClient = allowWithProbe(s.AllowClient, probeKey.Public())
-	target := fmt.Sprintf("127.0.0.1:%d", targetPort)
+	target := fmt.Sprintf("127.0.0.1:%d", int(targetPort))
 	identities := &peerRegistry{}
 	connections := &incomingConnections{}
 	s.OnTCP = func(port uint16) func(net.Conn) {
@@ -275,7 +272,7 @@ func serveWithDERPMap(keyPath, allow, localToken, derpMapURL string, targetPort 
 	defer cancel()
 	if err := prepareServer(ctx, s, source); err != nil {
 		recordServeFailureLocked(err, path)
-		return "", err
+		return cerr(err)
 	}
 	if err := s.StartContext(ctx); err != nil {
 		wrapped := transportError(ctx, "DERP relay/bootstrap", err)
@@ -284,7 +281,7 @@ func serveWithDERPMap(keyPath, allow, localToken, derpMapURL string, targetPort 
 		if closeErr := s.Close(); closeErr != nil {
 			logf("cleanup failed server: %v", closeErr)
 		}
-		return "", wrapped
+		return cerr(wrapped)
 	}
 	clearLastInitErrLocked()
 	serveStartedAt = time.Now()
@@ -306,7 +303,7 @@ func serveWithDERPMap(keyPath, allow, localToken, derpMapURL string, targetPort 
 	server = s
 	serverConns = connections
 	startSelfProbeLocked(addr, probeKey, source)
-	return string(addr), nil
+	return cstr(string(addr))
 }
 
 func clientFor(ctx context.Context, addr, keyPath, source string) (tunnelClient, func(), func(), error) {
