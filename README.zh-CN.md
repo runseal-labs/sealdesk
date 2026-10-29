@@ -12,14 +12,13 @@
 
 不用注册账号，不用 ID 服务器，不用自建中继，也不用做端口映射。
 
-> 已在 Linux x64 / x86_64、Windows 和 macOS 上验证：作为被控端和控制端连接均正常。尚未将 Android 作为被控设备测试。
+> 已在 Linux x64 / aarch64、Windows 和 macOS 上验证：作为被控端和控制端连接均正常。Android 目前主要作为控制端使用。
 >
 > **macOS**
 >
-> - 应用未公证。首次打开前执行：
+> - 应用未公证。首次打开前可执行：
 >
 >   ```bash
->   xattr -d com.apple.quarantine ~/Downloads/sealdesk-*.dmg
 >   xattr -r -d com.apple.quarantine /Applications/SealDesk.app
 >   ```
 >
