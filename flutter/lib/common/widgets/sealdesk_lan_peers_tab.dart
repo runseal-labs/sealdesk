@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../common.dart';
@@ -14,6 +16,9 @@ class SealDeskLanPeersTab extends StatefulWidget {
 }
 
 class _SealDeskLanPeersTabState extends State<SealDeskLanPeersTab> {
+  Timer? _emptyHintTimer;
+  bool _emptyHint = false;
+
   @override
   void initState() {
     super.initState();
@@ -22,8 +27,24 @@ class _SealDeskLanPeersTabState extends State<SealDeskLanPeersTab> {
 
   @override
   void dispose() {
+    _emptyHintTimer?.cancel();
     SealDeskLanDirectory.instance.release();
     super.dispose();
+  }
+
+  void _trackEmptySearch(bool empty) {
+    if (!empty) {
+      _emptyHintTimer?.cancel();
+      _emptyHintTimer = null;
+      _emptyHint = false;
+      return;
+    }
+    if (_emptyHint || _emptyHintTimer != null) return;
+    _emptyHintTimer = Timer(const Duration(seconds: 10), () {
+      _emptyHintTimer = null;
+      if (!mounted) return;
+      setState(() => _emptyHint = true);
+    });
   }
 
   Future<void> _open(
@@ -53,18 +74,27 @@ class _SealDeskLanPeersTabState extends State<SealDeskLanPeersTab> {
       animation: SealDeskLanDirectory.instance,
       builder: (context, _) {
         final devices = SealDeskLanDirectory.instance.devices;
+        _trackEmptySearch(devices.isEmpty);
         if (devices.isEmpty) {
           return Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.radar,
-                    key: const ValueKey('sealdesk-lan-search'),
-                    size: 36,
-                    color: Theme.of(context).hintColor),
-                const SizedBox(height: 8),
-                Text(translate(kSealDeskSearching)),
-              ],
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.radar,
+                      key: const ValueKey('sealdesk-lan-search'),
+                      size: 36,
+                      color: Theme.of(context).hintColor),
+                  const SizedBox(height: 8),
+                  Text(
+                    translate(_emptyHint
+                        ? kSealDeskLanEmptyHint
+                        : kSealDeskSearching),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
             ),
           );
         }

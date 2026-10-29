@@ -1139,7 +1139,7 @@ impl NodeSecretCache {
         self.stamp = stamp;
         self.seen = true;
         self.key = if meta.is_some() {
-            crate::tailcat::node_private_key()
+            crate::tailcat::node_private_key_at(&self.path)
         } else {
             None
         };
@@ -4329,5 +4329,72 @@ mod tests {
         let (ifaces, global) = udp::query_targets(&[], &tun_only);
         assert!(ifaces.is_empty());
         assert!(global);
+    }
+
+    #[test]
+    fn pre_bootstrap_key_file_seals_a_discovery_proof() {
+        let (_public, secret) = node_keypair();
+        let path = std::env::temp_dir().join(format!(
+            "sealdesk-lan-key-{}-{}",
+            std::process::id(),
+            secret[0]
+        ));
+        let body = format!(
+            r#"{{"Private":"privkey:{}","Public":{{}}}}"#,
+            hex::encode(secret)
+        );
+        std::fs::write(&path, body.as_bytes()).unwrap();
+        let mut cache = NodeSecretCache {
+            path: path.to_string_lossy().into_owned(),
+            seen: false,
+            stamp: None,
+            key: None,
+        };
+        cache.refresh_if_changed();
+        let loaded = cache.key.clone().expect("key-only file");
+        assert_eq!(&*loaded, &secret);
+
+        let key = hex::encode([7u8; 32]);
+        let challenge = fresh_challenge();
+        let request = (challenge.eph_public, challenge.nonce);
+        let hint = sealdesk_hint(&key, true, Some(&request), Some(&*loaded));
+        assert!(!hint.proof.is_empty());
+        assert_eq!(hint.node, hex::encode(x25519_public(&*loaded).unwrap()));
+        let reply = PeerDiscovery {
+            cmd: "pong".into(),
+            id: key.clone(),
+            hostname: "Desk".into(),
+            misc: serde_json::to_string(&hint).unwrap(),
+            ..Default::default()
+        };
+        let (_, peer) = discovered_peer(
+            &reply,
+            "192.168.1.8:99".parse().unwrap(),
+            "own",
+            &challenge,
+        )
+        .expect("controller accepts the proof");
+        assert_eq!(peer.protocol, PROTO_SEALDESK);
+        assert!(!peer.proof.is_empty());
+
+        std::fs::write(&path, b"{}").unwrap();
+        cache.seen = false;
+        cache.refresh_if_changed();
+        assert!(cache.key.is_none());
+        let empty = sealdesk_hint(&key, true, Some(&request), None);
+        assert!(empty.proof.is_empty());
+        let skipped = PeerDiscovery {
+            cmd: "pong".into(),
+            misc: serde_json::to_string(&empty).unwrap(),
+            ..Default::default()
+        };
+        assert!(discovered_peer(
+            &skipped,
+            "192.168.1.8:99".parse().unwrap(),
+            "own",
+            &challenge,
+        )
+        .is_none());
+        std::fs::remove_file(&path).unwrap();
     }
 }

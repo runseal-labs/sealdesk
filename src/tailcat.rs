@@ -369,9 +369,13 @@ fn secure_key_file(path: &str) -> ResultType<()> {
 /// the file is missing or unreadable. Callers drop it when the possession
 /// proof is sealed.
 pub(crate) fn node_private_key() -> Option<zeroize::Zeroizing<[u8; 32]>> {
+    node_private_key_at(&server_key_path())
+}
+
+pub(crate) fn node_private_key_at(path: &str) -> Option<zeroize::Zeroizing<[u8; 32]>> {
     use zeroize::Zeroize;
 
-    let text = std::fs::read_to_string(server_key_path()).ok()?;
+    let text = std::fs::read_to_string(path).ok()?;
     let value: serde_json::Value = serde_json::from_str(&text).ok()?;
     let encoded = value.get("Private")?.as_str()?;
     let hex_key = encoded.strip_prefix("privkey:")?;

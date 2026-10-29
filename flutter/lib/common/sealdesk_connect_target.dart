@@ -12,6 +12,8 @@ const kSealDeskClearHistoryBody = 'Favorites are kept.';
 const kSealDeskNoRecords = 'No records';
 const kSealDeskNoFavorites = 'No favorites';
 const kSealDeskSearching = 'Searching…';
+const kSealDeskLanEmptyHint =
+    'No devices found yet. Make sure the other device is sharing on the same LAN, or enter its IP.';
 const kSealDeskScanTooltip = 'Scan to connect';
 const kSealDeskScreenTooltip = 'Recognize screen or clipboard QR';
 const kSealDeskGalleryTooltip = 'Recognize QR from gallery';

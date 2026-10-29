@@ -164,12 +164,20 @@ func TcServe(keyPath, allow *C.char, targetPort C.int, localToken *C.char) *C.ch
 
 //export TcServeWithDERPMap
 func TcServeWithDERPMap(keyPath, allow *C.char, targetPort C.int, localToken, derpMapURL *C.char) *C.char {
-	source, err := derpMapSource(C.GoString(derpMapURL))
+	addr, err := serveWithDERPMap(C.GoString(keyPath), C.GoString(allow), C.GoString(localToken), C.GoString(derpMapURL), int(targetPort))
+	if err != nil {
+		return cerr(err)
+	}
+	return cstr(addr)
+}
+
+func serveWithDERPMap(keyPath, allow, localToken, derpMapURL string, targetPort int) (string, error) {
+	source, err := derpMapSource(derpMapURL)
 	if err != nil {
 		mu.Lock()
 		recordServeFailureLocked(err, "")
 		mu.Unlock()
-		return cerr(err)
+		return "", err
 	}
 	mu.Lock()
 	defer mu.Unlock()
@@ -177,21 +185,29 @@ func TcServeWithDERPMap(keyPath, allow *C.char, targetPort C.int, localToken, de
 		if server.DERPMapURL != source {
 			err = errors.New("host configuration: stop host before changing DERP map")
 			recordServeFailureLocked(err, "")
-			return cerr(err)
+			return "", err
 		}
-		return cstr(string(server.TailcatAddr()))
+		return string(server.TailcatAddr()), nil
 	}
-	token, err := decodeLocalToken(C.GoString(localToken))
+	token, err := decodeLocalToken(localToken)
 	if err != nil {
 		recordServeFailureLocked(err, "")
-		return cerr(err)
+		return "", err
 	}
-	path := C.GoString(keyPath)
+	path := keyPath
 	pk, fresh, err := loadOrCreateKey(path)
 	if err != nil {
 		err = errors.New("host identity: could not read or parse saved key")
 		recordServeFailureLocked(err, path)
-		return cerr(err)
+		return "", err
+	}
+	// Persist a new identity before relay bootstrap so LAN discovery can seal
+	// a possession proof while the relay is still unreachable. An existing key
+	// is left untouched; the region is written back only after start succeeds.
+	if fresh {
+		if err := saveJSON(path, pk); err != nil {
+			logf("save key: %v", err)
+		}
 	}
 	previousSource, _ := derpMapSource(pk.DERPMapURL)
 	sourceChanged := previousSource != source
@@ -209,18 +225,18 @@ func TcServeWithDERPMap(keyPath, allow *C.char, targetPort C.int, localToken, de
 		if pk.Public.Region[0] == nil {
 			err = errors.New("invalid saved DERP region")
 			recordServeFailureLocked(err, path)
-			return cerr(err)
+			return "", err
 		}
 		s.Region = pk.Public.Region[0]
 	}
-	if list := strings.TrimSpace(C.GoString(allow)); list != "" {
+	if list := strings.TrimSpace(allow); list != "" {
 		allowed := map[key.NodePublic]bool{}
 		for _, k := range strings.Split(list, ",") {
 			var nk key.NodePublic
 			if err := nk.UnmarshalText([]byte(strings.TrimSpace(k))); err != nil {
 				err = errors.New("host allow list: invalid node key")
 				recordServeFailureLocked(err, path)
-				return cerr(err)
+				return "", err
 			}
 			allowed[nk] = true
 		}
@@ -230,7 +246,7 @@ func TcServeWithDERPMap(keyPath, allow *C.char, targetPort C.int, localToken, de
 	// The server never acks a meow AllowClient rejects.
 	probeKey := key.NewNode()
 	s.AllowClient = allowWithProbe(s.AllowClient, probeKey.Public())
-	target := fmt.Sprintf("127.0.0.1:%d", int(targetPort))
+	target := fmt.Sprintf("127.0.0.1:%d", targetPort)
 	identities := &peerRegistry{}
 	connections := &incomingConnections{}
 	s.OnTCP = func(port uint16) func(net.Conn) {
@@ -255,7 +271,7 @@ func TcServeWithDERPMap(keyPath, allow *C.char, targetPort C.int, localToken, de
 	defer cancel()
 	if err := prepareServer(ctx, s, source); err != nil {
 		recordServeFailureLocked(err, path)
-		return cerr(err)
+		return "", err
 	}
 	if err := s.StartContext(ctx); err != nil {
 		wrapped := transportError(ctx, "DERP relay/bootstrap", err)
@@ -264,7 +280,7 @@ func TcServeWithDERPMap(keyPath, allow *C.char, targetPort C.int, localToken, de
 		if closeErr := s.Close(); closeErr != nil {
 			logf("cleanup failed server: %v", closeErr)
 		}
-		return cerr(wrapped)
+		return "", wrapped
 	}
 	clearLastInitErrLocked()
 	serveStartedAt = time.Now()
@@ -286,7 +302,7 @@ func TcServeWithDERPMap(keyPath, allow *C.char, targetPort C.int, localToken, de
 	server = s
 	serverConns = connections
 	startSelfProbeLocked(addr, probeKey, source)
-	return cstr(string(addr))
+	return string(addr), nil
 }
 
 func clientFor(ctx context.Context, addr, keyPath, source string) (tunnelClient, func(), func(), error) {

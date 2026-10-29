@@ -904,6 +904,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("No records", "暂无记录"),
         ("No favorites", "暂无收藏"),
         ("Searching…", "查找中…"),
+        ("No devices found yet. Make sure the other device is sharing on the same LAN, or enter its IP.", "暂未发现设备。请确认对方已开启共享并在同一局域网内，也可手动输入 IP。"),
         ("Recent", "最近"),
         ("LAN", "局域网"),
         ("Invalid connection address", "连接地址无效"),

@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sealdesk/common/sealdesk_connect.dart';
+import 'package:sealdesk/common/sealdesk_connect_target.dart';
 import 'package:sealdesk/common/widgets/sealdesk_lan_peers_tab.dart';
 import 'package:sealdesk/generated_bridge.dart';
 import 'package:sealdesk/models/platform_model.dart';
@@ -95,6 +97,22 @@ void main() {
     await tester.tap(find.byKey(ValueKey('sealdesk-lan-terminal-$desktop')));
     await tester.pump();
     tester.takeException();
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
+  testWidgets('empty LAN list explains after searching', (tester) async {
+    SealDeskLanDirectory.instance.devices = [];
+    await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: SealDeskLanPeersTab())));
+    await tester.pump();
+    expect(find.text(kSealDeskSearching), findsOneWidget);
+    expect(find.text(kSealDeskLanEmptyHint), findsNothing);
+    expect(find.byKey(const ValueKey('sealdesk-lan-search')), findsOneWidget);
+    await tester.pump(const Duration(seconds: 10));
+    expect(find.text(kSealDeskLanEmptyHint), findsOneWidget);
+    expect(find.text(kSealDeskSearching), findsNothing);
+    expect(find.byKey(const ValueKey('sealdesk-lan-search')), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
     await tester.pump();
   });
