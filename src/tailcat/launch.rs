@@ -1,15 +1,16 @@
 use super::pairing::PairingCode;
 use hbb_common::{anyhow::anyhow, bail, ResultType};
-use std::{
-    fs::OpenOptions,
-    io::{BufRead, Read},
-};
+use std::io::{BufRead, Read};
+#[cfg(any(feature = "flutter", test))]
+use std::sync::Mutex;
 
 pub(crate) const MAX_IMAGE_BYTES: u64 = 20 * 1024 * 1024;
 pub(crate) const CONTROL_CODE_ENV: &str = "SEALDESK_CONTROL_CODE";
 const MAX_CONTROL_TEXT_BYTES: u64 = 16 * 1024;
-const CONTROL_USAGE: &str = "用法：--host，或 --control [不含密码的配对码 | 二维码图片 | -]，或 --control-file <配对码文件>；含密码的配对码请从标准输入、限制权限的文件或环境变量 SEALDESK_CONTROL_CODE 读取；--host 不能与 --no-server 同用";
-const INLINE_SECRET_ERROR: &str = "配对码含有密码，不能写在命令行参数里。请改用 --control - 从标准输入读取，或 --control-file <模式为 0600 且属于当前用户的文件>，或环境变量 SEALDESK_CONTROL_CODE";
+const CONTROL_USAGE: &str = "用法：--host，或 --control [不含密码的配对码 | 二维码图片 | -]，或 --control-file <配对码文件>（仅 Linux 与 macOS）；含密码的配对码请从标准输入、限制权限的文件或环境变量 SEALDESK_CONTROL_CODE 读取。Windows 不支持 --control-file，请改用 --control - 或 SEALDESK_CONTROL_CODE。--host 不能与 --no-server 同用";
+const INLINE_SECRET_ERROR: &str = "配对码含有密码，不能写在命令行参数里。请改用 --control - 从标准输入读取，或环境变量 SEALDESK_CONTROL_CODE。在 Linux 与 macOS 上也可以使用 --control-file <模式为 0600 且属于当前用户的文件>。Windows 不支持 --control-file";
+#[cfg_attr(unix, allow(dead_code))]
+pub(crate) const CONTROL_FILE_WINDOWS_ERROR: &str = "--control-file 在 Windows 上不可用：无法在这里校验文件所有者和 ACL。请改用 --control - 从标准输入读取，或环境变量 SEALDESK_CONTROL_CODE";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Mode {
@@ -26,9 +27,172 @@ impl Mode {
     }
 }
 
+/// Where a control input was read. Stdin, file, and env values are not on the
+/// UI command line; Linux and macOS keep the original process argv.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ControlInputSource {
+    Inline,
+    Stdin,
+    File,
+    Env,
+}
+
 pub(crate) struct Launch {
     pub(crate) mode: Mode,
     pub(crate) input: Option<String>,
+    #[cfg_attr(not(feature = "flutter"), allow(dead_code))]
+    pub(crate) control_source: Option<ControlInputSource>,
+}
+
+/// What the UI process is allowed to see. `staged_env` is copied into
+/// `SEALDESK_CONTROL_CODE` before the UI starts. `argv` is the rewritten
+/// argument list and never contains a password-bearing code.
+#[cfg(any(feature = "flutter", test))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ControlUiHandoff {
+    pub argv: Vec<String>,
+    pub staged_env: Option<String>,
+    /// Linux and macOS ignore `StartUi` and keep the process argv. When this
+    /// is set, those runners replace that argv with `argv` before the UI starts.
+    pub replace_process_argv: bool,
+}
+
+/// Staged env wins over every argv form. Stdin, file, and env launches stage
+/// the code because the process argv is only `--control -`, `--control-file`,
+/// or `--control`. Inline password-less text and QR paths stay on argv.
+#[cfg(any(feature = "flutter", test))]
+pub(crate) fn control_ui_handoff(input: &str, source: ControlInputSource) -> ControlUiHandoff {
+    let has_password = pairing_declares_password(input);
+    let out_of_band = has_password
+        || matches!(
+            source,
+            ControlInputSource::Stdin | ControlInputSource::File | ControlInputSource::Env
+        );
+    if out_of_band {
+        ControlUiHandoff {
+            argv: vec!["--control".to_owned()],
+            staged_env: Some(input.to_owned()),
+            replace_process_argv: true,
+        }
+    } else {
+        ControlUiHandoff {
+            argv: vec!["--control".to_owned(), input.to_owned()],
+            staged_env: None,
+            replace_process_argv: false,
+        }
+    }
+}
+
+#[cfg(any(feature = "flutter", test))]
+static UI_ARGV_REPLACEMENT: Mutex<bool> = Mutex::new(false);
+#[cfg(any(feature = "flutter", test))]
+static CONTROL_ARGV_MARKER: &[u8] = b"--control\0";
+
+#[cfg(any(feature = "flutter", test))]
+pub(crate) fn stage_control_for_ui(input: &str, source: ControlInputSource) {
+    let handoff = control_ui_handoff(input, source);
+    match handoff.staged_env {
+        Some(value) => std::env::set_var(CONTROL_CODE_ENV, value),
+        None => std::env::remove_var(CONTROL_CODE_ENV),
+    }
+    *UI_ARGV_REPLACEMENT.lock().unwrap() = handoff.replace_process_argv;
+}
+
+#[cfg(any(feature = "flutter", test))]
+pub(crate) fn take_ui_argv_replacement() -> bool {
+    let mut replace = UI_ARGV_REPLACEMENT.lock().unwrap();
+    let value = *replace;
+    *replace = false;
+    value
+}
+
+/// Overwrites process arguments the UI will see with `--control` and zeroes
+/// the previous argument bytes, so a file path or marker value does not remain
+/// on the command line. The code itself is only in `SEALDESK_CONTROL_CODE`.
+#[cfg(any(feature = "flutter", test))]
+pub(crate) fn apply_control_marker_argv(
+    argc: *mut std::os::raw::c_int,
+    argv: *mut *mut std::os::raw::c_char,
+) {
+    if argc.is_null() || argv.is_null() {
+        return;
+    }
+    unsafe {
+        let count = *argc;
+        if count < 2 {
+            return;
+        }
+        let marker = b"--control";
+        let first = *argv.add(1);
+        if first.is_null() {
+            return;
+        }
+        let available = hbb_common::libc::strlen(first);
+        if available >= marker.len() {
+            std::ptr::copy_nonoverlapping(marker.as_ptr(), first.cast::<u8>(), marker.len());
+            *first.add(marker.len()) = 0;
+            for index in marker.len() + 1..available {
+                *first.add(index) = 0;
+            }
+        } else {
+            for index in 0..available {
+                *first.add(index) = 0;
+            }
+            *argv.add(1) = CONTROL_ARGV_MARKER.as_ptr().cast_mut().cast();
+        }
+        for index in 2..count {
+            let arg = *argv.add(index as usize);
+            if arg.is_null() {
+                continue;
+            }
+            let len = hbb_common::libc::strlen(arg);
+            for byte in 0..len {
+                *arg.add(byte) = 0;
+            }
+        }
+        *argv.add(2) = std::ptr::null_mut();
+        *argc = 2;
+    }
+}
+
+#[cfg(all(target_os = "macos", feature = "flutter"))]
+pub(crate) fn apply_staged_process_argv() {
+    if !take_ui_argv_replacement() {
+        return;
+    }
+    extern "C" {
+        fn _NSGetArgc() -> *mut std::os::raw::c_int;
+        fn _NSGetArgv() -> *mut *mut *mut std::os::raw::c_char;
+    }
+    unsafe {
+        let argc = _NSGetArgc();
+        let argv = _NSGetArgv();
+        if argc.is_null() || argv.is_null() || (*argv).is_null() {
+            return;
+        }
+        apply_control_marker_argv(argc, *argv);
+    }
+}
+
+const NON_FLUTTER_PASSWORD_ERROR: &str = "这个构建没有可以接收含密码配对码的界面，因此不会启动连接。请使用 Flutter 版本；密码通过标准输入、SEALDESK_CONTROL_CODE 或（Linux 与 macOS）--control-file 交给界面，不会放进命令行参数。";
+
+/// Password-bearing codes need a UI that reads `SEALDESK_CONTROL_CODE`.
+/// Builds without Flutter have no such UI, and `StartUi` arguments are not
+/// applied on Linux or macOS, so continuing would drop the password.
+pub(crate) struct NonFlutterConnect {
+    pub address: String,
+    pub name: Option<String>,
+}
+
+pub(crate) fn non_flutter_connect(input: &str) -> ResultType<NonFlutterConnect> {
+    let pairing = PairingCode::parse(input).map_err(|err| anyhow!(err))?;
+    if pairing.password.is_some() {
+        bail!(NON_FLUTTER_PASSWORD_ERROR);
+    }
+    Ok(NonFlutterConnect {
+        address: pairing.address,
+        name: pairing.name,
+    })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,22 +230,10 @@ pub(crate) fn take_control_code_env() -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-/// UI handoff for a password-bearing code. Command lines stay free of that value.
-pub(crate) fn stage_control_secret_for_ui(input: &str) {
-    if pairing_declares_password(input) {
-        std::env::set_var(CONTROL_CODE_ENV, input);
-    } else {
-        std::env::remove_var(CONTROL_CODE_ENV);
-    }
-}
-
 /// Arguments for the Flutter UI. A password-bearing pairing code is never included.
+#[cfg(any(feature = "flutter", test))]
 pub(crate) fn flutter_control_arguments(input: &str) -> Vec<String> {
-    if pairing_declares_password(input) {
-        vec!["--control".to_owned()]
-    } else {
-        vec!["--control".to_owned(), input.to_owned()]
-    }
+    control_ui_handoff(input, ControlInputSource::Inline).argv
 }
 
 fn pairing_prefix(input: &str) -> bool {
@@ -91,33 +243,14 @@ fn pairing_prefix(input: &str) -> bool {
         .is_some_and(|prefix| prefix.eq_ignore_ascii_case("SEALDESK:"))
 }
 
+/// Agrees with `PairingCode::parse`: only a code that parses and carries a
+/// password field counts. A `P` field that is missing its closing `;`, or a
+/// code that never reaches the terminating `;;`, is not a password code.
 fn pairing_declares_password(input: &str) -> bool {
-    let input = input.trim();
-    if !pairing_prefix(input) {
-        return false;
-    }
-    let mut field = String::new();
-    let mut escaped = false;
-    for character in input[9..].chars() {
-        if escaped {
-            field.push(character);
-            escaped = false;
-            continue;
-        }
-        if character == '\\' {
-            escaped = true;
-            continue;
-        }
-        if character == ';' {
-            if field.split_once(':').is_some_and(|(key, _)| key == "P") {
-                return true;
-            }
-            field.clear();
-            continue;
-        }
-        field.push(character);
-    }
-    false
+    PairingCode::parse(input)
+        .ok()
+        .and_then(|code| code.password)
+        .is_some()
 }
 
 fn accept_control_text(text: String) -> ResultType<String> {
@@ -145,78 +278,39 @@ pub(crate) fn read_control_line<R: BufRead>(reader: &mut R) -> ResultType<String
 }
 
 #[cfg(unix)]
-fn file_uid(metadata: &std::fs::Metadata) -> u32 {
-    use std::os::unix::fs::MetadataExt;
-    metadata.uid()
-}
-
-#[cfg(not(unix))]
-fn file_uid(_metadata: &std::fs::Metadata) -> u32 {
-    0
-}
-
-#[cfg(unix)]
 fn current_euid() -> u32 {
     unsafe { hbb_common::libc::geteuid() }
 }
 
-#[cfg(not(unix))]
-fn current_euid() -> u32 {
-    0
+#[cfg(unix)]
+fn fstat_control(fd: std::os::unix::io::RawFd) -> ResultType<(ControlFileStat, u64)> {
+    let mut stat = unsafe { std::mem::zeroed::<hbb_common::libc::stat>() };
+    if unsafe { hbb_common::libc::fstat(fd, &mut stat) } != 0 {
+        bail!("无法读取配对码文件，请检查路径和权限");
+    }
+    let file_type = stat.st_mode & hbb_common::libc::S_IFMT;
+    if stat.st_size < 0 {
+        bail!("配对码文件必须是非空文本，且不能超过 16 KB");
+    }
+    Ok((
+        ControlFileStat {
+            is_symlink: file_type == hbb_common::libc::S_IFLNK,
+            is_file: file_type == hbb_common::libc::S_IFREG,
+            uid: stat.st_uid,
+            euid: current_euid(),
+            mode: stat.st_mode & 0o777,
+        },
+        stat.st_size as u64,
+    ))
 }
 
 #[cfg(unix)]
-fn file_mode(metadata: &std::fs::Metadata) -> u32 {
-    use std::os::unix::fs::MetadataExt;
-    metadata.mode() & 0o777
-}
-
-#[cfg(not(unix))]
-fn file_mode(_metadata: &std::fs::Metadata) -> u32 {
-    0
-}
-
-fn metadata_stat(metadata: &std::fs::Metadata) -> ControlFileStat {
-    ControlFileStat {
-        is_symlink: metadata.file_type().is_symlink(),
-        is_file: metadata.file_type().is_file(),
-        uid: file_uid(metadata),
-        euid: current_euid(),
-        mode: file_mode(metadata),
-    }
-}
-
-fn read_control_file(path: &str) -> ResultType<String> {
-    let inspected = std::fs::symlink_metadata(path)
-        .map_err(|_| anyhow!("无法读取配对码文件，请检查路径和权限"))?;
-    if let Some(error) = control_file_stat_error(metadata_stat(&inspected)) {
-        bail!(error);
-    }
-    #[cfg(unix)]
-    let file = {
-        use std::os::unix::fs::OpenOptionsExt;
-        OpenOptions::new()
-            .read(true)
-            .custom_flags(hbb_common::libc::O_NOFOLLOW | hbb_common::libc::O_CLOEXEC)
-            .open(path)
-            .map_err(|_| anyhow!("无法读取配对码文件，请检查路径和权限"))?
-    };
-    #[cfg(not(unix))]
-    let file = OpenOptions::new()
-        .read(true)
-        .open(path)
-        .map_err(|_| anyhow!("无法读取配对码文件，请检查路径和权限"))?;
-    let metadata = file
-        .metadata()
-        .map_err(|_| anyhow!("无法读取配对码文件，请检查路径和权限"))?;
-    if let Some(error) = control_file_stat_error(metadata_stat(&metadata)) {
-        bail!(error);
-    }
-    if metadata.len() == 0 || metadata.len() > MAX_CONTROL_TEXT_BYTES {
+fn read_control_bytes(mut file: std::fs::File, len: u64) -> ResultType<String> {
+    if len == 0 || len > MAX_CONTROL_TEXT_BYTES {
         bail!("配对码文件必须是非空文本，且不能超过 16 KB");
     }
     let mut bytes = Vec::new();
-    (&file)
+    (&mut file)
         .take(MAX_CONTROL_TEXT_BYTES + 1)
         .read_to_end(&mut bytes)?;
     if bytes.len() as u64 > MAX_CONTROL_TEXT_BYTES {
@@ -224,6 +318,42 @@ fn read_control_file(path: &str) -> ResultType<String> {
     }
     let text = String::from_utf8(bytes).map_err(|_| anyhow!("配对码文件不是有效的 UTF-8 文本"))?;
     accept_control_text(text)
+}
+
+/// Opens once with `O_NOFOLLOW` and checks `fstat` on that descriptor before
+/// reading it. A path stat followed by a second open would accept a different
+/// file than the one whose owner and mode were checked.
+#[cfg(unix)]
+fn read_control_file(path: &str) -> ResultType<String> {
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::os::unix::io::AsRawFd;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(
+            hbb_common::libc::O_NOFOLLOW
+                | hbb_common::libc::O_CLOEXEC
+                | hbb_common::libc::O_NONBLOCK,
+        )
+        .open(path)
+        .map_err(|err| {
+            if err.raw_os_error() == Some(hbb_common::libc::ELOOP) {
+                anyhow!("配对码文件不能是符号链接")
+            } else {
+                anyhow!("无法读取配对码文件，请检查路径和权限")
+            }
+        })?;
+    let (inspected, len) = fstat_control(file.as_raw_fd())?;
+    if let Some(error) = control_file_stat_error(inspected) {
+        bail!(error);
+    }
+    read_control_bytes(file, len)
+}
+
+/// Windows has no owner or DACL check on the opened file that is safe to rely
+/// on here. Reject the flag instead of reading whatever path the caller names.
+#[cfg(not(unix))]
+fn read_control_file(_path: &str) -> ResultType<String> {
+    bail!(CONTROL_FILE_WINDOWS_ERROR)
 }
 
 impl Launch {
@@ -248,6 +378,7 @@ impl Launch {
                 return Ok(Some(Self {
                     mode: Mode::Host,
                     input: None,
+                    control_source: None,
                 }));
             }
             "--control-file" => {
@@ -258,6 +389,7 @@ impl Launch {
                 return Ok(Some(Self {
                     mode: Mode::Control,
                     input: Some(text),
+                    control_source: Some(ControlInputSource::File),
                 }));
             }
             "--control" => {}
@@ -271,15 +403,18 @@ impl Launch {
                 Some(env_code) => Some(accept_control_text(env_code)?),
                 None => None,
             };
+            let control_source = input.as_ref().map(|_| ControlInputSource::Env);
             return Ok(Some(Self {
                 mode: Mode::Control,
                 input,
+                control_source,
             }));
         };
         if input == "-" {
             return Ok(Some(Self {
                 mode: Mode::Control,
                 input: Some(read_control_line(stdin)?),
+                control_source: Some(ControlInputSource::Stdin),
             }));
         }
         if input.starts_with("--") || input.is_empty() {
@@ -293,6 +428,7 @@ impl Launch {
             return Ok(Some(Self {
                 mode: Mode::Control,
                 input: Some(input.clone()),
+                control_source: Some(ControlInputSource::Inline),
             }));
         }
         let metadata = std::fs::metadata(input)
@@ -306,6 +442,7 @@ impl Launch {
         Ok(Some(Self {
             mode: Mode::Control,
             input: Some(input.clone()),
+            control_source: Some(ControlInputSource::Inline),
         }))
     }
 }
@@ -552,6 +689,105 @@ mod tests {
             ..owner
         })
         .is_some());
+    }
+
+    #[test]
+    fn malformed_password_field_is_not_a_password_code() {
+        let address = "tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-";
+        let unterminated = format!("SEALDESK:V:1;A:{address};P:dummy-secret");
+        let missing_terminator = format!("SEALDESK:V:1;A:{address};P:dummy-secret;");
+        assert!(!pairing_declares_password(&unterminated));
+        assert!(!pairing_declares_password(&missing_terminator));
+        let error = Launch::parse(&args(&["--control", &missing_terminator]), false)
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(!error.contains("dummy-secret"));
+        let (_pairing, encoded) = secret_pairing();
+        assert!(pairing_declares_password(&encoded));
+    }
+
+    #[test]
+    fn windows_control_file_error_points_at_stdin_and_env() {
+        assert!(CONTROL_FILE_WINDOWS_ERROR.contains("--control -"));
+        assert!(CONTROL_FILE_WINDOWS_ERROR.contains("SEALDESK_CONTROL_CODE"));
+        assert!(CONTROL_FILE_WINDOWS_ERROR.contains("Windows"));
+    }
+
+    #[test]
+    fn staged_handoff_keeps_the_secret_out_of_ui_argv() {
+        let (_pairing, encoded) = secret_pairing();
+        for source in [
+            ControlInputSource::Stdin,
+            ControlInputSource::File,
+            ControlInputSource::Env,
+            ControlInputSource::Inline,
+        ] {
+            let handoff = control_ui_handoff(&encoded, source);
+            assert_eq!(
+                handoff.staged_env.as_deref(),
+                Some(encoded.as_str()),
+                "{source:?}"
+            );
+            assert!(handoff.replace_process_argv, "{source:?}");
+            assert_eq!(handoff.argv, vec!["--control".to_owned()], "{source:?}");
+            assert!(handoff
+                .argv
+                .iter()
+                .all(|arg| arg != &encoded && !arg.contains("秘密")));
+        }
+
+        let passwordless = PairingCode {
+            address: "tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-".to_owned(),
+            password: None,
+            name: None,
+            expires_at: None,
+        };
+        let encoded = passwordless.encode().unwrap();
+        let from_stdin = control_ui_handoff(&encoded, ControlInputSource::Stdin);
+        assert_eq!(from_stdin.staged_env.as_deref(), Some(encoded.as_str()));
+        assert_eq!(from_stdin.argv, vec!["--control".to_owned()]);
+        let inline = control_ui_handoff(&encoded, ControlInputSource::Inline);
+        assert!(inline.staged_env.is_none());
+        assert_eq!(inline.argv, vec!["--control".to_owned(), encoded.clone()]);
+
+        let connect = non_flutter_connect(&secret_pairing().1)
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(!connect.contains("秘密"));
+        assert!(connect.contains("SEALDESK_CONTROL_CODE"));
+        let plain = non_flutter_connect(&encoded).unwrap();
+        assert_eq!(plain.address, passwordless.address);
+        assert!(plain.name.is_none());
+    }
+
+    #[test]
+    fn control_marker_argv_zeroes_the_value_that_followed() {
+        fn c_buf(text: &str) -> Vec<u8> {
+            let mut bytes = text.as_bytes().to_vec();
+            bytes.push(0);
+            bytes
+        }
+        let mut exe = c_buf("sealdesk");
+        let mut flag = c_buf("--control-file");
+        let mut value = c_buf("dummy-secret-value");
+        let value_len = b"dummy-secret-value".len();
+        let value_ptr = value.as_ptr();
+        let mut argv = [
+            exe.as_mut_ptr().cast(),
+            flag.as_mut_ptr().cast(),
+            value.as_mut_ptr().cast(),
+            std::ptr::null_mut(),
+        ];
+        let mut argc: std::os::raw::c_int = 3;
+        apply_control_marker_argv(&mut argc, argv.as_mut_ptr());
+        assert_eq!(argc, 2);
+        let marker = unsafe { std::ffi::CStr::from_ptr(argv[1]) };
+        assert_eq!(marker.to_bytes(), b"--control");
+        let wiped = unsafe { std::slice::from_raw_parts(value_ptr, value_len) };
+        assert!(wiped.iter().all(|byte| *byte == 0));
+        assert!(argv[2].is_null());
     }
 
     #[test]

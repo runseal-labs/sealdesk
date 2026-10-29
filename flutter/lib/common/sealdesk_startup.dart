@@ -19,6 +19,10 @@ class SealDeskStartup {
   static String? _target;
   static bool _clearControlCode = false;
 
+  /// Precedence: a staged [sealDeskControlCodeEnv] value always wins, including
+  /// over an inline `--control <code>`. `--control -` and `--control-file <path>`
+  /// only select that staged value; `-` and the path are never code literals.
+  ///
   /// [controlCode] is the value already read from the environment. Production
   /// leaves it null so the process environment is read instead.
   static void configure(List<String> arguments, {String? controlCode}) {
@@ -29,13 +33,28 @@ class SealDeskStartup {
       return;
     }
     _clearControlCode = false;
-    if (arguments.length == 2 &&
-        arguments.first == '--control' &&
-        arguments[1] != '-') {
+    if (_usesStagedControlCode(arguments)) {
+      _target = null;
+      return;
+    }
+    if (arguments.length == 2 && arguments.first == '--control') {
       _target = arguments[1];
       return;
     }
     _target = null;
+  }
+
+  static bool _usesStagedControlCode(List<String> arguments) {
+    for (var i = 0; i < arguments.length; i++) {
+      final arg = arguments[i];
+      if (arg == '--control-file') return true;
+      if (arg == '--control' &&
+          i + 1 < arguments.length &&
+          arguments[i + 1] == '-') {
+        return true;
+      }
+    }
+    return false;
   }
 
   static String? takeTarget() {

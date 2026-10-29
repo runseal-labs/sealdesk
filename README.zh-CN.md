@@ -47,10 +47,13 @@
 ```bash
 sealdesk --host                     # 开始共享
 sealdesk --control -                # 从标准输入读取配对码
-sealdesk --control-file ./code.txt  # 或从仅自己可读写（0600）的文件读取
-sealdesk --control code.png         # 或用二维码图片
-# --control 也会读取 SEALDESK_CONTROL_CODE，读完即从环境中清除。
+sealdesk --control-file ./code.txt  # Linux/macOS：0600 且属于当前用户的文件
+sealdesk --control code.png         # 或用二维码图片（路径里不要放密码）
+# --control 会读取 SEALDESK_CONTROL_CODE，读完即从环境中清除。
+# 该变量若已设置，优先于命令行里的 --control <配对码>。
+# --control - 和 --control-file 只表示使用该变量，本身不是配对码。
 # 含密码的配对码不能写在命令行参数里。
+# Windows 不支持 --control-file，请改用 --control - 或 SEALDESK_CONTROL_CODE。
 sealdesk --tc-reset-address         # 作废当前地址
 ```
 

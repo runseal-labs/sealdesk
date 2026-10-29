@@ -174,11 +174,13 @@ pub fn core_main() -> Option<CoreMainAction> {
         args.clear();
         _is_flutter_invoke_new_connection = false;
         #[cfg(feature = "flutter")]
-        if let Some(input) = sealdesk_launch
-            .as_ref()
-            .and_then(|launch| launch.input.as_ref())
-        {
-            flutter_args = crate::tailcat::launch::flutter_control_arguments(input);
+        if let Some(launch) = sealdesk_launch.as_ref() {
+            if let Some(input) = launch.input.as_ref() {
+                let source = launch
+                    .control_source
+                    .unwrap_or(crate::tailcat::launch::ControlInputSource::Inline);
+                flutter_args = crate::tailcat::launch::control_ui_handoff(input, source).argv;
+            }
         }
     }
     // `--tray` / `--server` are the background entry points (service + tray, no window).
@@ -732,26 +734,30 @@ pub fn core_main() -> Option<CoreMainAction> {
         }
     }
     //_async_logger_holder.map(|x| x.flush());
+    // No Flutter UI in this build. Nothing reads SEALDESK_CONTROL_CODE, and on
+    // Linux and macOS the returned StartUi arguments are not applied, so a
+    // password-bearing code would be dropped. Fail instead of connecting
+    // without it. The password is not copied into this argument list.
     #[cfg(not(feature = "flutter"))]
     if let Some(input) = sealdesk_launch.and_then(|launch| launch.input) {
-        let pairing = match crate::tailcat::pairing::PairingCode::parse(&input) {
-            Ok(pairing) => pairing,
-            Err(error) => return Some(CoreMainAction::ExitFailure(error.into())),
+        let connect = match crate::tailcat::launch::non_flutter_connect(&input) {
+            Ok(connect) => connect,
+            Err(error) => return Some(CoreMainAction::ExitFailure(error)),
         };
-        if let Some(name) = pairing.name {
-            crate::ui_interface::set_peer_option(pairing.address.clone(), "alias".to_owned(), name);
+        if let Some(name) = connect.name {
+            crate::ui_interface::set_peer_option(connect.address.clone(), "alias".to_owned(), name);
         }
-        // The temporary password stays in the environment, not in this argument list.
-        crate::tailcat::launch::stage_control_secret_for_ui(&input);
-        args = vec!["--connect".to_owned(), pairing.address];
+        args = vec!["--connect".to_owned(), connect.address];
     }
     #[cfg(feature = "flutter")]
     {
-        if let Some(input) = sealdesk_launch
-            .as_ref()
-            .and_then(|launch| launch.input.as_deref())
-        {
-            crate::tailcat::launch::stage_control_secret_for_ui(input);
+        if let Some(launch) = sealdesk_launch.as_ref() {
+            if let Some(input) = launch.input.as_deref() {
+                let source = launch
+                    .control_source
+                    .unwrap_or(crate::tailcat::launch::ControlInputSource::Inline);
+                crate::tailcat::launch::stage_control_for_ui(input, source);
+            }
         }
         return Some(CoreMainAction::StartUi(flutter_args));
     }
