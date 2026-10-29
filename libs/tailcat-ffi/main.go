@@ -124,6 +124,19 @@ func saveJSON(path string, v any) error {
 	return os.Chmod(path, 0o600)
 }
 
+// persistFreshNodeKey writes a freshly created node key before relay bootstrap.
+// Existing files are not rewritten. A failed write must not abort start: the
+// relay can still come up on the in-memory key, matching the post-start save.
+// Only the filesystem error is logged, never the key.
+func persistFreshNodeKey(path string, pk *serverKeyFile, fresh bool) {
+	if !fresh {
+		return
+	}
+	if err := saveJSON(path, pk); err != nil {
+		logf("save new node key before relay bootstrap failed: %v", err)
+	}
+}
+
 func stageForServeErr(err error) string {
 	msg := ""
 	if err != nil {
@@ -193,6 +206,10 @@ func TcServeWithDERPMap(keyPath, allow *C.char, targetPort C.int, localToken, de
 		recordServeFailureLocked(err, path)
 		return cerr(err)
 	}
+	// Persist a new identity before relay bootstrap so LAN discovery can seal
+	// a possession proof while the relay is still unreachable. An existing key
+	// is left untouched; the region is written back only after start succeeds.
+	persistFreshNodeKey(path, pk, fresh)
 	previousSource, _ := derpMapSource(pk.DERPMapURL)
 	sourceChanged := previousSource != source
 	if sourceChanged {
