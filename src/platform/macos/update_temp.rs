@@ -1,7 +1,7 @@
 use super::ResultType;
 use hbb_common::{bail, log};
 use std::{
-    io::{self, Write},
+    io,
     os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
     sync::OnceLock,
@@ -49,11 +49,6 @@ fn is_stale_update_temp_dir_name(name: &str) -> bool {
                 && pid.bytes().all(|byte| byte.is_ascii_digit())
                 && random.bytes().all(|byte| byte.is_ascii_digit())
     )
-}
-
-#[inline]
-pub(super) fn get_update_temp_dir_string() -> String {
-    get_update_temp_dir().to_string_lossy().into_owned()
 }
 
 fn ensure_real_update_temp_dir(path: &Path) -> ResultType<()> {
@@ -165,24 +160,6 @@ fn remove_temp_update_dir(path: &Path) {
             );
         }
     }
-}
-
-pub(super) fn copy_dmg_to_update_temp_file(dmg_path: &str) -> ResultType<PathBuf> {
-    let metadata = std::fs::symlink_metadata(dmg_path)?;
-    if !metadata.file_type().is_file() {
-        bail!("Update DMG path is not a regular file: {}", dmg_path);
-    }
-    let mut source_file = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(hbb_common::libc::O_NOFOLLOW | hbb_common::libc::O_NONBLOCK)
-        .open(dmg_path)?;
-    if !source_file.metadata()?.is_file() {
-        bail!("Update DMG path is not a regular file: {}", dmg_path);
-    }
-    let (mut dmg_file, file_path) = create_update_temp_dmg_file()?;
-    io::copy(&mut source_file, &mut dmg_file)?;
-    dmg_file.flush()?;
-    Ok(file_path)
 }
 
 #[cfg(test)]
