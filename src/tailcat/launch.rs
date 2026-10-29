@@ -398,16 +398,24 @@ impl Launch {
         if args.len() > 2 {
             bail!(CONTROL_USAGE);
         }
-        let Some(input) = args.get(1) else {
-            let input = match env_code {
-                Some(env_code) => Some(accept_control_text(env_code)?),
-                None => None,
-            };
-            let control_source = input.as_ref().map(|_| ControlInputSource::Env);
+        // `--control -` still reads stdin. Any other `--control` form uses
+        // SEALDESK_CONTROL_CODE when it is set, including over an inline code
+        // or image path. The UI applies the same override.
+        let inline = args.get(1);
+        if inline.map(String::as_str) != Some("-") {
+            if let Some(env_code) = env_code {
+                return Ok(Some(Self {
+                    mode: Mode::Control,
+                    input: Some(accept_control_text(env_code)?),
+                    control_source: Some(ControlInputSource::Env),
+                }));
+            }
+        }
+        let Some(input) = inline else {
             return Ok(Some(Self {
                 mode: Mode::Control,
-                input,
-                control_source,
+                input: None,
+                control_source: None,
             }));
         };
         if input == "-" {
@@ -634,17 +642,14 @@ mod tests {
             assert!(error.contains("0600") || error.contains("权限"));
             assert!(!error.contains("秘密"));
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
-        }
-        let launch = Launch::parse(&args(&["--control-file", path.to_str().unwrap()]), false)
-            .unwrap()
-            .unwrap();
-        assert_eq!(launch.input.as_deref(), Some(encoded.as_str()));
-        assert!(flutter_control_arguments(launch.input.as_deref().unwrap())
-            .iter()
-            .all(|arg| !arg.contains("秘密")));
+            let launch = Launch::parse(&args(&["--control-file", path.to_str().unwrap()]), false)
+                .unwrap()
+                .unwrap();
+            assert_eq!(launch.input.as_deref(), Some(encoded.as_str()));
+            assert!(flutter_control_arguments(launch.input.as_deref().unwrap())
+                .iter()
+                .all(|arg| !arg.contains("秘密")));
 
-        #[cfg(unix)]
-        {
             let link = directory.join("link.txt");
             std::os::unix::fs::symlink(&path, &link).unwrap();
             let error = Launch::parse(&args(&["--control-file", link.to_str().unwrap()]), false)
@@ -654,7 +659,51 @@ mod tests {
             assert!(error.contains("符号链接"));
             assert!(!error.contains("秘密"));
         }
+        #[cfg(not(unix))]
+        {
+            let error = Launch::parse(&args(&["--control-file", path.to_str().unwrap()]), false)
+                .err()
+                .unwrap()
+                .to_string();
+            assert_eq!(error, CONTROL_FILE_WINDOWS_ERROR);
+            assert!(!error.contains("秘密"));
+            assert!(!error.contains(&encoded));
+        }
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn env_control_code_wins_over_an_inline_control_argument() {
+        let passwordless = |name: &str| {
+            PairingCode {
+                address: "tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-".to_owned(),
+                password: None,
+                name: Some(name.to_owned()),
+                expires_at: None,
+            }
+            .encode()
+            .unwrap()
+        };
+        let inline = passwordless("inline");
+        let from_env = passwordless("from-env");
+        let launch = Launch::parse_from(
+            &args(&["--control", &inline]),
+            false,
+            Some(from_env.clone()),
+            &mut std::io::Cursor::new([]),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(launch.control_source, Some(ControlInputSource::Env));
+        assert_eq!(launch.input.as_deref(), Some(from_env.as_str()));
+        let handoff = control_ui_handoff(
+            launch.input.as_deref().unwrap(),
+            launch.control_source.unwrap(),
+        );
+        assert_eq!(handoff.staged_env.as_deref(), Some(from_env.as_str()));
+        assert!(handoff.replace_process_argv);
+        assert_eq!(handoff.argv, vec!["--control".to_owned()]);
+        assert!(handoff.argv.iter().all(|arg| arg != &inline));
     }
 
     #[test]
