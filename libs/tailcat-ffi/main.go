@@ -205,8 +205,12 @@ func serveWithDERPMap(keyPath, allow, localToken, derpMapURL string, targetPort 
 	// a possession proof while the relay is still unreachable. An existing key
 	// is left untouched; the region is written back only after start succeeds.
 	if fresh {
+		// A failed write must not abort start: the relay can still come up on
+		// the in-memory key, matching the post-start save. Discovery has no
+		// proof until a later start persists the file. Log the filesystem
+		// error only; never the key.
 		if err := saveJSON(path, pk); err != nil {
-			logf("save key: %v", err)
+			logf("save new node key before relay bootstrap failed: %v", err)
 		}
 	}
 	previousSource, _ := derpMapSource(pk.DERPMapURL)

@@ -4334,11 +4334,24 @@ mod tests {
     #[test]
     fn pre_bootstrap_key_file_seals_a_discovery_proof() {
         let (_public, secret) = node_keypair();
-        let path = std::env::temp_dir().join(format!(
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_nanos())
+            .unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!(
             "sealdesk-lan-key-{}-{}",
             std::process::id(),
-            secret[0]
+            nanos
         ));
+        std::fs::create_dir_all(&dir).unwrap();
+        struct RemoveOnDrop(std::path::PathBuf);
+        impl Drop for RemoveOnDrop {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let cleanup = RemoveOnDrop(dir);
+        let path = cleanup.0.join("tailcat-server.json");
         let body = format!(
             r#"{{"Private":"privkey:{}","Public":{{}}}}"#,
             hex::encode(secret)
@@ -4395,6 +4408,5 @@ mod tests {
             &challenge,
         )
         .is_none());
-        std::fs::remove_file(&path).unwrap();
     }
 }

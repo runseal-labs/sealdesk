@@ -22,17 +22,26 @@ class _SealDeskLanPeersTabState extends State<SealDeskLanPeersTab> {
   @override
   void initState() {
     super.initState();
-    SealDeskLanDirectory.instance.retain();
+    final directory = SealDeskLanDirectory.instance;
+    directory.addListener(_onLanDirectory);
+    directory.retain();
+    _syncEmptyHint(directory.devices.isEmpty);
   }
 
   @override
   void dispose() {
     _emptyHintTimer?.cancel();
+    _emptyHintTimer = null;
+    SealDeskLanDirectory.instance.removeListener(_onLanDirectory);
     SealDeskLanDirectory.instance.release();
     super.dispose();
   }
 
-  void _trackEmptySearch(bool empty) {
+  void _onLanDirectory() {
+    _syncEmptyHint(SealDeskLanDirectory.instance.devices.isEmpty);
+  }
+
+  void _syncEmptyHint(bool empty) {
     if (!empty) {
       _emptyHintTimer?.cancel();
       _emptyHintTimer = null;
@@ -74,7 +83,6 @@ class _SealDeskLanPeersTabState extends State<SealDeskLanPeersTab> {
       animation: SealDeskLanDirectory.instance,
       builder: (context, _) {
         final devices = SealDeskLanDirectory.instance.devices;
-        _trackEmptySearch(devices.isEmpty);
         if (devices.isEmpty) {
           return Center(
             child: Padding(
