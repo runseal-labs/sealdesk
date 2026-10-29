@@ -12,13 +12,15 @@ use std::sync::OnceLock;
 
 mod artifact;
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 mod offline;
 
 use artifact::{validate_artifact, validate_artifact_file_name, ArtifactUrlPolicy};
 
 #[cfg(target_os = "macos")]
-pub(crate) use offline::{verify_offline_update_metadata, OfflineUpdateMetadataRequirements};
+pub(crate) use offline::verify_offline_update_metadata;
+#[cfg(any(target_os = "macos", test))]
+pub(crate) use offline::OfflineUpdateMetadataRequirements;
 
 const UPDATE_METADATA_SIGNATURE_CONTEXT: &[u8] = b"RustDesk update metadata v1\n";
 const UPDATE_APP: &str = "sealdesk";
@@ -93,7 +95,7 @@ pub(crate) struct UpdateMetadataRequirements<'a> {
 pub(crate) struct VerifiedUpdateArtifact {
     pub version: String,
     pub url: String,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", test))]
     pub file_name: String,
     pub size: u64,
     pub sha256: String,
@@ -138,7 +140,7 @@ fn verify_update_metadata_with_options(
     Ok(VerifiedUpdateArtifact {
         version: metadata.version.clone(),
         url: artifact.url.clone(),
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", test))]
         file_name: artifact.file_name.clone(),
         size: artifact.size,
         sha256: artifact.sha256.clone(),
@@ -265,7 +267,6 @@ fn select_artifact<'a>(
     Ok(artifact)
 }
 
-#[cfg(target_os = "macos")]
 #[cfg(test)]
 #[path = "update_metadata_tests.rs"]
 mod tests;

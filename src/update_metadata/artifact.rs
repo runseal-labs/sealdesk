@@ -8,7 +8,7 @@ use url::Url;
 #[derive(Clone, Copy)]
 pub(super) enum ArtifactUrlPolicy<'a> {
     ExactPrefix(&'a str),
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", test))]
     SignedHttps,
 }
 
@@ -39,9 +39,11 @@ pub(super) fn validate_artifact(
 
 fn validate_artifact_url_policy(
     artifact: &UpdateArtifact,
-    _parsed_url: &Url,
+    parsed_url: &Url,
     policy: ArtifactUrlPolicy<'_>,
 ) -> ResultType<()> {
+    #[cfg(not(any(target_os = "macos", test)))]
+    let _ = parsed_url;
     match policy {
         ArtifactUrlPolicy::ExactPrefix(prefix) => {
             let expected_url = format!("{}{}", prefix, artifact.file_name);
@@ -51,12 +53,12 @@ fn validate_artifact_url_policy(
                 ));
             }
         }
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", test))]
         ArtifactUrlPolicy::SignedHttps => {
-            if _parsed_url.scheme() != "https"
-                || _parsed_url.host_str().is_none()
-                || !_parsed_url.username().is_empty()
-                || _parsed_url.password().is_some()
+            if parsed_url.scheme() != "https"
+                || parsed_url.host_str().is_none()
+                || !parsed_url.username().is_empty()
+                || parsed_url.password().is_some()
             {
                 return Err(anyhow!(
                     "signed update artifact URL must be an HTTPS URL without credentials"

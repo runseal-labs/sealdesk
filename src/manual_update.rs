@@ -1,19 +1,18 @@
-use hbb_common::{
-    anyhow::{anyhow, Context},
-    bail, log, ResultType,
-};
+use hbb_common::{anyhow::anyhow, bail, ResultType};
+#[cfg(target_os = "macos")]
+use hbb_common::{anyhow::Context, log};
+#[cfg(target_os = "macos")]
 use std::{io::Read, path::Path};
 
+#[cfg(target_os = "macos")]
 const UPDATE_SIDECAR_MAX_BYTES: u64 = 1024 * 1024;
 const PUBLIC_MACOS_BUNDLE_ID: &str = "com.runseal.sealdesk";
-const MACOS_UPDATE_USAGE: &str = "Usage: --update [update.dmg --metadata sealdesk-update.json --signature sealdesk-update.json.sig]";
-const LEGACY_UPDATE_WARNING: &str =
-    "legacy offline update: signed metadata not found; release hash was not verified";
+const MACOS_UPDATE_USAGE: &str = "Usage: --update OR --update <file.dmg> --metadata <sealdesk-update.json> --signature <sealdesk-update.json.sig>";
+const DMG_REQUIRES_SIGNATURE: &str = "macOS DMG updates require --metadata and --signature; refusing to install without signed metadata";
 
 #[derive(Debug, Eq, PartialEq)]
 enum MacosUpdateArguments<'a> {
     CurrentApp,
-    LegacyDmg(&'a str),
     VerifiedDmg {
         dmg_path: &'a str,
         metadata_path: &'a str,
@@ -25,7 +24,7 @@ fn parse_macos_update_args(args: &[String]) -> ResultType<MacosUpdateArguments<'
     match args {
         [command] if command == "--update" => Ok(MacosUpdateArguments::CurrentApp),
         [command, dmg_path] if command == "--update" && dmg_path.ends_with(".dmg") => {
-            Ok(MacosUpdateArguments::LegacyDmg(dmg_path))
+            bail!(DMG_REQUIRES_SIGNATURE);
         }
         [command, dmg_path, metadata_flag, metadata_path, signature_flag, signature_path]
             if command == "--update"
@@ -56,6 +55,7 @@ fn expected_update_package_id(
     Ok(bundle_id)
 }
 
+#[cfg(target_os = "macos")]
 fn installed_update_package_id() -> ResultType<String> {
     expected_update_package_id(
         crate::common::is_custom_client(),
@@ -63,6 +63,7 @@ fn installed_update_package_id() -> ResultType<String> {
     )
 }
 
+#[cfg(target_os = "macos")]
 fn read_update_sidecar(path: &str) -> ResultType<Vec<u8>> {
     let path_metadata = std::fs::symlink_metadata(path)
         .with_context(|| format!("failed to inspect update sidecar {path}"))?;
@@ -83,6 +84,7 @@ fn read_update_sidecar(path: &str) -> ResultType<Vec<u8>> {
     Ok(bytes)
 }
 
+#[cfg(target_os = "macos")]
 fn update_current_app() -> ResultType<()> {
     println!("Starting update process...");
     log::info!("Starting update process...");
@@ -95,15 +97,7 @@ fn update_current_app() -> ResultType<()> {
     Ok(())
 }
 
-fn update_legacy_dmg(dmg_path: &str) -> ResultType<()> {
-    eprintln!("Warning: {LEGACY_UPDATE_WARNING}");
-    log::warn!("{LEGACY_UPDATE_WARNING}");
-    println!("Updating from DMG: {dmg_path}");
-    crate::platform::update_from_dmg(dmg_path)?;
-    println!("Update process from DMG started successfully.");
-    Ok(())
-}
-
+#[cfg(target_os = "macos")]
 fn update_verified_dmg(
     dmg_path: &str,
     metadata_path: &str,
@@ -135,10 +129,10 @@ fn update_verified_dmg(
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
 pub(crate) fn execute_macos_update(args: &[String]) -> ResultType<()> {
     match parse_macos_update_args(args)? {
         MacosUpdateArguments::CurrentApp => update_current_app(),
-        MacosUpdateArguments::LegacyDmg(dmg_path) => update_legacy_dmg(dmg_path),
         MacosUpdateArguments::VerifiedDmg {
             dmg_path,
             metadata_path,
@@ -156,15 +150,17 @@ mod tests {
     }
 
     #[test]
-    fn parses_current_legacy_and_verified_macos_updates() {
+    fn parses_current_app_and_requires_signed_dmg_metadata() {
         assert_eq!(
             MacosUpdateArguments::CurrentApp,
             parse_macos_update_args(&args(&["--update"])).unwrap()
         );
-        assert_eq!(
-            MacosUpdateArguments::LegacyDmg("update.dmg"),
-            parse_macos_update_args(&args(&["--update", "update.dmg"])).unwrap()
-        );
+        let dmg_only = parse_macos_update_args(&args(&["--update", "update.dmg"]))
+            .err()
+            .expect("dmg without signed metadata")
+            .to_string();
+        assert!(dmg_only.contains("--metadata"), "{dmg_only}");
+        assert!(dmg_only.contains("--signature"), "{dmg_only}");
         assert_eq!(
             MacosUpdateArguments::VerifiedDmg {
                 dmg_path: "update.dmg",

@@ -28,7 +28,7 @@ pub mod common;
 pub mod ipc;
 pub(crate) mod update_metadata;
 pub(crate) mod update_hash;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 mod manual_update;
 mod version;
 pub use version::*;
