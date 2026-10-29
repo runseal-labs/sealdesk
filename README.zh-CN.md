@@ -50,9 +50,9 @@ sealdesk --control -                # 从标准输入读取配对码
 sealdesk --control-file ./code.txt  # Linux/macOS：0600 且属于当前用户的文件
 sealdesk --control code.png         # 或用二维码图片（路径里不要放密码）
 # --control 会读取 SEALDESK_CONTROL_CODE，读完即从环境中清除。
-# 该变量若已设置，优先于命令行里的 --control <配对码>。
-# --control - 和 --control-file 只表示使用该变量，本身不是配对码。
-# 含密码的配对码不能写在命令行参数里。
+# 该变量只覆盖不含密码的 --control <配对码>，不会覆盖 --control - 或 --control-file。
+# --control - 从标准输入读取配对码。--control-file 从文件读取。这两个参数本身不是配对码。
+# 含密码的配对码不能写在命令行参数里，即使设置了该变量也会被拒绝。
 # Windows 不支持 --control-file，请改用 --control - 或 SEALDESK_CONTROL_CODE。
 sealdesk --tc-reset-address         # 作废当前地址
 ```

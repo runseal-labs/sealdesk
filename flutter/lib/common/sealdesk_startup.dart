@@ -19,9 +19,10 @@ class SealDeskStartup {
   static String? _target;
   static bool _clearControlCode = false;
 
-  /// Precedence: a staged [sealDeskControlCodeEnv] value always wins, including
-  /// over an inline `--control <code>`. `--control -` and `--control-file <path>`
-  /// only select that staged value; `-` and the path are never code literals.
+  /// A non-empty staged [sealDeskControlCodeEnv] is the target, including over
+  /// an inline `--control <code>`. In the native parser `--control -` reads
+  /// stdin and `--control-file <path>` reads a file; `-` and the path are
+  /// never code literals. Without a staged value those forms leave no target.
   ///
   /// [controlCode] is the value already read from the environment. Production
   /// leaves it null so the process environment is read instead.

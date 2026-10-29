@@ -231,8 +231,8 @@ pub(crate) fn take_control_code_env() -> Option<String> {
 }
 
 /// Arguments for the Flutter UI. A password-bearing pairing code is never included.
-#[cfg(any(feature = "flutter", test))]
-pub(crate) fn flutter_control_arguments(input: &str) -> Vec<String> {
+#[cfg(test)]
+fn flutter_control_arguments(input: &str) -> Vec<String> {
     control_ui_handoff(input, ControlInputSource::Inline).argv
 }
 
@@ -298,7 +298,9 @@ fn fstat_control(fd: std::os::unix::io::RawFd) -> ResultType<(ControlFileStat, u
             is_file: file_type == hbb_common::libc::S_IFREG,
             uid: stat.st_uid,
             euid: current_euid(),
-            mode: stat.st_mode & 0o777,
+            // mode_t is u16 on some targets and u32 on others.
+            #[allow(clippy::unnecessary_cast, clippy::cast_lossless)]
+            mode: (stat.st_mode & 0o777) as u32,
         },
         stat.st_size as u64,
     ))
@@ -398,10 +400,17 @@ impl Launch {
         if args.len() > 2 {
             bail!(CONTROL_USAGE);
         }
-        // `--control -` still reads stdin. Any other `--control` form uses
-        // SEALDESK_CONTROL_CODE when it is set, including over an inline code
-        // or image path. The UI applies the same override.
+        // `--control -` reads stdin. `--control-file` is handled above and
+        // reads the file. Neither is replaced by SEALDESK_CONTROL_CODE.
+        // Any other `--control` form uses that variable when it is set, except
+        // an inline value that declares a password: that is still rejected so
+        // the secret does not remain on the process command line.
         let inline = args.get(1);
+        if let Some(input) = inline {
+            if input != "-" && pairing_declares_password(input) {
+                bail!(INLINE_SECRET_ERROR);
+            }
+        }
         if inline.map(String::as_str) != Some("-") {
             if let Some(env_code) = env_code {
                 return Ok(Some(Self {
@@ -704,6 +713,29 @@ mod tests {
         assert!(handoff.replace_process_argv);
         assert_eq!(handoff.argv, vec!["--control".to_owned()]);
         assert!(handoff.argv.iter().all(|arg| arg != &inline));
+    }
+
+    #[test]
+    fn inline_password_is_rejected_even_when_control_env_is_set() {
+        let (_pairing, encoded) = secret_pairing();
+        let from_env = PairingCode {
+            address: "tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef_-".to_owned(),
+            password: None,
+            name: Some("from-env".to_owned()),
+            expires_at: None,
+        }
+        .encode()
+        .unwrap();
+        let error = Launch::parse_from(
+            &args(&["--control", &encoded]),
+            false,
+            Some(from_env),
+            &mut std::io::Cursor::new([]),
+        )
+        .err()
+        .unwrap()
+        .to_string();
+        assert_eq!(error, INLINE_SECRET_ERROR);
     }
 
     #[test]

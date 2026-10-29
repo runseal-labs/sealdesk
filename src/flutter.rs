@@ -146,7 +146,9 @@ pub extern "C" fn rustdesk_core_main() -> bool {
     false
 }
 
-#[cfg(not(windows))]
+// Linux replaces argv from the runner. Android and iOS do not build the
+// desktop CLI launch parser (`tailcat::launch`).
+#[cfg(not(any(windows, target_os = "android", target_os = "ios")))]
 #[no_mangle]
 pub extern "C" fn sealdesk_apply_ui_argv(argc: *mut c_int, argv: *mut *mut c_char) {
     if !crate::tailcat::launch::take_ui_argv_replacement() {
