@@ -39,4 +39,19 @@ void main() {
       expect(SealDeskStartup.takeTarget(), isNull);
     }
   });
+
+  test('a password-bearing code arrives out of band and is cleared', () {
+    const secret = 'SEALDESK:V:1;P:dummy-secret;;';
+    SealDeskStartup.configure(['--control', '-'], controlCode: secret);
+    var cleared = '';
+    SealDeskStartup.clearStagedControlCode((key) {
+      cleared = key;
+    });
+    expect(cleared, sealDeskControlCodeEnv);
+    expect(SealDeskStartup.takeTarget(), secret);
+    SealDeskStartup.configure(['--control', '-']);
+    expect(SealDeskStartup.takeTarget(), isNull);
+    SealDeskStartup.configure(['--control-file', '/tmp/code.txt']);
+    expect(SealDeskStartup.takeTarget(), isNull);
+  });
 }

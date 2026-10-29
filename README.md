@@ -55,8 +55,11 @@ the background.
 
 ```bash
 sealdesk --host                     # start sharing
-sealdesk --control 'SEALDESK:...'   # connect with a pairing code
+sealdesk --control -                # read a pairing code from stdin
+sealdesk --control-file ./code.txt  # or from a 0600 file you own
 sealdesk --control code.png         # or with a QR image
+# SEALDESK_CONTROL_CODE is also read by --control, then removed from the environment.
+# A code that contains a password is rejected on the command line.
 sealdesk --tc-reset-address         # revoke the current address
 ```
 

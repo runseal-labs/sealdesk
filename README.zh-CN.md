@@ -46,8 +46,11 @@
 
 ```bash
 sealdesk --host                     # 开始共享
-sealdesk --control 'SEALDESK:...'   # 用配对码连接
+sealdesk --control -                # 从标准输入读取配对码
+sealdesk --control-file ./code.txt  # 或从仅自己可读写（0600）的文件读取
 sealdesk --control code.png         # 或用二维码图片
+# --control 也会读取 SEALDESK_CONTROL_CODE，读完即从环境中清除。
+# 含密码的配对码不能写在命令行参数里。
 sealdesk --tc-reset-address         # 作废当前地址
 ```
 

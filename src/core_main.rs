@@ -161,10 +161,15 @@ pub fn core_main() -> Option<CoreMainAction> {
         }
         i += 1;
     }
-    let sealdesk_launch = match crate::tailcat::launch::Launch::parse(&args, no_server) {
-        Ok(launch) => launch,
-        Err(error) => return Some(CoreMainAction::ExitFailure(error)),
-    };
+    let control_env = crate::tailcat::launch::take_control_code_env();
+    let mut stdin = std::io::stdin().lock();
+    let sealdesk_launch =
+        match crate::tailcat::launch::Launch::parse_from(&args, no_server, control_env, &mut stdin)
+        {
+            Ok(launch) => launch,
+            Err(error) => return Some(CoreMainAction::ExitFailure(error)),
+        };
+    drop(stdin);
     if sealdesk_launch.is_some() {
         args.clear();
         _is_flutter_invoke_new_connection = false;
@@ -173,7 +178,7 @@ pub fn core_main() -> Option<CoreMainAction> {
             .as_ref()
             .and_then(|launch| launch.input.as_ref())
         {
-            flutter_args = vec!["--control".to_owned(), input.clone()];
+            flutter_args = crate::tailcat::launch::flutter_control_arguments(input);
         }
     }
     // `--tray` / `--server` are the background entry points (service + tray, no window).
@@ -736,14 +741,20 @@ pub fn core_main() -> Option<CoreMainAction> {
         if let Some(name) = pairing.name {
             crate::ui_interface::set_peer_option(pairing.address.clone(), "alias".to_owned(), name);
         }
-        args = vec![
-            "--connect".to_owned(),
-            pairing.address,
-            pairing.password.unwrap_or_default(),
-        ];
+        // The temporary password stays in the environment, not in this argument list.
+        crate::tailcat::launch::stage_control_secret_for_ui(&input);
+        args = vec!["--connect".to_owned(), pairing.address];
     }
     #[cfg(feature = "flutter")]
-    return Some(CoreMainAction::StartUi(flutter_args));
+    {
+        if let Some(input) = sealdesk_launch
+            .as_ref()
+            .and_then(|launch| launch.input.as_deref())
+        {
+            crate::tailcat::launch::stage_control_secret_for_ui(input);
+        }
+        return Some(CoreMainAction::StartUi(flutter_args));
+    }
     #[cfg(not(feature = "flutter"))]
     return Some(CoreMainAction::StartUi(args));
 }
