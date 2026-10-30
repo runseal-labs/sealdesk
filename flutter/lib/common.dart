@@ -3456,6 +3456,17 @@ class ComboBox extends StatelessWidget {
     }
     var ref = values[index].obs;
     current = keys[index];
+    final theme = Theme.of(context);
+    // A color-only TextStyle drops the theme font. On the Linux transparent
+    // window the menu then paints blank rows; the closed value still shows.
+    final TextStyle? buttonStyle = enabled
+        ? theme.textTheme.titleMedium
+        : theme.textTheme.titleMedium?.copyWith(
+            color: disabledTextColor(context, enabled),
+          );
+    final Color? itemColor = enabled
+        ? theme.textTheme.bodyMedium?.color
+        : disabledTextColor(context, enabled);
     return Container(
       decoration: BoxDecoration(
         border: Border.all(
@@ -3472,10 +3483,8 @@ class ComboBox extends StatelessWidget {
             value: ref.value,
             elevation: 16,
             underline: Container(),
-            style: TextStyle(
-                color: enabled
-                    ? Theme.of(context).textTheme.titleMedium?.color
-                    : disabledTextColor(context, enabled)),
+            dropdownColor: theme.dialogBackgroundColor,
+            style: buttonStyle,
             icon: const Icon(
               Icons.expand_more_sharp,
               size: 20,
@@ -3494,7 +3503,8 @@ class ComboBox extends StatelessWidget {
                 value: value,
                 child: Text(
                   value,
-                  style: const TextStyle(fontSize: 15),
+                  maxLines: 1,
+                  style: TextStyle(fontSize: 15, color: itemColor),
                   overflow: TextOverflow.ellipsis,
                 ).marginOnly(left: 15),
               );
