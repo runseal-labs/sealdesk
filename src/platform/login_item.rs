@@ -8,13 +8,20 @@ pub fn enabled(value: &str) -> bool {
     value == "Y"
 }
 
+/// Built-in `hide-tray` and the user option are separate maps. Either exact `Y` hides.
+pub fn is_tray_hidden(builtin: &str, user_option: &str) -> bool {
+    builtin == "Y" || user_option == "Y"
+}
+
 /// Flutter treats `SEALDESK_TRAY_HOST=1` as "× hides". That is only true when a tray
 /// icon can actually appear. `hide-tray=Y` makes `start_tray` return without one.
+/// Callers fold built-in settings and the user option with `is_tray_hidden` first.
 pub fn advertise_tray_host(platform_present: bool, hide_tray: &str) -> bool {
     platform_present && hide_tray != "Y"
 }
 
-/// Watcher, loadable indicator library, and builtin `hide-tray` not `Y`.
+/// Watcher, loadable indicator library, and `hide-tray` not `Y`.
+/// Callers pass `Y` when either built-in settings or the user option is `Y`.
 /// A missing library must not be advertised: closing the window then quits.
 pub fn tray_host_usable(watcher: bool, library: bool, hide_tray: &str) -> bool {
     watcher && library && hide_tray != "Y"
@@ -136,6 +143,26 @@ mod tests {
         assert!(!advertise_tray_host(true, "Y"));
         assert!(!advertise_tray_host(false, ""));
         assert!(!advertise_tray_host(false, "Y"));
+    }
+
+    #[test]
+    fn user_hide_tray_option_hides_the_tray_host() {
+        assert!(is_tray_hidden("Y", ""));
+        assert!(is_tray_hidden("", "Y"));
+        assert!(is_tray_hidden("Y", "N"));
+        assert!(is_tray_hidden("N", "Y"));
+        assert!(is_tray_hidden("Y", "Y"));
+        assert!(!is_tray_hidden("", ""));
+        assert!(!is_tray_hidden("N", ""));
+        assert!(!is_tray_hidden("", "N"));
+        assert!(!is_tray_hidden("n", "y"));
+
+        let hidden_by_user = if is_tray_hidden("", "Y") { "Y" } else { "" };
+        assert!(!advertise_tray_host(true, hidden_by_user));
+        assert!(!tray_host_usable(true, true, hidden_by_user));
+        let shown = if is_tray_hidden("N", "N") { "Y" } else { "" };
+        assert!(advertise_tray_host(true, shown));
+        assert!(tray_host_usable(true, true, shown));
     }
 
     #[test]

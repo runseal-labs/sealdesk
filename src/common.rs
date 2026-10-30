@@ -1397,6 +1397,16 @@ pub fn get_builtin_option(key: &str) -> String {
         .unwrap_or_default()
 }
 
+/// Tray is hidden when built-in `hide-tray` or the user option (`SealDesk2.toml`
+/// `[options]`) is `Y`. The two maps are otherwise independent.
+#[inline]
+pub fn is_tray_hidden() -> bool {
+    crate::platform::login_item::is_tray_hidden(
+        &get_builtin_option(keys::OPTION_HIDE_TRAY),
+        &config::Config::get_option(keys::OPTION_HIDE_TRAY),
+    )
+}
+
 pub fn verify_login(_raw: &str, _id: &str) -> bool {
     true
     /*
