@@ -2782,10 +2782,21 @@ pub fn has_status_notifier_watcher() -> bool {
     matches!(owned, Ok((true,)))
 }
 
-const APPINDICATOR_SONAMES: &[&str] = &["libayatana-appindicator3.so.1", "libappindicator3.so.1"];
+/// Same names, same order, as `libappindicator-sys` 0.9 `LIB` with default
+/// `backcompat` (`tray-icon` does not turn that feature off).
+const APPINDICATOR_SONAMES: &[&str] = &[
+    "libayatana-appindicator3.so.1",
+    "libappindicator3.so.1",
+    "libayatana-appindicator3.so",
+    "libappindicator3.so",
+];
 
-/// `libappindicator-sys` panics if neither soname loads. `RTLD_NOW` fails here
-/// when the library or a dependency is missing, instead of inside the tray.
+/// `libloading` 0.7 `Library::new` is `RTLD_LAZY | RTLD_LOCAL`. `RTLD_NOW`
+/// rejects a library that loader still accepts.
+const APPINDICATOR_DLOPEN_FLAGS: c_int =
+    hbb_common::libc::RTLD_LAZY | hbb_common::libc::RTLD_LOCAL;
+
+/// `libappindicator-sys` panics if none of these names load.
 pub fn appindicator_library_loadable() -> bool {
     let mut errors = Vec::new();
     for name in APPINDICATOR_SONAMES {
@@ -2805,10 +2816,7 @@ fn load_indicator_soname(name: &str) -> Result<(), String> {
     let c_name = std::ffi::CString::new(name).map_err(|error| error.to_string())?;
     unsafe {
         hbb_common::libc::dlerror();
-        let handle = hbb_common::libc::dlopen(
-            c_name.as_ptr(),
-            hbb_common::libc::RTLD_NOW | hbb_common::libc::RTLD_LOCAL,
-        );
+        let handle = hbb_common::libc::dlopen(c_name.as_ptr(), APPINDICATOR_DLOPEN_FLAGS);
         if handle.is_null() {
             let err = hbb_common::libc::dlerror();
             if err.is_null() {
@@ -2819,6 +2827,34 @@ fn load_indicator_soname(name: &str) -> Result<(), String> {
         hbb_common::libc::dlclose(handle);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod appindicator_probe_tests {
+    use super::*;
+
+    #[test]
+    fn probe_matches_libappindicator_sys_loader() {
+        // libappindicator-sys 0.9 `LIB`, default `backcompat` feature.
+        assert_eq!(
+            APPINDICATOR_SONAMES,
+            [
+                "libayatana-appindicator3.so.1",
+                "libappindicator3.so.1",
+                "libayatana-appindicator3.so",
+                "libappindicator3.so",
+            ]
+        );
+        // libloading 0.7 `Library::new`.
+        assert_eq!(
+            APPINDICATOR_DLOPEN_FLAGS,
+            hbb_common::libc::RTLD_LAZY | hbb_common::libc::RTLD_LOCAL
+        );
+        assert_ne!(
+            APPINDICATOR_DLOPEN_FLAGS,
+            hbb_common::libc::RTLD_NOW | hbb_common::libc::RTLD_LOCAL
+        );
+    }
 }
 
 pub fn set_login_autostart(enable: bool) -> ResultType<()> {
