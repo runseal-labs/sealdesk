@@ -1,7 +1,6 @@
 use crate::client::translate;
 #[cfg(windows)]
 use crate::ipc::Data;
-use base::config::keys;
 #[cfg(windows)]
 use hbb_common::tokio;
 use hbb_common::{allow_err, log};
@@ -10,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 pub fn start_tray() {
-    if crate::ui_interface::get_builtin_option(keys::OPTION_HIDE_TRAY) == "Y" {
+    if crate::common::is_tray_hidden() {
         #[cfg(not(target_os = "macos"))]
         {
             return;
@@ -153,7 +152,7 @@ fn make_tray() -> hbb_common::ResultType<()> {
         if let tao::event::Event::NewEvents(tao::event::StartCause::Init) = event {
             // for fixing https://github.com/rustdesk/rustdesk/discussions/10210#discussioncomment-14600745
             // so we start tray, but not to show it
-            if crate::ui_interface::get_builtin_option(keys::OPTION_HIDE_TRAY) == "Y" {
+            if crate::common::is_tray_hidden() {
                 return;
             }
             // We create the icon once the event loop is actually running
