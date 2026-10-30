@@ -117,6 +117,7 @@ void main() {
     bool sidePane = false,
     bool hostOnly = false,
     Future<void> Function()? onStart,
+    Future<void> Function()? onStop,
     Size surface = const Size(800, 900),
   }) async {
     await tester.binding.setSurfaceSize(surface);
@@ -138,6 +139,7 @@ void main() {
               connect: connect ?? (_) async {},
               saveMode: saveMode ?? (_) async {},
               onStart: onStart,
+              onStop: onStop,
               now: now ?? () => 100,
               pickImage: pickImage,
               loadImageFile: loadImageFile,
@@ -1279,6 +1281,48 @@ void main() {
     expect(find.text('Refresh password'), findsNothing);
     expect(find.text('Reset address'), findsNothing);
     expect(find.text('Hide QR code'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('sidebar stop service calls onStop once while sharing',
+      (tester) async {
+    var stops = 0;
+    Future<void> onStop() async {
+      stops++;
+    }
+
+    Future<SealDeskHostState> loadHost() async => const SealDeskHostState(
+          address: address,
+          password: 'secret',
+          name: '电脑',
+        );
+
+    await showPage(
+      tester,
+      sidePane: true,
+      surface: const Size(1100, 720),
+      onStop: onStop,
+      loadHost: loadHost,
+    );
+    expect(find.byKey(const ValueKey('sealdesk-stop-service')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('sealdesk-stop-service')));
+    await tester.pump();
+    expect(stops, 1);
+
+    stops = 0;
+    await showPage(
+      tester,
+      sidePane: true,
+      surface: const Size(760, 640),
+      onStop: onStop,
+      loadHost: loadHost,
+    );
+    expect(
+        find.byKey(const ValueKey('sealdesk-side-collapsed')), findsOneWidget);
+    expect(find.byKey(const ValueKey('sealdesk-stop-service')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('sealdesk-stop-service')));
+    await tester.pump();
+    expect(stops, 1);
     await tester.pumpWidget(const SizedBox());
   });
 }

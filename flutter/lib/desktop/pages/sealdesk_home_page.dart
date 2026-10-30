@@ -1121,6 +1121,23 @@ class _SealDeskHomePageState extends State<SealDeskHomePage> {
     final narrow = MediaQuery.sizeOf(context).width < 800;
     final children = <Widget>[
       if (narrow) _collapsedBar() else ..._buildHost(),
+      if (_phase == SealDeskSharePhase.running && widget.onStop != null)
+        Padding(
+          padding: const EdgeInsets.only(top: 16),
+          child: SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              key: const ValueKey('sealdesk-stop-service'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Theme.of(context).colorScheme.error,
+                side: BorderSide(color: Theme.of(context).colorScheme.error),
+              ),
+              onPressed: _busy ? null : () => _act(widget.onStop!),
+              icon: const Icon(Icons.stop),
+              label: Text(translate('Stop service')),
+            ),
+          ),
+        ),
       if (_error != null)
         Padding(
           padding: const EdgeInsets.only(top: 8),
