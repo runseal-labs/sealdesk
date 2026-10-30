@@ -37,14 +37,19 @@ fn finish_macos_update(result: hbb_common::ResultType<()>) -> Option<CoreMainAct
 }
 
 fn note_tray_host() {
+    let hide_tray = crate::common::get_builtin_option(keys::OPTION_HIDE_TRAY);
     #[cfg(target_os = "linux")]
     let present = crate::platform::has_status_notifier_watcher();
     #[cfg(not(target_os = "linux"))]
     let present = true;
-    let hide_tray = crate::common::get_builtin_option(keys::OPTION_HIDE_TRAY);
+    // Skip the probe when a tray would not be advertised anyway.
+    #[cfg(target_os = "linux")]
+    let library = present && hide_tray != "Y" && crate::platform::appindicator_library_loadable();
+    #[cfg(not(target_os = "linux"))]
+    let library = true;
     std::env::set_var(
         crate::platform::login_item::TRAY_HOST_ENV,
-        if crate::platform::login_item::advertise_tray_host(present, &hide_tray) {
+        if crate::platform::login_item::tray_host_usable(present, library, &hide_tray) {
             "1"
         } else {
             "0"
@@ -536,12 +541,15 @@ pub fn core_main() -> Option<CoreMainAction> {
                 // Upstream reaps a previous tray, then always starts a new one.
                 // Checking `--tray` here races with `pkill` and can leave no tray.
                 hbb_common::allow_err!(crate::platform::check_autostart_config());
-                std::process::Command::new("pkill")
-                    .arg("-f")
-                    .arg(format!("{} --tray", crate::get_app_name().to_lowercase()))
-                    .status()
-                    .ok();
-                hbb_common::allow_err!(crate::run_me(vec!["--tray"]));
+                // No library: do not pkill or spawn. `--tray` would only exit.
+                if crate::platform::appindicator_library_loadable() {
+                    std::process::Command::new("pkill")
+                        .arg("-f")
+                        .arg(format!("{} --tray", crate::get_app_name().to_lowercase()))
+                        .status()
+                        .ok();
+                    hbb_common::allow_err!(crate::run_me(vec!["--tray"]));
+                }
             }
             #[cfg(target_os = "macos")]
             crate::platform::sync_login_autostart();

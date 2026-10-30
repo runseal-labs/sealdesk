@@ -17,6 +17,13 @@ pub fn start_tray() {
         }
     }
 
+    // Direct `--tray` and respawns (for example `--server`) must exit instead of
+    // panicking inside libappindicator-sys when the library is not installed.
+    #[cfg(target_os = "linux")]
+    if !crate::platform::appindicator_library_loadable() {
+        return;
+    }
+
     #[cfg(target_os = "linux")]
     crate::server::check_zombie();
 

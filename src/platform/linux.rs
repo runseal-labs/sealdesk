@@ -2782,6 +2782,45 @@ pub fn has_status_notifier_watcher() -> bool {
     matches!(owned, Ok((true,)))
 }
 
+const APPINDICATOR_SONAMES: &[&str] = &["libayatana-appindicator3.so.1", "libappindicator3.so.1"];
+
+/// `libappindicator-sys` panics if neither soname loads. `RTLD_NOW` fails here
+/// when the library or a dependency is missing, instead of inside the tray.
+pub fn appindicator_library_loadable() -> bool {
+    let mut errors = Vec::new();
+    for name in APPINDICATOR_SONAMES {
+        match load_indicator_soname(name) {
+            Ok(()) => return true,
+            Err(error) => errors.push(format!("{name}: {error}")),
+        }
+    }
+    log::warn!(
+        "Tray icon unavailable, indicator library did not load: {}",
+        errors.join("; ")
+    );
+    false
+}
+
+fn load_indicator_soname(name: &str) -> Result<(), String> {
+    let c_name = std::ffi::CString::new(name).map_err(|error| error.to_string())?;
+    unsafe {
+        hbb_common::libc::dlerror();
+        let handle = hbb_common::libc::dlopen(
+            c_name.as_ptr(),
+            hbb_common::libc::RTLD_NOW | hbb_common::libc::RTLD_LOCAL,
+        );
+        if handle.is_null() {
+            let err = hbb_common::libc::dlerror();
+            if err.is_null() {
+                return Err("dlopen failed".to_owned());
+            }
+            return Err(std::ffi::CStr::from_ptr(err).to_string_lossy().into_owned());
+        }
+        hbb_common::libc::dlclose(handle);
+    }
+    Ok(())
+}
+
 pub fn set_login_autostart(enable: bool) -> ResultType<()> {
     // Trusted home via getpwuid, same source upstream uses for this path.
     let home = get_home_dir_trusted()
