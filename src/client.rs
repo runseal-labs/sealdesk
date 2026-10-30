@@ -3488,6 +3488,7 @@ pub fn check_if_retry(msgtype: &str, title: &str, text: &str) -> bool {
             && !text.to_lowercase().contains("mismatch")
             && !text.to_lowercase().contains("manually")
             && !text.to_lowercase().contains("authorization revoked")
+            && !text.to_lowercase().contains("sharing stopped")
             && !text.to_lowercase().contains("restricted")
             && !text.to_lowercase().contains("incoming only")
             && !text.to_lowercase().contains("not allowed"))
@@ -3520,6 +3521,12 @@ mod retry_tests {
     #[test]
     fn lan_revocation_is_not_retryable() {
         assert!(!check_if_retry("error", "Connection Error", "LAN authorization revoked"));
+    }
+
+    #[test]
+    fn sharing_stopped_is_not_retryable() {
+        assert!(!check_if_retry("error", "Connection Error", "Sharing stopped"));
+        assert!(check_if_retry("error", "Connection Error", "Connection reset by peer"));
     }
     #[test]
     fn incoming_only_error_is_not_retryable() {
