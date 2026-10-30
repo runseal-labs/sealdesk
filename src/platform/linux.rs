@@ -2782,6 +2782,79 @@ pub fn has_status_notifier_watcher() -> bool {
     matches!(owned, Ok((true,)))
 }
 
+/// Same names, same order, as `libappindicator-sys` 0.9 `LIB` with default
+/// `backcompat` (`tray-icon` does not turn that feature off).
+const APPINDICATOR_SONAMES: &[&str] = &[
+    "libayatana-appindicator3.so.1",
+    "libappindicator3.so.1",
+    "libayatana-appindicator3.so",
+    "libappindicator3.so",
+];
+
+/// `libloading` 0.7 `Library::new` is `RTLD_LAZY | RTLD_LOCAL`. `RTLD_NOW`
+/// rejects a library that loader still accepts.
+const APPINDICATOR_DLOPEN_FLAGS: c_int =
+    hbb_common::libc::RTLD_LAZY | hbb_common::libc::RTLD_LOCAL;
+
+/// `libappindicator-sys` panics if none of these names load.
+pub fn appindicator_library_loadable() -> bool {
+    let owned: Vec<std::ffi::CString> = APPINDICATOR_SONAMES
+        .iter()
+        .filter_map(|name| std::ffi::CString::new(*name).ok())
+        .collect();
+    let names: Vec<&std::ffi::CStr> = owned.iter().map(|name| name.as_c_str()).collect();
+    any_library_loadable(&names)
+}
+
+fn any_library_loadable(names: &[&std::ffi::CStr]) -> bool {
+    let mut errors = Vec::new();
+    for name in names {
+        unsafe {
+            hbb_common::libc::dlerror();
+            let handle = hbb_common::libc::dlopen(name.as_ptr(), APPINDICATOR_DLOPEN_FLAGS);
+            if handle.is_null() {
+                let err = hbb_common::libc::dlerror();
+                let detail = if err.is_null() {
+                    "dlopen failed".to_owned()
+                } else {
+                    std::ffi::CStr::from_ptr(err).to_string_lossy().into_owned()
+                };
+                errors.push(format!("{}: {detail}", name.to_string_lossy()));
+                continue;
+            }
+            hbb_common::libc::dlclose(handle);
+            return true;
+        }
+    }
+    log::warn!(
+        "Tray icon unavailable, indicator library did not load: {}",
+        errors.join("; ")
+    );
+    false
+}
+
+#[cfg(test)]
+mod appindicator_probe_tests {
+    use super::any_library_loadable;
+    use std::ffi::{CStr, CString};
+
+    #[test]
+    fn missing_sonames_are_not_loadable() {
+        let missing = [
+            CString::new("libsealdesk-no-such-appindicator.so.1").unwrap(),
+            CString::new("libsealdesk-no-such-appindicator.so").unwrap(),
+        ];
+        let names: Vec<&CStr> = missing.iter().map(|name| name.as_c_str()).collect();
+        assert!(!any_library_loadable(&names));
+    }
+
+    #[test]
+    fn present_system_library_is_loadable() {
+        let libc = CString::new("libc.so.6").unwrap();
+        assert!(any_library_loadable(&[libc.as_c_str()]));
+    }
+}
+
 pub fn set_login_autostart(enable: bool) -> ResultType<()> {
     // Trusted home via getpwuid, same source upstream uses for this path.
     let home = get_home_dir_trusted()

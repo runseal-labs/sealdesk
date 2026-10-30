@@ -14,6 +14,12 @@ pub fn advertise_tray_host(platform_present: bool, hide_tray: &str) -> bool {
     platform_present && hide_tray != "Y"
 }
 
+/// Watcher, loadable indicator library, and builtin `hide-tray` not `Y`.
+/// A missing library must not be advertised: closing the window then quits.
+pub fn tray_host_usable(watcher: bool, library: bool, hide_tray: &str) -> bool {
+    watcher && library && hide_tray != "Y"
+}
+
 /// A missing shortcut is already off. Any other delete error is returned so the
 /// caller does not report success.
 pub(crate) fn ignore_not_found(result: std::io::Result<()>) -> std::io::Result<()> {
@@ -130,6 +136,18 @@ mod tests {
         assert!(!advertise_tray_host(true, "Y"));
         assert!(!advertise_tray_host(false, ""));
         assert!(!advertise_tray_host(false, "Y"));
+    }
+
+    #[test]
+    fn tray_host_needs_watcher_library_and_visible_tray() {
+        assert!(tray_host_usable(true, true, ""));
+        assert!(tray_host_usable(true, true, "N"));
+        assert!(!tray_host_usable(true, true, "Y"));
+        assert!(!tray_host_usable(true, false, ""));
+        assert!(!tray_host_usable(false, true, ""));
+        assert!(!tray_host_usable(false, false, ""));
+        assert!(!tray_host_usable(false, false, "Y"));
+        assert!(!tray_host_usable(true, false, "Y"));
     }
 
     #[test]
