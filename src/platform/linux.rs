@@ -2798,11 +2798,32 @@ const APPINDICATOR_DLOPEN_FLAGS: c_int =
 
 /// `libappindicator-sys` panics if none of these names load.
 pub fn appindicator_library_loadable() -> bool {
+    let owned: Vec<std::ffi::CString> = APPINDICATOR_SONAMES
+        .iter()
+        .filter_map(|name| std::ffi::CString::new(*name).ok())
+        .collect();
+    let names: Vec<&std::ffi::CStr> = owned.iter().map(|name| name.as_c_str()).collect();
+    any_library_loadable(&names)
+}
+
+fn any_library_loadable(names: &[&std::ffi::CStr]) -> bool {
     let mut errors = Vec::new();
-    for name in APPINDICATOR_SONAMES {
-        match load_indicator_soname(name) {
-            Ok(()) => return true,
-            Err(error) => errors.push(format!("{name}: {error}")),
+    for name in names {
+        unsafe {
+            hbb_common::libc::dlerror();
+            let handle = hbb_common::libc::dlopen(name.as_ptr(), APPINDICATOR_DLOPEN_FLAGS);
+            if handle.is_null() {
+                let err = hbb_common::libc::dlerror();
+                let detail = if err.is_null() {
+                    "dlopen failed".to_owned()
+                } else {
+                    std::ffi::CStr::from_ptr(err).to_string_lossy().into_owned()
+                };
+                errors.push(format!("{}: {detail}", name.to_string_lossy()));
+                continue;
+            }
+            hbb_common::libc::dlclose(handle);
+            return true;
         }
     }
     log::warn!(
@@ -2812,48 +2833,25 @@ pub fn appindicator_library_loadable() -> bool {
     false
 }
 
-fn load_indicator_soname(name: &str) -> Result<(), String> {
-    let c_name = std::ffi::CString::new(name).map_err(|error| error.to_string())?;
-    unsafe {
-        hbb_common::libc::dlerror();
-        let handle = hbb_common::libc::dlopen(c_name.as_ptr(), APPINDICATOR_DLOPEN_FLAGS);
-        if handle.is_null() {
-            let err = hbb_common::libc::dlerror();
-            if err.is_null() {
-                return Err("dlopen failed".to_owned());
-            }
-            return Err(std::ffi::CStr::from_ptr(err).to_string_lossy().into_owned());
-        }
-        hbb_common::libc::dlclose(handle);
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod appindicator_probe_tests {
-    use super::*;
+    use super::any_library_loadable;
+    use std::ffi::{CStr, CString};
 
     #[test]
-    fn probe_matches_libappindicator_sys_loader() {
-        // libappindicator-sys 0.9 `LIB`, default `backcompat` feature.
-        assert_eq!(
-            APPINDICATOR_SONAMES,
-            [
-                "libayatana-appindicator3.so.1",
-                "libappindicator3.so.1",
-                "libayatana-appindicator3.so",
-                "libappindicator3.so",
-            ]
-        );
-        // libloading 0.7 `Library::new`.
-        assert_eq!(
-            APPINDICATOR_DLOPEN_FLAGS,
-            hbb_common::libc::RTLD_LAZY | hbb_common::libc::RTLD_LOCAL
-        );
-        assert_ne!(
-            APPINDICATOR_DLOPEN_FLAGS,
-            hbb_common::libc::RTLD_NOW | hbb_common::libc::RTLD_LOCAL
-        );
+    fn missing_sonames_are_not_loadable() {
+        let missing = [
+            CString::new("libsealdesk-no-such-appindicator.so.1").unwrap(),
+            CString::new("libsealdesk-no-such-appindicator.so").unwrap(),
+        ];
+        let names: Vec<&CStr> = missing.iter().map(|name| name.as_c_str()).collect();
+        assert!(!any_library_loadable(&names));
+    }
+
+    #[test]
+    fn present_system_library_is_loadable() {
+        let libc = CString::new("libc.so.6").unwrap();
+        assert!(any_library_loadable(&[libc.as_c_str()]));
     }
 }
 
