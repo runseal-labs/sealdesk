@@ -207,8 +207,10 @@ impl Client {
             bail!("Incoming only mode");
         }
         if crate::lan::is_pinned_or_typed(peer) {
-            // A typed address is not `lan:<endpoint>/<key>`. It still sends the
-            // SealDesk preface. A pinned dial that fails does not fall through.
+            // A typed address tries the SealDesk preface first. Only a first
+            // frame that is not JSON falls back to legacy TCP (`"TCP"`, no host
+            // key), which is what v0.5.2 returned. A pinned dial that fails does
+            // not fall through.
             let (stream, stream_type, direct_host_key) = hbb_common::tokio::time::timeout(
                 std::time::Duration::from_millis(CONNECT_TIMEOUT),
                 crate::lan::connect_pinned_or_typed(peer),
@@ -3301,17 +3303,13 @@ pub async fn confirm_insecure_connection(
     if let Some(prompt) = prompt.as_ref() {
         interface.msgbox(prompt.msg_type, prompt.title, &prompt.text, "");
     } else {
-        let typed_direct = crate::lan::is_typed_direct(&id);
+        // No host key: v0.5.2's unencrypted direct-IP dialog, including the
+        // legacy TCP fallback. A SealDesk typed dial still has a key and uses
+        // the prompt above.
         interface.msgbox(
             "insecure-connection-nocancel-hasclose",
-            if typed_direct {
-                "Unverified identity"
-            } else {
-                "Insecure Connection"
-            },
-            if typed_direct {
-                "Unverified identity"
-            } else if hbb_common::is_ip_str(&id) {
+            "Insecure Connection",
+            if hbb_common::is_ip_str(&id) {
                 "Direct and unencrypted connection"
             } else {
                 "conn-e2ee-unavailable-tip"
