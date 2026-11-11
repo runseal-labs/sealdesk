@@ -1,5 +1,5 @@
 Name:       sealdesk
-Version:    0.5.8
+Version:    0.5.9
 Release:    0
 Summary:    RPM package
 License:    GPL-3.0

@@ -1,6 +1,6 @@
 [package]
 name = "sealdesk"
-version = "0.5.8"
+version = "0.5.9"
 authors = ["rustdesk <info@rustdesk.com>"]
 edition = "2021"
 build= "build.rs"
