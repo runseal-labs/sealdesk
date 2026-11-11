@@ -747,7 +747,14 @@ pub(crate) fn is_pinned_or_typed(value: &str) -> bool {
 /// key stays `Direct` until then. A changed `lan:` pin still fails closed.
 ///
 /// The third value is the host key this dial negotiated when that key still
-/// needs confirmation. It is `None` for a pinned dial or a key that already matches.
+/// needs confirmation. It is `None` for a pinned dial, a key that already
+/// matches, or a legacy TCP fallback.
+///
+/// A typed peer whose first frame is not JSON is retried once on a new socket
+/// with no preface, the same dial v0.5.2 used. That result is `"TCP"`. JSON
+/// that is not a hello, an empty or closed frame, a valid hello that fails
+/// signature or identity checks, a pinned `lan:` dial, and any later handshake
+/// error are not retried.
 pub(crate) async fn connect_pinned_or_typed(
     peer: &str,
 ) -> ResultType<(Stream, &'static str, Option<String>)> {
@@ -756,7 +763,17 @@ pub(crate) async fn connect_pinned_or_typed(
     }
     if is_typed_direct(peer) {
         let addr = parse_direct_socket(peer)?;
-        let (stream, presented) = connect_socket(addr, None).await?;
+        let (stream, presented) = match connect_socket(addr, None).await {
+            Ok(connected) => connected,
+            Err(err) if is_not_sealdesk_hello(&err) => {
+                log::warn!(
+                    "typed address {peer} did not send a SealDesk hello ({err}); opening a legacy direct TCP connection"
+                );
+                let stream = connect_legacy_direct_tcp(peer).await?;
+                return Ok((stream, "TCP", None));
+            }
+            Err(err) => return Err(err),
+        };
         let address = addr.to_string();
         let presented = hex::encode(presented.0);
         let stored = {
@@ -810,6 +827,77 @@ fn is_shared_v4(ip: Ipv4Addr) -> bool {
     first == 100 && (64..128).contains(&second)
 }
 
+/// Why the peer's first frame was not accepted as a SealDesk [`Hello`].
+/// Upstream RustDesk's direct-IP listener sends a protobuf `Message` instead
+/// (the hash field tag is `0x4A`). Only [`Self::NotSealDeskHello`] may fall
+/// back to legacy TCP. Signature, identity, and later handshake failures never
+/// use this type.
+#[derive(Debug)]
+enum LanHandshakeError {
+    /// Not a JSON document, so this is not a SealDesk hello.
+    NotSealDeskHello(serde_json::Error),
+    /// Empty, truncated, or JSON that is not a hello. Fail closed.
+    RejectedHello(serde_json::Error),
+}
+
+impl std::fmt::Display for LanHandshakeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotSealDeskHello(err) | Self::RejectedHello(err) => write!(f, "{err}"),
+        }
+    }
+}
+
+impl std::error::Error for LanHandshakeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::NotSealDeskHello(err) | Self::RejectedHello(err) => Some(err),
+        }
+    }
+}
+
+fn looks_like_json(frame: &[u8]) -> bool {
+    frame
+        .iter()
+        .find(|byte| !matches!(byte, b' ' | b'\t' | b'\n' | b'\r'))
+        .is_some_and(|byte| {
+            matches!(
+                byte,
+                b'{' | b'[' | b'"' | b't' | b'f' | b'n' | b'-' | b'0'..=b'9'
+            )
+        })
+}
+
+fn classify_first_frame(frame: &[u8]) -> Result<Hello, LanHandshakeError> {
+    match serde_json::from_slice::<Hello>(frame) {
+        Ok(hello) => Ok(hello),
+        // Syntax errors that do not even look like JSON are the RustDesk hash
+        // frame (and anything else that is not this protocol). A JSON value
+        // that is not a hello, including trailing junk, stays fail-closed.
+        Err(err) if err.is_syntax() && !looks_like_json(frame) => {
+            Err(LanHandshakeError::NotSealDeskHello(err))
+        }
+        Err(err) => Err(LanHandshakeError::RejectedHello(err)),
+    }
+}
+
+fn is_not_sealdesk_hello(err: &hbb_common::anyhow::Error) -> bool {
+    matches!(
+        err.downcast_ref::<LanHandshakeError>(),
+        Some(LanHandshakeError::NotSealDeskHello(_))
+    )
+}
+
+/// v0.5.2 typed-IP dial: no SealDesk preface, default direct-IP port.
+async fn connect_legacy_direct_tcp(peer: &str) -> ResultType<Stream> {
+    hbb_common::socket_client::connect_tcp_local(
+        hbb_common::socket_client::check_port(peer, i32::from(TCP_PORT)),
+        None,
+        hbb_common::config::CONNECT_TIMEOUT,
+    )
+    .await
+}
+
 async fn connect_socket(
     addr: SocketAddr,
     expected: Option<sign::PublicKey>,
@@ -821,7 +909,7 @@ async fn connect_socket(
     stream.set_max_packet_length(FRAME_LIMIT);
     stream.0.send_raw(DOMAIN.to_vec()).await?;
     let prior = receive(&mut stream).await?;
-    let remote: Hello = serde_json::from_slice(&prior)?;
+    let remote = classify_first_frame(&prior)?;
     let presented = verify(&remote, 0, &[])?;
     if expected.is_some_and(|key| key != presented) {
         bail!("LAN host identity changed");
@@ -2565,6 +2653,125 @@ mod tests {
         let error = accept_shared(&mut server).await.unwrap_err();
         assert!(error.to_string().contains("disabled"));
         drop(socket);
+    }
+
+    #[test]
+    fn classify_first_frame_falls_back_only_for_non_json() {
+        let hash = [0x4A, 0x02, 0x0A, 0x00];
+        match classify_first_frame(&hash) {
+            Err(err @ LanHandshakeError::NotSealDeskHello(_)) => {
+                let err = hbb_common::anyhow::Error::from(err);
+                assert!(is_not_sealdesk_hello(&err), "{err}");
+            }
+            Err(err) => panic!("hash frame was not classified as legacy: {err}"),
+            Ok(_) => panic!("hash frame decoded as a SealDesk hello"),
+        }
+
+        let hello = Hello {
+            key: vec![1],
+            ephemeral: vec![2],
+            nonce: vec![3],
+            signature: vec![4],
+        };
+        assert!(classify_first_frame(&serde_json::to_vec(&hello).unwrap()).is_ok());
+        let mut trailed = serde_json::to_vec(&hello).unwrap();
+        trailed.push(0x4A);
+        let frames: &[&[u8]] = &[
+            &[],
+            br#"{"not":"hello"}"#,
+            br#"{"key":[],"ephemeral":[],"nonce":[]}"#,
+            br#"{"#,
+            trailed.as_slice(),
+        ];
+        for frame in frames {
+            match classify_first_frame(frame) {
+                Err(err) => {
+                    let err = hbb_common::anyhow::Error::from(err);
+                    assert!(
+                        !is_not_sealdesk_hello(&err),
+                        "frame {frame:?} was treated as a legacy peer: {err}"
+                    );
+                }
+                Ok(_) => panic!("frame {frame:?} decoded as a SealDesk hello"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn typed_ip_rustdesk_hash_frame_falls_back_to_legacy_tcp() {
+        let (_lock, _reset) = lan_test_env();
+        // Message { hash } is field 9, wire type 2, so the payload starts at 0x4A.
+        let payload = vec![0x4A, 0x02, 0x0A, 0x00];
+        match classify_first_frame(&payload) {
+            Err(LanHandshakeError::NotSealDeskHello(_)) => {}
+            Err(err) => panic!("expected NotSealDeskHello, got {err}"),
+            Ok(_) => panic!("expected NotSealDeskHello, got a SealDesk hello"),
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target = listener.local_addr().unwrap().to_string();
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let local = socket.local_addr().unwrap();
+            let mut stream = Stream::from(socket, local);
+            assert_eq!(receive(&mut stream).await.unwrap(), DOMAIN);
+            stream.send_raw(payload).await.unwrap();
+            let (socket, _) = tokio::time::timeout(Duration::from_secs(2), listener.accept())
+                .await
+                .expect("legacy fallback did not open a second connection")
+                .unwrap();
+            let local = socket.local_addr().unwrap();
+            let mut stream = Stream::from(socket, local);
+            match tokio::time::timeout(Duration::from_millis(400), receive(&mut stream)).await {
+                Err(_) => {}
+                Ok(Ok(bytes)) => panic!("legacy dial sent a preface: {bytes:?}"),
+                Ok(Err(err)) => panic!("legacy dial failed while reading: {err}"),
+            }
+        });
+        let (stream, kind, presented) = connect_pinned_or_typed(&target).await.unwrap();
+        assert_eq!(kind, "TCP");
+        assert!(presented.is_none());
+        assert!(!stream.is_secured());
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn typed_ip_invalid_signature_does_not_fall_back_to_legacy_tcp() {
+        let (_lock, _reset) = lan_test_env();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target = listener.local_addr().unwrap().to_string();
+        let (mut remote, _) = hello(0, &[]).unwrap();
+        remote.signature = vec![0u8; remote.signature.len()];
+        let frame = serde_json::to_vec(&remote).unwrap();
+        assert!(
+            classify_first_frame(&frame).is_ok(),
+            "a signed hello shape must not be classified as NotSealDeskHello"
+        );
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let local = socket.local_addr().unwrap();
+            let mut stream = Stream::from(socket, local);
+            assert_eq!(receive(&mut stream).await.unwrap(), DOMAIN);
+            stream.send_raw(frame).await.unwrap();
+            let second = tokio::time::timeout(Duration::from_millis(400), listener.accept()).await;
+            assert!(
+                second.is_err(),
+                "invalid signature opened a second connection"
+            );
+        });
+        let err = match connect_pinned_or_typed(&target).await {
+            Err(err) => err,
+            Ok(_) => panic!("invalid signature connected"),
+        };
+        assert!(
+            !is_not_sealdesk_hello(&err),
+            "signature failure was treated as a non-SealDesk peer: {err}"
+        );
+        assert!(
+            err.to_string()
+                .contains("LAN signature verification failed"),
+            "{err}"
+        );
+        server.await.unwrap();
     }
 
     #[tokio::test]
