@@ -1035,8 +1035,11 @@ pub fn set_login_autostart(enable: bool) -> ResultType<()> {
     let label = super::login_item::macos_login_label(&crate::get_app_name());
     let path = home.join("Library/LaunchAgents").join(format!("{label}.plist"));
     if !enable {
-        // Delete the plist only. `launchctl unload -w` writes a disabled
-        // override that survives the file and blocks the next login.
+        // Delete the plist. Do not `launchctl unload -w`: that writes a
+        // disabled override that survives the file and blocks the next login.
+        // `bootout` stops an agent already loaded in this session. Failure
+        // (not loaded, no launchctl) is logged and does not fail the delete.
+        bootout_user_login_agent(&label);
         super::login_item::ignore_not_found(std::fs::remove_file(&path))?;
         return Ok(());
     }
@@ -1056,6 +1059,24 @@ pub fn set_login_autostart(enable: bool) -> ResultType<()> {
     // and that process exits if the open app already owns IPC. The plist is loaded at next login.
     std::fs::write(&path, body)?;
     Ok(())
+}
+
+fn bootout_user_login_agent(label: &str) {
+    let uid = unsafe { hbb_common::libc::getuid() };
+    let target = super::login_item::macos_gui_bootout_target(uid, label);
+    match std::process::Command::new("launchctl")
+        .arg("bootout")
+        .arg(&target)
+        .status()
+    {
+        Ok(status) if status.success() => {}
+        Ok(status) => {
+            log::info!("launchctl bootout {target} did not unload the login agent ({status})");
+        }
+        Err(err) => {
+            log::warn!("Could not run launchctl bootout {target}: {err}");
+        }
+    }
 }
 
 fn current_user_home() -> ResultType<PathBuf> {

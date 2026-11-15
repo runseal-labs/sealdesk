@@ -57,6 +57,11 @@ pub fn linux_autostart_desktop(app_name: &str, exe: &str) -> String {
     )
 }
 
+/// `launchctl bootout` target for this user's Aqua session.
+pub fn macos_gui_bootout_target(uid: u32, label: &str) -> String {
+    format!("gui/{uid}/{label}")
+}
+
 pub fn macos_login_label(app_name: &str) -> String {
     let mut label = String::from("com.runseal.");
     for c in app_name.chars() {
@@ -190,6 +195,14 @@ mod tests {
             "denied"
         )))
         .is_err());
+    }
+
+    #[test]
+    fn macos_login_bootout_uses_the_gui_domain() {
+        assert_eq!(
+            macos_gui_bootout_target(501, "com.runseal.sealdesk.login"),
+            "gui/501/com.runseal.sealdesk.login"
+        );
     }
 
     #[test]

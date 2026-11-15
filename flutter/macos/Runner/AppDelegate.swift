@@ -1,6 +1,9 @@
 import Cocoa
 import FlutterMacOS
 
+@_silgen_name("sealdesk_quit_from_app_menu")
+func sealdesk_quit_from_app_menu()
+
 @main
 class AppDelegate: FlutterAppDelegate {
     var launched = false;
@@ -8,6 +11,14 @@ class AppDelegate: FlutterAppDelegate {
       dummy_method_to_enforce_bundling()
     // https://github.com/leanflutter/window_manager/issues/214
     return false
+  }
+
+  // Cmd+Q / application-menu Quit. The red button still hides: prevent-close
+  // stays set and this is not a last-window terminate. Tray Quit kills sibling
+  // processes and exits; do that before AppKit asks the window to close.
+  override func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+      sealdesk_quit_from_app_menu()
+      return .terminateNow
   }
     
     override func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {

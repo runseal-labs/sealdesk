@@ -268,7 +268,7 @@ fn make_tray() -> hbb_common::ResultType<()> {
 
 /// Ends this user's SealDesk processes. An installed, running Windows service
 /// is stopped earlier with upstream `uninstall_service` instead of this kill.
-fn quit_app() {
+pub(crate) fn quit_app() {
     terminate_other_instances();
     std::process::exit(0);
 }
