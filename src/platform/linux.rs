@@ -2850,7 +2850,7 @@ pub(crate) fn wait_for_pids_exit(
     pids: &[u32],
     timeout: std::time::Duration,
     poll: std::time::Duration,
-    alive: impl Fn(u32) -> bool,
+    mut alive: impl FnMut(u32) -> bool,
 ) -> bool {
     if pids.is_empty() {
         return true;
