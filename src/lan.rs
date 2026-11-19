@@ -4360,7 +4360,19 @@ mod tests {
         let client = UdpSocket::bind(std::net::SocketAddrV6::new(ip, 0, 0, iface.index)).unwrap();
         client.set_nonblocking(true).unwrap();
         let dest = std::net::SocketAddrV6::new(udp::IPV6_ALL_NODES, port, 0, iface.index);
-        client.send_to(b"v6", dest).unwrap();
+        // A link-local iface can exist without a route to ff02::1 (macOS CI: EHOSTUNREACH).
+        if let Err(error) = client.send_to(b"v6", dest) {
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::HostUnreachable | std::io::ErrorKind::NetworkUnreachable
+            ) {
+                eprintln!(
+                    "skipping discovery_ipv6_multicast_roundtrip_on_link_local_when_present: {error}"
+                );
+                return;
+            }
+            panic!("send_to {dest}: {error}");
+        }
         let start = Instant::now();
         let mut got = None;
         while start.elapsed() < Duration::from_millis(400) && got.is_none() {
