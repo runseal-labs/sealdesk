@@ -215,7 +215,6 @@ class MainFlutterWindow: NSWindow {
                     result(nil)
                     break;
                 case "terminate":
-                    AppDelegate.terminateFromPlatformChannel = true
                     NSApplication.shared.terminate(self)
                     result(nil)
                 case "canRecordAudio":
