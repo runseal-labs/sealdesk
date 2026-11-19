@@ -2833,15 +2833,33 @@ fn any_library_loadable(names: &[&std::ffi::CStr]) -> bool {
     false
 }
 
-/// `pkill -f` pattern used to reap a previous user `--tray`.
-pub(crate) fn linux_tray_pkill_pattern(app_name: &str) -> String {
-    format!("{} --tray", app_name.to_lowercase())
+/// This process image, as `/proc/self/exe` reports it (symlink target).
+fn linux_own_exe() -> Option<std::path::PathBuf> {
+    std::fs::read_link("/proc/self/exe").ok()
 }
 
-/// `pkill -f` treats the pattern as a regular expression against the command line.
-/// The app-name pattern has no regex metacharacters.
-pub(crate) fn cmdline_contains_pattern(cmdline: &str, pattern: &str) -> bool {
-    cmdline.contains(pattern)
+fn proc_cmdline_args(pid: u32) -> Option<Vec<String>> {
+    let bytes = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+    if bytes.is_empty() {
+        return None;
+    }
+    Some(
+        bytes
+            .split(|b| *b == 0)
+            .filter(|part| !part.is_empty())
+            .map(|part| String::from_utf8_lossy(part).into_owned())
+            .collect(),
+    )
+}
+
+/// Previous tray of this executable only: same `/proc/<pid>/exe` path and an
+/// argv element that is exactly `--tray` (not a substring such as `--tray-debug`).
+pub(crate) fn is_own_tray_process(
+    own_exe: &std::path::Path,
+    proc_exe: &std::path::Path,
+    args: &[String],
+) -> bool {
+    proc_exe == own_exe && args.iter().any(|arg| arg == "--tray")
 }
 
 /// `true` when every pid is gone (or `pids` is empty).
@@ -2886,7 +2904,10 @@ fn proc_pid_is_alive(pid: u32) -> bool {
     }
 }
 
-fn linux_pids_with_cmdline(pattern: &str) -> Vec<u32> {
+fn linux_own_tray_pids() -> Vec<u32> {
+    let Some(own_exe) = linux_own_exe() else {
+        return Vec::new();
+    };
     let mut pids = Vec::new();
     let Ok(entries) = std::fs::read_dir("/proc") else {
         return pids;
@@ -2900,33 +2921,43 @@ fn linux_pids_with_cmdline(pattern: &str) -> Vec<u32> {
         else {
             continue;
         };
-        if pid == self_pid {
+        if pid == 0 || pid == self_pid {
             continue;
         }
-        let Ok(bytes) = std::fs::read(entry.path().join("cmdline")) else {
+        let Ok(proc_exe) = std::fs::read_link(entry.path().join("exe")) else {
             continue;
         };
-        let cmdline = String::from_utf8_lossy(&bytes).replace('\0', " ");
-        if cmdline_contains_pattern(&cmdline, pattern) {
+        let Some(args) = proc_cmdline_args(pid) else {
+            continue;
+        };
+        if is_own_tray_process(&own_exe, &proc_exe, &args) {
             pids.push(pid);
         }
     }
     pids
 }
 
+fn term_pids(pids: &[u32]) {
+    let self_pid = std::process::id();
+    for &pid in pids {
+        if pid == 0 || pid == self_pid {
+            continue;
+        }
+        unsafe {
+            hbb_common::libc::kill(pid as i32, hbb_common::libc::SIGTERM);
+        }
+    }
+}
+
 /// Reap a previous `--tray`, then start another unless the tray is hidden.
 ///
-/// There may be no previous tray. `pkill` only signals; this waits up to 3s
-/// for those pids to leave (zombies count as gone). On timeout, log and still
-/// start the new tray so a stuck process does not skip the attempt.
+/// There may be no previous tray. Signals only this executable's own `--tray`
+/// processes; this waits up to 3s for those pids to leave (zombies count as
+/// gone). On timeout, log and still start the new tray so a stuck process
+/// does not skip the attempt.
 pub fn reap_previous_tray_and_maybe_start() {
-    let pattern = linux_tray_pkill_pattern(&crate::get_app_name());
-    let old = linux_pids_with_cmdline(&pattern);
-    std::process::Command::new("pkill")
-        .arg("-f")
-        .arg(&pattern)
-        .status()
-        .ok();
+    let old = linux_own_tray_pids();
+    term_pids(&old);
     if !old.is_empty()
         && !wait_for_pids_exit(
             &old,
@@ -2946,20 +2977,61 @@ pub fn reap_previous_tray_and_maybe_start() {
 
 #[cfg(test)]
 mod tray_reap_tests {
-    use super::{cmdline_contains_pattern, linux_tray_pkill_pattern, wait_for_pids_exit};
+    use super::{is_own_tray_process, wait_for_pids_exit};
+    use std::path::Path;
     use std::time::{Duration, Instant};
 
+    fn args(parts: &[&str]) -> Vec<String> {
+        parts.iter().map(|part| (*part).to_owned()).collect()
+    }
+
     #[test]
-    fn tray_pattern_matches_the_pkill_needle_only() {
-        let pattern = linux_tray_pkill_pattern("SealDesk");
-        assert_eq!(pattern, "sealdesk --tray");
-        assert!(cmdline_contains_pattern(
-            "/usr/bin/sealdesk --tray",
-            &pattern
+    fn own_tray_is_this_exe_with_exact_tray_arg() {
+        let own = Path::new("/usr/bin/sealdesk");
+        assert!(is_own_tray_process(
+            own,
+            own,
+            &args(&["/usr/bin/sealdesk", "--tray"])
         ));
-        assert!(!cmdline_contains_pattern(
-            "/usr/bin/sealdesk --server",
-            &pattern
+        assert!(is_own_tray_process(
+            own,
+            own,
+            &args(&["sealdesk", "--tray"])
+        ));
+        assert!(!is_own_tray_process(
+            own,
+            Path::new("/opt/other/sealdesk"),
+            &args(&["/opt/other/sealdesk", "--tray"])
+        ));
+        assert!(!is_own_tray_process(
+            own,
+            Path::new("/usr/bin/rg"),
+            &args(&["rg", "sealdesk", "--tray"])
+        ));
+        assert!(!is_own_tray_process(
+            own,
+            Path::new("/bin/bash"),
+            &args(&["bash", "-c", "exec /usr/bin/sealdesk --tray"])
+        ));
+        assert!(!is_own_tray_process(
+            own,
+            own,
+            &args(&["/usr/bin/sealdesk", "--tray-debug"])
+        ));
+        assert!(!is_own_tray_process(
+            own,
+            Path::new("/usr/bin/foosealdesk"),
+            &args(&["/usr/bin/foosealdesk", "--tray"])
+        ));
+        assert!(!is_own_tray_process(
+            own,
+            own,
+            &args(&["/usr/bin/sealdesk", "--server"])
+        ));
+        assert!(!is_own_tray_process(
+            own,
+            own,
+            &args(&["/usr/bin/sealdesk"])
         ));
     }
 
@@ -2999,6 +3071,161 @@ mod tray_reap_tests {
                 checks < 3
             }
         ));
+    }
+
+    fn proc_pid_count() -> usize {
+        std::fs::read_dir("/proc")
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .filter(|entry| {
+                        entry
+                            .file_name()
+                            .to_str()
+                            .and_then(|name| name.parse::<u32>().ok())
+                            .is_some()
+                    })
+                    .count()
+            })
+            .unwrap_or(usize::MAX)
+    }
+
+    /// Signals processes. Run only as PID 1 inside `unshare --user --pid --fork --mount-proc`
+    /// with `SEALDESK_TRAY_REAP_NS=1` and a tiny `/proc`. Default `cargo test` skips it.
+    #[test]
+    #[ignore]
+    fn namespace_reap_terms_only_own_exact_tray() {
+        if std::env::var_os("SEALDESK_TRAY_REAP_NS").is_none() {
+            return;
+        }
+        let n = proc_pid_count();
+        assert_eq!(
+            std::process::id(),
+            1,
+            "refusing to signal: not pid 1 (proc count {n})"
+        );
+        assert!(
+            n <= 30,
+            "refusing to signal: /proc pid count {n} > 30"
+        );
+
+        let exe = std::env::current_exe().expect("current_exe");
+        let root = std::env::temp_dir().join("sealdesk-tray-reap-ns");
+        let _ = std::fs::remove_dir_all(&root);
+        let other_dir = root.join("other");
+        let foo_dir = root.join("foo");
+        std::fs::create_dir_all(&other_dir).unwrap();
+        std::fs::create_dir_all(&foo_dir).unwrap();
+        let other = other_dir.join("sealdesk");
+        let foo = foo_dir.join("foosealdesk");
+        std::fs::copy(&exe, &other).unwrap();
+        std::fs::copy(&exe, &foo).unwrap();
+
+        let spawn_hold = |bin: &Path, extra: Option<&str>| {
+            let mut cmd = std::process::Command::new(bin);
+            cmd.env_remove("SEALDESK_TRAY_REAP_NS");
+            cmd.env("SEALDESK_TRAY_FIXTURE", "1");
+            cmd.arg("platform::linux::tray_reap_tests::tray_fixture_hold");
+            cmd.arg("--exact");
+            cmd.arg("--test-threads=1");
+            if let Some(flag) = extra {
+                cmd.arg("--");
+                cmd.arg(flag);
+            }
+            cmd.spawn().expect("spawn fixture")
+        };
+
+        let mut intended = spawn_hold(&exe, Some("--tray"));
+        let mut same_server = spawn_hold(&exe, Some("--server"));
+        let mut same_debug = spawn_hold(&exe, Some("--tray-debug"));
+        let mut same_plain = spawn_hold(&exe, None);
+        let mut other_tray = spawn_hold(&other, Some("--tray"));
+        let mut foo_tray = spawn_hold(&foo, Some("--tray"));
+        let mut bash_wrap = std::process::Command::new("bash")
+            .args(["-c", "sleep 60 # sealdesk --tray"])
+            .spawn()
+            .expect("bash");
+        // Foreign executable, argv still contains an exact `--tray` token.
+        let mut rg_like = std::process::Command::new("/bin/bash")
+            .args(["-c", "sleep 60", "rg", "sealdesk", "--tray"])
+            .spawn()
+            .expect("bash rg-like");
+
+        let watched = [
+            ("intended", intended.id()),
+            ("server", same_server.id()),
+            ("tray-debug", same_debug.id()),
+            ("plain", same_plain.id()),
+            ("other-path", other_tray.id()),
+            ("foosealdesk", foo_tray.id()),
+            ("bash", bash_wrap.id()),
+            ("rg", rg_like.id()),
+        ];
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            let ready = watched.iter().all(|(_, pid)| {
+                std::fs::read(format!("/proc/{pid}/cmdline"))
+                    .map(|bytes| !bytes.is_empty())
+                    .unwrap_or(false)
+            });
+            if ready {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let n = proc_pid_count();
+        assert!(
+            n <= 30,
+            "refusing to signal after spawn: /proc pid count {n} > 30"
+        );
+
+        let targets = super::linux_own_tray_pids();
+        assert_eq!(
+            targets,
+            vec![intended.id()],
+            "signal set must be only the same-exe --tray fixture; watched={watched:?}"
+        );
+        super::term_pids(&targets);
+
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(2) {
+            if intended.try_wait().ok().flatten().is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(30));
+        }
+        let intended_gone = intended.try_wait().ok().flatten().is_some();
+        let survivors: Vec<_> = [
+            ("server", &mut same_server),
+            ("tray-debug", &mut same_debug),
+            ("plain", &mut same_plain),
+            ("other-path", &mut other_tray),
+            ("foosealdesk", &mut foo_tray),
+            ("bash", &mut bash_wrap),
+            ("rg", &mut rg_like),
+        ]
+        .into_iter()
+        .filter_map(|(name, child)| {
+            if child.try_wait().ok().flatten().is_none() {
+                Some(name)
+            } else {
+                None
+            }
+        })
+        .collect();
+        println!(
+            "NS_REAP intended_pid={} intended_gone={intended_gone} signaled={targets:?} survivors={survivors:?} proc_count={n}",
+            intended.id()
+        );
+        assert!(intended_gone, "same-exe --tray should have exited");
+        assert_eq!(survivors.len(), 7, "a bystander exited: {survivors:?}");
+    }
+
+    #[test]
+    fn tray_fixture_hold() {
+        if std::env::var_os("SEALDESK_TRAY_FIXTURE").is_some() {
+            std::thread::sleep(Duration::from_secs(90));
+        }
     }
 }
 
