@@ -19,6 +19,10 @@ void main() {
     ValueChanged<String> onChanged,
   ) async {
     await tester.pumpWidget(MaterialApp(
+      // Default AnimatedTheme keeps the previous brightness for the first
+      // frames. Opening then snapshots light-theme text into the menu route
+      // while the button's dropdownColor later settles to the dark dialog.
+      themeAnimationDuration: Duration.zero,
       theme: theme,
       home: Scaffold(
         body: ComboBox(
@@ -29,7 +33,7 @@ void main() {
         ),
       ),
     ));
-    await tester.pump();
+    await tester.pumpAndSettle();
     await tester.tap(find.byType(DropdownButton<String>));
     await tester.pumpAndSettle();
   }
