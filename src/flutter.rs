@@ -163,6 +163,23 @@ pub extern "C" fn handle_applicationShouldOpenUntitledFile() {
     crate::platform::macos::handle_application_should_open_untitled_file();
 }
 
+/// Cmd+Q and the macOS application menu Quit. Same exit as the tray Quit item:
+/// other instances of this executable are killed, then this process exits.
+/// The red close button does not call this; it still hides the window.
+#[cfg(target_os = "macos")]
+#[no_mangle]
+pub extern "C" fn sealdesk_quit_from_app_menu() {
+    crate::tray::quit_app();
+}
+
+/// `from_platform_channel != 0` is CM close (and the no-tray last-window
+/// fallback). Those must not kill the host or the main UI.
+#[cfg(target_os = "macos")]
+#[no_mangle]
+pub extern "C" fn sealdesk_macos_quit_globally(from_platform_channel: i32) -> i32 {
+    i32::from(crate::tray::macos_quit_globally(from_platform_channel != 0))
+}
+
 #[cfg(windows)]
 #[no_mangle]
 pub extern "C" fn rustdesk_core_main_args(args_len: *mut c_int) -> *mut *mut c_char {
