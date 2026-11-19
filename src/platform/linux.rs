@@ -2833,6 +2833,175 @@ fn any_library_loadable(names: &[&std::ffi::CStr]) -> bool {
     false
 }
 
+/// `pkill -f` pattern used to reap a previous user `--tray`.
+pub(crate) fn linux_tray_pkill_pattern(app_name: &str) -> String {
+    format!("{} --tray", app_name.to_lowercase())
+}
+
+/// `pkill -f` treats the pattern as a regular expression against the command line.
+/// The app-name pattern has no regex metacharacters.
+pub(crate) fn cmdline_contains_pattern(cmdline: &str, pattern: &str) -> bool {
+    cmdline.contains(pattern)
+}
+
+/// `true` when every pid is gone (or `pids` is empty).
+/// `false` when `timeout` elapses while any pid is still alive.
+pub(crate) fn wait_for_pids_exit(
+    pids: &[u32],
+    timeout: std::time::Duration,
+    poll: std::time::Duration,
+    mut alive: impl FnMut(u32) -> bool,
+) -> bool {
+    if pids.is_empty() {
+        return true;
+    }
+    let start = std::time::Instant::now();
+    loop {
+        if pids.iter().all(|pid| !alive(*pid)) {
+            return true;
+        }
+        if start.elapsed() >= timeout {
+            return false;
+        }
+        let remaining = timeout.saturating_sub(start.elapsed());
+        std::thread::sleep(if poll.is_zero() || poll > remaining {
+            remaining
+        } else {
+            poll
+        });
+    }
+}
+
+fn proc_pid_is_alive(pid: u32) -> bool {
+    let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
+        return false;
+    };
+    // `comm` may contain spaces. The state character follows the last `)`.
+    let Some(rest) = stat.rsplit_once(')').map(|(_, rest)| rest.trim_start()) else {
+        return true;
+    };
+    match rest.chars().next() {
+        Some('Z' | 'X') | None => false,
+        Some(_) => true,
+    }
+}
+
+fn linux_pids_with_cmdline(pattern: &str) -> Vec<u32> {
+    let mut pids = Vec::new();
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return pids;
+    };
+    let self_pid = std::process::id();
+    for entry in entries.flatten() {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        if pid == self_pid {
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(entry.path().join("cmdline")) else {
+            continue;
+        };
+        let cmdline = String::from_utf8_lossy(&bytes).replace('\0', " ");
+        if cmdline_contains_pattern(&cmdline, pattern) {
+            pids.push(pid);
+        }
+    }
+    pids
+}
+
+/// Reap a previous `--tray`, then start another unless the tray is hidden.
+///
+/// There may be no previous tray. `pkill` only signals; this waits up to 3s
+/// for those pids to leave (zombies count as gone). On timeout, log and still
+/// start the new tray so a stuck process does not skip the attempt.
+pub fn reap_previous_tray_and_maybe_start() {
+    let pattern = linux_tray_pkill_pattern(&crate::get_app_name());
+    let old = linux_pids_with_cmdline(&pattern);
+    std::process::Command::new("pkill")
+        .arg("-f")
+        .arg(&pattern)
+        .status()
+        .ok();
+    if !old.is_empty()
+        && !wait_for_pids_exit(
+            &old,
+            std::time::Duration::from_secs(3),
+            std::time::Duration::from_millis(50),
+            proc_pid_is_alive,
+        )
+    {
+        hbb_common::log::warn!(
+            "Timed out waiting for the previous --tray ({old:?}) to exit; starting a new tray anyway"
+        );
+    }
+    if !crate::common::is_tray_hidden() {
+        hbb_common::allow_err!(crate::run_me(vec!["--tray"]));
+    }
+}
+
+#[cfg(test)]
+mod tray_reap_tests {
+    use super::{cmdline_contains_pattern, linux_tray_pkill_pattern, wait_for_pids_exit};
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn tray_pattern_matches_the_pkill_needle_only() {
+        let pattern = linux_tray_pkill_pattern("SealDesk");
+        assert_eq!(pattern, "sealdesk --tray");
+        assert!(cmdline_contains_pattern(
+            "/usr/bin/sealdesk --tray",
+            &pattern
+        ));
+        assert!(!cmdline_contains_pattern(
+            "/usr/bin/sealdesk --server",
+            &pattern
+        ));
+    }
+
+    #[test]
+    fn wait_is_done_when_there_was_no_old_tray() {
+        let start = Instant::now();
+        assert!(wait_for_pids_exit(
+            &[],
+            Duration::from_secs(30),
+            Duration::from_secs(1),
+            |_| true
+        ));
+        assert!(start.elapsed() < Duration::from_millis(200));
+    }
+
+    #[test]
+    fn wait_times_out_while_the_old_tray_is_alive() {
+        let start = Instant::now();
+        assert!(!wait_for_pids_exit(
+            &[1],
+            Duration::from_millis(40),
+            Duration::from_millis(5),
+            |_| true
+        ));
+        assert!(start.elapsed() < Duration::from_millis(500));
+    }
+
+    #[test]
+    fn wait_returns_once_the_old_tray_exits() {
+        let mut checks = 0;
+        assert!(wait_for_pids_exit(
+            &[9],
+            Duration::from_secs(2),
+            Duration::from_millis(1),
+            |_| {
+                checks += 1;
+                checks < 3
+            }
+        ));
+    }
+}
+
 #[cfg(test)]
 mod appindicator_probe_tests {
     use super::any_library_loadable;

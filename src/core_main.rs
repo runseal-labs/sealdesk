@@ -551,14 +551,7 @@ pub fn core_main() -> Option<CoreMainAction> {
                 // No library: do not pkill or spawn. `--tray` would only exit.
                 // hide-tray still reaps a previous icon, then does not start another.
                 if crate::platform::appindicator_library_loadable() {
-                    std::process::Command::new("pkill")
-                        .arg("-f")
-                        .arg(format!("{} --tray", crate::get_app_name().to_lowercase()))
-                        .status()
-                        .ok();
-                    if !crate::common::is_tray_hidden() {
-                        hbb_common::allow_err!(crate::run_me(vec!["--tray"]));
-                    }
+                    crate::platform::reap_previous_tray_and_maybe_start();
                 }
             }
             #[cfg(target_os = "macos")]
