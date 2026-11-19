@@ -2856,7 +2856,21 @@ fn proc_cmdline_args(pid: u32) -> Option<Vec<String>> {
 /// kernel appends this to the readlink result; it is not a second path.
 const PROC_EXE_DELETED_SUFFIX: &str = " (deleted)";
 
-fn same_installed_exe(own_exe: &std::path::Path, proc_exe: &std::path::Path) -> bool {
+/// `stat` identity of the executed inode (`st_dev`, `st_ino`).
+/// This is `stat(/proc/<pid>/exe)`, which follows the link, not `lstat` of the proc symlink.
+type ExeImageId = (u64, u64);
+
+fn exe_image_id(proc_exe_link: &std::path::Path) -> Option<ExeImageId> {
+    use std::os::unix::fs::MetadataExt;
+    let meta = std::fs::metadata(proc_exe_link).ok()?;
+    Some((meta.dev(), meta.ino()))
+}
+
+fn same_installed_exe(
+    own_exe: &std::path::Path,
+    proc_exe: &std::path::Path,
+    image: Option<ExeImageId>,
+) -> bool {
     if proc_exe == own_exe {
         return true;
     }
@@ -2866,7 +2880,27 @@ fn same_installed_exe(own_exe: &std::path::Path, proc_exe: &std::path::Path) -> 
     let Some(stripped) = text.strip_suffix(PROC_EXE_DELETED_SUFFIX) else {
         return false;
     };
-    std::path::Path::new(stripped) == own_exe
+    if std::path::Path::new(stripped) != own_exe {
+        return false;
+    }
+    // The kernel appends the suffix in `d_path` when the dentry is unhashed.
+    // The readlink text is then not that inode's directory entry: `stat` of
+    // the text fails, or it names a different inode (a live file that happens
+    // to use the same characters). A live file whose name ends with the suffix
+    // has the same dev/ino as `/proc/<pid>/exe`.
+    readlink_text_is_unlinked_image(proc_exe, image)
+}
+
+fn readlink_text_is_unlinked_image(proc_exe: &std::path::Path, image: Option<ExeImageId>) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let named = match std::fs::metadata(proc_exe) {
+        Ok(meta) => meta,
+        Err(_) => return true,
+    };
+    match image {
+        Some((dev, ino)) => named.dev() != dev || named.ino() != ino,
+        None => false,
+    }
 }
 
 /// Previous tray of this executable only: same install path (including an
@@ -2877,7 +2911,16 @@ pub(crate) fn is_own_tray_process(
     proc_exe: &std::path::Path,
     args: &[String],
 ) -> bool {
-    same_installed_exe(own_exe, proc_exe) && args.iter().any(|arg| arg == "--tray")
+    own_tray_process(own_exe, proc_exe, args, None)
+}
+
+fn own_tray_process(
+    own_exe: &std::path::Path,
+    proc_exe: &std::path::Path,
+    args: &[String],
+    image: Option<ExeImageId>,
+) -> bool {
+    same_installed_exe(own_exe, proc_exe, image) && args.iter().any(|arg| arg == "--tray")
 }
 
 /// `true` when every pid is gone (or `pids` is empty).
@@ -2942,13 +2985,14 @@ fn linux_own_tray_pids() -> Vec<u32> {
         if pid == 0 || pid == self_pid {
             continue;
         }
-        let Ok(proc_exe) = std::fs::read_link(entry.path().join("exe")) else {
+        let proc_link = entry.path().join("exe");
+        let Ok(proc_exe) = std::fs::read_link(&proc_link) else {
             continue;
         };
         let Some(args) = proc_cmdline_args(pid) else {
             continue;
         };
-        if is_own_tray_process(&own_exe, &proc_exe, &args) {
+        if own_tray_process(&own_exe, &proc_exe, &args, exe_image_id(&proc_link)) {
             pids.push(pid);
         }
     }
@@ -3094,6 +3138,33 @@ mod tray_reap_tests {
     }
 
     #[test]
+    fn real_filename_deleted_suffix_is_not_own_unlinked_image() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let dir = std::env::temp_dir().join(format!(
+            "sealdesk-tray-real-suffix-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let own = dir.join("sealdesk");
+        let literal = dir.join("sealdesk (deleted)");
+        std::fs::copy("/bin/true", &own).unwrap();
+        std::fs::copy("/bin/true", &literal).unwrap();
+        std::fs::set_permissions(&literal, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let argv = args(&["sealdesk (deleted)", "--tray"]);
+        assert!(
+            !is_own_tray_process(&own, &literal, &argv),
+            "live file whose name ends with the kernel suffix must not match"
+        );
+        let meta = std::fs::metadata(&literal).unwrap();
+        assert!(
+            !super::own_tray_process(&own, &literal, &argv, Some((meta.dev(), meta.ino()))),
+            "same dev/ino as the live name is not an unlinked image"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn wait_is_done_when_there_was_no_old_tray() {
         let start = Instant::now();
         assert!(wait_for_pids_exit(
@@ -3179,9 +3250,11 @@ mod tray_reap_tests {
         let other = other_dir.join("sealdesk");
         let foo = foo_dir.join("foosealdesk");
         let installed = installed_dir.join("sealdesk");
+        let literal = installed_dir.join("sealdesk (deleted)");
         std::fs::copy(&exe, &other).unwrap();
         std::fs::copy(&exe, &foo).unwrap();
         std::fs::copy(&exe, &installed).unwrap();
+        std::fs::copy(&exe, &literal).unwrap();
 
         let spawn_hold = |bin: &Path, extra: Option<&str>| {
             let mut cmd = std::process::Command::new(bin);
@@ -3199,6 +3272,7 @@ mod tray_reap_tests {
 
         let mut intended = spawn_hold(&exe, Some("--tray"));
         let mut replaced = spawn_hold(&installed, Some("--tray"));
+        let mut real_suffix = spawn_hold(&literal, Some("--tray"));
         let mut same_server = spawn_hold(&exe, Some("--server"));
         let mut same_debug = spawn_hold(&exe, Some("--tray-debug"));
         let mut same_plain = spawn_hold(&exe, None);
@@ -3224,6 +3298,7 @@ mod tray_reap_tests {
             ("foosealdesk", foo_tray.id()),
             ("bash", bash_wrap.id()),
             ("rg", rg_like.id()),
+            ("real-suffix", real_suffix.id()),
         ];
         let deadline = Instant::now() + Duration::from_secs(2);
         while Instant::now() < deadline {
@@ -3321,6 +3396,7 @@ mod tray_reap_tests {
             ("foosealdesk", &mut foo_tray),
             ("bash", &mut bash_wrap),
             ("rg", &mut rg_like),
+            ("real-suffix", &mut real_suffix),
         ]
         .into_iter()
         .filter_map(|(name, child)| {
@@ -3338,7 +3414,20 @@ mod tray_reap_tests {
         );
         assert!(intended_gone, "same-exe --tray should have exited");
         assert!(replaced_gone, "unlinked same-path --tray should have exited");
-        assert_eq!(survivors.len(), 7, "a bystander exited: {survivors:?}");
+        assert_eq!(
+            survivors,
+            [
+                "server",
+                "tray-debug",
+                "plain",
+                "other-path",
+                "foosealdesk",
+                "bash",
+                "rg",
+                "real-suffix"
+            ],
+            "a bystander exited: {survivors:?}"
+        );
     }
 
     /// Writes this process's own-tray pid list. No signals.
