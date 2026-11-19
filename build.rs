@@ -150,11 +150,15 @@ fn build_tailcat() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rustc-link-search=native={}", out.display());
     println!("cargo:rustc-link-lib={link_kind}=tailcat");
     if target_os == "android" || target_os == "windows" {
-        let profile_dir = out
-            .ancestors()
-            .nth(3)
-            .ok_or("Unexpected Cargo OUT_DIR layout")?;
-        std::fs::copy(out.join(library_name), profile_dir.join(library_name))?;
+        let profile_dir = tailcat_build_target::sidecar_profile_dir(&out)
+            .ok_or_else(|| format!("Unexpected Cargo OUT_DIR layout: {}", out.display()))?;
+        let destination = profile_dir.join(library_name);
+        std::fs::copy(out.join(library_name), &destination)?;
+        println!(
+            "cargo:warning=copied {library_name} from {} to {}",
+            out.display(),
+            destination.display()
+        );
     }
     if target_os == "macos" {
         println!("cargo:rustc-link-lib=framework=CoreFoundation");
