@@ -48,6 +48,12 @@ def get_deb_extra_depends() -> str:
         return ", libatomic1"
     return ""
 
+def windows_virtual_display_dll(profile_dir='target/release'):
+    # Final cdylib. Cargo 1.99 also copies it into <profile>/deps; Cargo 1.100
+    # does not create deps. Windows keeps the basename previously read from deps.
+    return os.path.join(profile_dir, 'dylib_virtual_display.dll')
+
+
 def system2(cmd):
     exit_code = os.system(cmd)
     if exit_code != 0:
@@ -981,8 +987,9 @@ def build_flutter_windows(version, features, skip_portable_pack):
     os.chdir('flutter')
     system2('flutter build windows --release')
     os.chdir('..')
-    shutil.copy2('target/release/deps/dylib_virtual_display.dll',
-                 flutter_build_dir_2)
+    virtual_display_dll = windows_virtual_display_dll()
+    print(f'copy {virtual_display_dll} -> {flutter_build_dir_2}')
+    shutil.copy2(virtual_display_dll, flutter_build_dir_2)
     if skip_portable_pack:
         return
     os.chdir('libs/portable')
