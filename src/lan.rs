@@ -872,9 +872,14 @@ fn classify_first_frame(frame: &[u8]) -> Result<Hello, LanHandshakeError> {
     match serde_json::from_slice::<Hello>(frame) {
         Ok(hello) => Ok(hello),
         // Syntax errors that do not even look like JSON are the RustDesk hash
-        // frame (and anything else that is not this protocol). A JSON value
-        // that is not a hello, including trailing junk, stays fail-closed.
-        Err(err) if err.is_syntax() && !looks_like_json(frame) => {
+        // frame (and anything else that is not this protocol). Empty and
+        // whitespace-only frames are not that frame. A JSON value that is not
+        // a hello, including trailing junk, stays fail-closed.
+        Err(err)
+            if err.is_syntax()
+                && frame.iter().any(|byte| !byte.is_ascii_whitespace())
+                && !looks_like_json(frame) =>
+        {
             Err(LanHandshakeError::NotSealDeskHello(err))
         }
         Err(err) => Err(LanHandshakeError::RejectedHello(err)),
@@ -2678,6 +2683,8 @@ mod tests {
         trailed.push(0x4A);
         let frames: &[&[u8]] = &[
             &[],
+            b" \t\r\n",
+            b"\x0c",
             br#"{"not":"hello"}"#,
             br#"{"key":[],"ephemeral":[],"nonce":[]}"#,
             br#"{"#,
