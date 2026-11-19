@@ -273,13 +273,6 @@ pub(crate) fn quit_app() {
     std::process::exit(0);
 }
 
-/// macOS `applicationShouldTerminate` runs for Cmd+Q and for
-/// `NSApplication.terminate` from the platform channel (CM close, including
-/// the empty-client timer). Only the application menu is a global quit.
-pub(crate) fn macos_quit_globally(from_platform_channel: bool) -> bool {
-    !from_platform_channel
-}
-
 fn terminate_other_instances() {
     use hbb_common::sysinfo::System;
     let Ok(my_exe) = std::env::current_exe() else {
@@ -372,15 +365,4 @@ fn load_icon_from_asset() -> Option<image::DynamicImage> {
         }
     }
     None
-}
-
-#[cfg(test)]
-mod macos_quit_tests {
-    use super::macos_quit_globally;
-
-    #[test]
-    fn app_menu_quits_globally_platform_channel_does_not() {
-        assert!(macos_quit_globally(false));
-        assert!(!macos_quit_globally(true));
-    }
 }
