@@ -3040,110 +3040,57 @@ pub fn reap_previous_tray_and_maybe_start() {
 #[cfg(test)]
 mod tray_reap_tests {
     use super::{is_own_tray_process, wait_for_pids_exit};
-    use std::path::Path;
-    use std::time::{Duration, Instant};
+    use std::{
+        path::Path,
+        process::{Child, Command},
+        time::{Duration, Instant},
+    };
 
     fn args(parts: &[&str]) -> Vec<String> {
         parts.iter().map(|part| (*part).to_owned()).collect()
     }
 
+    fn assert_own(own: &Path, proc_exe: &str, argv: &[&str], expect: bool) {
+        assert_eq!(
+            is_own_tray_process(own, Path::new(proc_exe), &args(argv)),
+            expect,
+            "exe={proc_exe} argv={argv:?}"
+        );
+    }
+
     #[test]
     fn own_tray_is_this_exe_with_exact_tray_arg() {
         let own = Path::new("/usr/bin/sealdesk");
-        assert!(is_own_tray_process(
-            own,
-            own,
-            &args(&["/usr/bin/sealdesk", "--tray"])
-        ));
-        assert!(is_own_tray_process(
-            own,
-            own,
-            &args(&["sealdesk", "--tray"])
-        ));
-        assert!(!is_own_tray_process(
-            own,
-            Path::new("/opt/other/sealdesk"),
-            &args(&["/opt/other/sealdesk", "--tray"])
-        ));
-        assert!(!is_own_tray_process(
-            own,
-            Path::new("/usr/bin/rg"),
-            &args(&["rg", "sealdesk", "--tray"])
-        ));
-        assert!(!is_own_tray_process(
-            own,
-            Path::new("/bin/bash"),
-            &args(&["bash", "-c", "exec /usr/bin/sealdesk --tray"])
-        ));
-        assert!(!is_own_tray_process(
-            own,
-            own,
-            &args(&["/usr/bin/sealdesk", "--tray-debug"])
-        ));
-        assert!(!is_own_tray_process(
-            own,
-            Path::new("/usr/bin/foosealdesk"),
-            &args(&["/usr/bin/foosealdesk", "--tray"])
-        ));
-        assert!(!is_own_tray_process(
-            own,
-            own,
-            &args(&["/usr/bin/sealdesk", "--server"])
-        ));
-        assert!(!is_own_tray_process(
-            own,
-            own,
-            &args(&["/usr/bin/sealdesk"])
-        ));
-        assert!(is_own_tray_process(
-            own,
-            Path::new("/usr/bin/sealdesk (deleted)"),
-            &args(&["/usr/bin/sealdesk", "--tray"])
-        ));
-        assert!(!is_own_tray_process(
-            own,
-            Path::new("/opt/other/sealdesk (deleted)"),
-            &args(&["/opt/other/sealdesk", "--tray"])
-        ));
-        assert!(!is_own_tray_process(
-            own,
-            Path::new("/usr/bin/foosealdesk (deleted)"),
-            &args(&["/usr/bin/foosealdesk", "--tray"])
-        ));
-        assert!(!is_own_tray_process(
-            own,
-            Path::new("/usr/bin/sealdesk (deleted)"),
-            &args(&["/usr/bin/sealdesk", "--tray-debug"])
-        ));
-        assert!(!is_own_tray_process(
-            own,
-            Path::new("/usr/bin/sealdesk (deleted)"),
-            &args(&["/usr/bin/sealdesk", "--server"])
-        ));
-        assert!(!is_own_tray_process(
-            own,
-            Path::new("/usr/bin/sealdesk (deleted)"),
-            &args(&["/usr/bin/sealdesk"])
-        ));
-        assert!(!is_own_tray_process(
-            own,
-            Path::new("/bin/bash (deleted)"),
-            &args(&["bash", "-c", "exec /usr/bin/sealdesk --tray"])
-        ));
-        assert!(!is_own_tray_process(
-            own,
-            Path::new("/usr/bin/rg (deleted)"),
-            &args(&["rg", "sealdesk", "--tray"])
-        ));
+        let own_s = "/usr/bin/sealdesk";
+        let deleted = "/usr/bin/sealdesk (deleted)";
+        let cases: &[(&str, &[&str], bool)] = &[
+            (own_s, &["/usr/bin/sealdesk", "--tray"], true),
+            (own_s, &["sealdesk", "--tray"], true),
+            ("/opt/other/sealdesk", &["/opt/other/sealdesk", "--tray"], false),
+            ("/usr/bin/rg", &["rg", "sealdesk", "--tray"], false),
+            ("/bin/bash", &["bash", "-c", "exec /usr/bin/sealdesk --tray"], false),
+            (own_s, &["/usr/bin/sealdesk", "--tray-debug"], false),
+            ("/usr/bin/foosealdesk", &["/usr/bin/foosealdesk", "--tray"], false),
+            (own_s, &["/usr/bin/sealdesk", "--server"], false),
+            (own_s, &["/usr/bin/sealdesk"], false),
+            (deleted, &["/usr/bin/sealdesk", "--tray"], true),
+            ("/opt/other/sealdesk (deleted)", &["/opt/other/sealdesk", "--tray"], false),
+            ("/usr/bin/foosealdesk (deleted)", &["/usr/bin/foosealdesk", "--tray"], false),
+            (deleted, &["/usr/bin/sealdesk", "--tray-debug"], false),
+            (deleted, &["/usr/bin/sealdesk", "--server"], false),
+            (deleted, &["/usr/bin/sealdesk"], false),
+            ("/bin/bash (deleted)", &["bash", "-c", "exec /usr/bin/sealdesk --tray"], false),
+            ("/usr/bin/rg (deleted)", &["rg", "sealdesk", "--tray"], false),
+        ];
+        for (exe, argv, expect) in cases {
+            assert_own(own, exe, argv, *expect);
+        }
     }
 
     #[test]
     fn real_filename_deleted_suffix_is_not_own_unlinked_image() {
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
-        let dir = std::env::temp_dir().join(format!(
-            "sealdesk-tray-real-suffix-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("sealdesk-tray-real-suffix-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let own = dir.join("sealdesk");
@@ -3152,14 +3099,11 @@ mod tray_reap_tests {
         std::fs::copy("/bin/true", &literal).unwrap();
         std::fs::set_permissions(&literal, std::fs::Permissions::from_mode(0o755)).unwrap();
         let argv = args(&["sealdesk (deleted)", "--tray"]);
-        assert!(
-            !is_own_tray_process(&own, &literal, &argv),
-            "live file whose name ends with the kernel suffix must not match"
-        );
+        assert!(!is_own_tray_process(&own, &literal, &argv), "live filename with kernel suffix");
         let meta = std::fs::metadata(&literal).unwrap();
         assert!(
             !super::own_tray_process(&own, &literal, &argv, Some((meta.dev(), meta.ino()))),
-            "same dev/ino as the live name is not an unlinked image"
+            "live inode is not an unlinked image"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -3205,243 +3149,124 @@ mod tray_reap_tests {
     fn proc_pid_count() -> usize {
         std::fs::read_dir("/proc")
             .map(|entries| {
-                entries
-                    .flatten()
-                    .filter(|entry| {
-                        entry
-                            .file_name()
-                            .to_str()
-                            .and_then(|name| name.parse::<u32>().ok())
-                            .is_some()
-                    })
-                    .count()
+                entries.flatten().filter(|entry| {
+                    entry.file_name().to_str().and_then(|n| n.parse::<u32>().ok()).is_some()
+                }).count()
             })
             .unwrap_or(usize::MAX)
     }
 
-    /// Signals processes. Run only as PID 1 inside `unshare --user --pid --fork --mount-proc`
-    /// with `SEALDESK_TRAY_REAP_NS=1` and a tiny `/proc`. Default `cargo test` skips it.
+    fn assert_private_ns(stage: &str) {
+        let n = proc_pid_count();
+        assert_eq!(std::process::id(), 1, "refusing to signal ({stage}): not pid 1 (proc count {n})");
+        assert!(n <= 30, "refusing to signal ({stage}): /proc pid count {n} > 30");
+    }
+
+    fn wait_cmdlines(pids: &[u32]) {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            let ready = pids.iter().all(|pid| {
+                std::fs::read(format!("/proc/{pid}/cmdline")).map(|b| !b.is_empty()).unwrap_or(false)
+            });
+            if ready {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    fn spawn_hold(bin: &Path, extra: Option<&str>) -> Child {
+        let mut cmd = Command::new(bin);
+        cmd.env_remove("SEALDESK_TRAY_REAP_NS").env("SEALDESK_TRAY_FIXTURE", "1");
+        cmd.args(["platform::linux::tray_reap_tests::tray_fixture_hold", "--exact", "--test-threads=1"]);
+        if let Some(flag) = extra {
+            cmd.args(["--", flag]);
+        }
+        cmd.spawn().expect("spawn fixture")
+    }
+
+    fn alive(child: &mut Child) -> bool {
+        child.try_wait().ok().flatten().is_none()
+    }
+
+    /// Signals only inside `unshare --user --pid --fork --mount-proc` as PID 1
+    /// with `SEALDESK_TRAY_REAP_NS=1`. Default `cargo test` skips it.
     #[test]
     #[ignore]
     fn namespace_reap_terms_only_own_exact_tray() {
         if std::env::var_os("SEALDESK_TRAY_REAP_NS").is_none() {
             return;
         }
-        let n = proc_pid_count();
-        assert_eq!(
-            std::process::id(),
-            1,
-            "refusing to signal: not pid 1 (proc count {n})"
-        );
-        assert!(
-            n <= 30,
-            "refusing to signal: /proc pid count {n} > 30"
-        );
-
+        assert_private_ns("enter");
         let exe = std::env::current_exe().expect("current_exe");
         let root = std::env::temp_dir().join("sealdesk-tray-reap-ns");
         let _ = std::fs::remove_dir_all(&root);
-        let other_dir = root.join("other");
-        let foo_dir = root.join("foo");
-        let installed_dir = root.join("installed");
-        std::fs::create_dir_all(&other_dir).unwrap();
-        std::fs::create_dir_all(&foo_dir).unwrap();
-        std::fs::create_dir_all(&installed_dir).unwrap();
-        let other = other_dir.join("sealdesk");
-        let foo = foo_dir.join("foosealdesk");
-        let installed = installed_dir.join("sealdesk");
-        let literal = installed_dir.join("sealdesk (deleted)");
-        std::fs::copy(&exe, &other).unwrap();
-        std::fs::copy(&exe, &foo).unwrap();
-        std::fs::copy(&exe, &installed).unwrap();
-        std::fs::copy(&exe, &literal).unwrap();
-
-        let spawn_hold = |bin: &Path, extra: Option<&str>| {
-            let mut cmd = std::process::Command::new(bin);
-            cmd.env_remove("SEALDESK_TRAY_REAP_NS");
-            cmd.env("SEALDESK_TRAY_FIXTURE", "1");
-            cmd.arg("platform::linux::tray_reap_tests::tray_fixture_hold");
-            cmd.arg("--exact");
-            cmd.arg("--test-threads=1");
-            if let Some(flag) = extra {
-                cmd.arg("--");
-                cmd.arg(flag);
-            }
-            cmd.spawn().expect("spawn fixture")
-        };
-
+        let installed = root.join("installed/sealdesk");
+        let literal = root.join("installed/sealdesk (deleted)");
+        let other = root.join("other/sealdesk");
+        let foo = root.join("foo/foosealdesk");
+        for path in [&installed, &literal, &other, &foo] {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::copy(&exe, path).unwrap();
+        }
         let mut intended = spawn_hold(&exe, Some("--tray"));
         let mut replaced = spawn_hold(&installed, Some("--tray"));
-        let mut real_suffix = spawn_hold(&literal, Some("--tray"));
-        let mut same_server = spawn_hold(&exe, Some("--server"));
-        let mut same_debug = spawn_hold(&exe, Some("--tray-debug"));
-        let mut same_plain = spawn_hold(&exe, None);
-        let mut other_tray = spawn_hold(&other, Some("--tray"));
-        let mut foo_tray = spawn_hold(&foo, Some("--tray"));
-        let mut bash_wrap = std::process::Command::new("bash")
-            .args(["-c", "sleep 60 # sealdesk --tray"])
-            .spawn()
-            .expect("bash");
-        // Foreign executable, argv still contains an exact `--tray` token.
-        let mut rg_like = std::process::Command::new("/bin/bash")
-            .args(["-c", "sleep 60", "rg", "sealdesk", "--tray"])
-            .spawn()
-            .expect("bash rg-like");
-
-        let watched = [
-            ("intended", intended.id()),
-            ("replaced", replaced.id()),
-            ("server", same_server.id()),
-            ("tray-debug", same_debug.id()),
-            ("plain", same_plain.id()),
-            ("other-path", other_tray.id()),
-            ("foosealdesk", foo_tray.id()),
-            ("bash", bash_wrap.id()),
-            ("rg", rg_like.id()),
-            ("real-suffix", real_suffix.id()),
-        ];
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while Instant::now() < deadline {
-            let ready = watched.iter().all(|(_, pid)| {
-                std::fs::read(format!("/proc/{pid}/cmdline"))
-                    .map(|bytes| !bytes.is_empty())
-                    .unwrap_or(false)
-            });
-            if ready {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(20));
+        let mut kids: Vec<(&str, Child)> = Vec::new();
+        for (name, bin, flag) in [
+            ("server", exe.as_path(), Some("--server")),
+            ("tray-debug", exe.as_path(), Some("--tray-debug")),
+            ("plain", exe.as_path(), None),
+            ("other-path", other.as_path(), Some("--tray")),
+            ("foosealdesk", foo.as_path(), Some("--tray")),
+        ] {
+            kids.push((name, spawn_hold(bin, flag)));
         }
-        let n = proc_pid_count();
-        assert!(
-            n <= 30,
-            "refusing to signal after spawn: /proc pid count {n} > 30"
-        );
-
+        kids.push(("bash", Command::new("bash").args(["-c", "sleep 60 # sealdesk --tray"]).spawn().expect("bash")));
+        kids.push(("rg", Command::new("/bin/bash").args(["-c", "sleep 60", "rg", "sealdesk", "--tray"]).spawn().expect("rg")));
+        kids.push(("real-suffix", spawn_hold(&literal, Some("--tray"))));
+        let mut pids = vec![intended.id(), replaced.id()];
+        pids.extend(kids.iter().map(|(_, child)| child.id()));
+        wait_cmdlines(&pids);
+        assert_private_ns("after spawn");
         let targets = super::linux_own_tray_pids();
-        assert_eq!(
-            targets,
-            vec![intended.id()],
-            "signal set must be only the same-exe --tray fixture; watched={watched:?}"
-        );
-
-        // Unlink the inode the replaced tray is running, then put a new file
-        // at the same path. Its `/proc/<pid>/exe` gains the kernel suffix.
+        assert_eq!(targets, vec![intended.id()], "signal set must be only the same-exe --tray fixture");
         std::fs::remove_file(&installed).unwrap();
         std::fs::copy(&exe, &installed).unwrap();
-        let replaced_exe = std::fs::read_link(format!("/proc/{}/exe", replaced.id()))
-            .expect("replaced exe link");
-        assert!(
-            replaced_exe
-                .to_string_lossy()
-                .ends_with(" (deleted)"),
-            "expected kernel deleted suffix, got {replaced_exe:?}"
-        );
-        assert!(
-            !targets.contains(&replaced.id()),
-            "pid 1 exe is not the replaced install path"
-        );
-
+        let replaced_exe = std::fs::read_link(format!("/proc/{}/exe", replaced.id())).expect("replaced exe link");
+        assert!(replaced_exe.to_string_lossy().ends_with(" (deleted)"), "expected kernel deleted suffix, got {replaced_exe:?}");
         let report_path = root.join("deleted-report");
-        let mut reporter = std::process::Command::new(&installed)
+        let mut reporter = Command::new(&installed)
             .env_remove("SEALDESK_TRAY_REAP_NS")
             .env("SEALDESK_TRAY_DELETED_REPORT", &report_path)
-            .arg("platform::linux::tray_reap_tests::tray_deleted_exe_report")
-            .arg("--exact")
-            .arg("--test-threads=1")
+            .args(["platform::linux::tray_reap_tests::tray_deleted_exe_report", "--exact", "--test-threads=1"])
             .spawn()
             .expect("spawn reporter");
-        let report_ok = reporter
-            .wait()
-            .expect("wait reporter")
-            .success();
-        assert!(report_ok, "deleted-exe reporter failed");
+        assert!(reporter.wait().expect("wait reporter").success(), "deleted-exe reporter failed");
         let report = std::fs::read_to_string(&report_path).expect("report");
-        let deleted_targets: Vec<u32> = report
-            .split_whitespace()
-            .map(|part| part.parse::<u32>().expect("pid"))
-            .collect();
-        assert_eq!(
-            deleted_targets,
-            vec![replaced.id()],
-            "new inode must reap only the unlinked tray; watched={watched:?} report={report:?}"
-        );
-
-        let mut signal = targets.clone();
+        let deleted_targets: Vec<u32> = report.split_whitespace().map(|part| part.parse::<u32>().expect("pid")).collect();
+        assert_eq!(deleted_targets, vec![replaced.id()], "new inode must reap only the unlinked tray; report={report:?}");
+        let mut signal = targets;
         signal.extend(&deleted_targets);
-        let n = proc_pid_count();
-        assert_eq!(std::process::id(), 1, "refusing to signal: not pid 1");
-        assert!(
-            n <= 30,
-            "refusing to signal after report: /proc pid count {n} > 30"
-        );
+        assert_private_ns("after report");
         super::term_pids(&signal);
-
         let start = Instant::now();
-        while start.elapsed() < Duration::from_secs(2) {
-            let intended_done = intended.try_wait().ok().flatten().is_some();
-            let replaced_done = replaced.try_wait().ok().flatten().is_some();
-            if intended_done && replaced_done {
-                break;
-            }
+        while start.elapsed() < Duration::from_secs(2) && (alive(&mut intended) || alive(&mut replaced)) {
             std::thread::sleep(Duration::from_millis(30));
         }
-        let intended_gone = intended.try_wait().ok().flatten().is_some();
-        let replaced_gone = replaced.try_wait().ok().flatten().is_some();
-        let survivors: Vec<_> = [
-            ("server", &mut same_server),
-            ("tray-debug", &mut same_debug),
-            ("plain", &mut same_plain),
-            ("other-path", &mut other_tray),
-            ("foosealdesk", &mut foo_tray),
-            ("bash", &mut bash_wrap),
-            ("rg", &mut rg_like),
-            ("real-suffix", &mut real_suffix),
-        ]
-        .into_iter()
-        .filter_map(|(name, child)| {
-            if child.try_wait().ok().flatten().is_none() {
-                Some(name)
-            } else {
-                None
-            }
-        })
-        .collect();
-        println!(
-            "NS_REAP intended_pid={} intended_gone={intended_gone} replaced_pid={} replaced_gone={replaced_gone} signaled={signal:?} survivors={survivors:?} proc_count={n}",
-            intended.id(),
-            replaced.id()
-        );
+        let intended_gone = !alive(&mut intended);
+        let replaced_gone = !alive(&mut replaced);
+        let survivors: Vec<_> = kids.iter_mut().filter_map(|(name, child)| alive(child).then_some(*name)).collect();
+        println!("NS_REAP intended_pid={} intended_gone={intended_gone} replaced_pid={} replaced_gone={replaced_gone} signaled={signal:?} survivors={survivors:?}", intended.id(), replaced.id());
         assert!(intended_gone, "same-exe --tray should have exited");
         assert!(replaced_gone, "unlinked same-path --tray should have exited");
-        assert_eq!(
-            survivors,
-            [
-                "server",
-                "tray-debug",
-                "plain",
-                "other-path",
-                "foosealdesk",
-                "bash",
-                "rg",
-                "real-suffix"
-            ],
-            "a bystander exited: {survivors:?}"
-        );
+        assert_eq!(survivors, ["server", "tray-debug", "plain", "other-path", "foosealdesk", "bash", "rg", "real-suffix"], "a bystander exited: {survivors:?}");
     }
 
     /// Writes this process's own-tray pid list. No signals.
     #[test]
     fn tray_deleted_exe_report() {
-        let Ok(path) = std::env::var("SEALDESK_TRAY_DELETED_REPORT") else {
-            return;
-        };
-        let pids = super::linux_own_tray_pids();
-        let text = pids
-            .iter()
-            .map(|pid| pid.to_string())
-            .collect::<Vec<_>>()
-            .join(" ");
+        let Ok(path) = std::env::var("SEALDESK_TRAY_DELETED_REPORT") else { return };
+        let text = super::linux_own_tray_pids().iter().map(|pid| pid.to_string()).collect::<Vec<_>>().join(" ");
         std::fs::write(path, text).expect("write report");
     }
 

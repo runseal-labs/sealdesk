@@ -4,31 +4,33 @@ import FlutterMacOS
 @_silgen_name("sealdesk_quit_from_app_menu")
 func sealdesk_quit_from_app_menu()
 
-@_silgen_name("sealdesk_macos_quit_globally")
-func sealdesk_macos_quit_globally(_ fromPlatformChannel: Int32) -> Int32
-
 @main
 class AppDelegate: FlutterAppDelegate {
     var launched = false;
-    /// Set by the host method channel before `NSApplication.terminate`.
-    /// Cmd+Q leaves this false and is the only AppKit path that quits globally.
-    static var terminateFromPlatformChannel = false
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
       dummy_method_to_enforce_bundling()
     // https://github.com/leanflutter/window_manager/issues/214
     return false
   }
 
-  // Cmd+Q / application-menu Quit. The red button still hides: prevent-close
-  // stays set and this is not a last-window terminate. Tray Quit kills sibling
-  // processes and exits; do that before AppKit asks the window to close.
-  // CM close uses the platform channel and must not reach `quit_app`.
+  // CM, updater, `quit_gui`, and logout reach here via `NSApp terminate:` and end this process only.
   override func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-      let fromChannel: Int32 = AppDelegate.terminateFromPlatformChannel ? 1 : 0
-      if sealdesk_macos_quit_globally(fromChannel) != 0 {
-          sealdesk_quit_from_app_menu()
-      }
       return .terminateNow
+  }
+
+  /// MainMenu.xib's Quit item sends `terminate:`. Rebind it so only that action
+  /// is a global quit. Cmd+Q uses the same item. The nib is loaded before
+  /// `applicationDidFinishLaunching`.
+  private func bindApplicationMenuQuit() {
+      guard let items = NSApp.mainMenu?.item(at: 0)?.submenu?.items else { return }
+      for item in items where item.action == #selector(NSApplication.terminate(_:)) {
+          item.target = self
+          item.action = #selector(quitFromApplicationMenu(_:))
+      }
+  }
+
+  @objc func quitFromApplicationMenu(_ sender: Any?) {
+      sealdesk_quit_from_app_menu()
   }
     
     override func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
@@ -40,6 +42,7 @@ class AppDelegate: FlutterAppDelegate {
     
     override func applicationDidFinishLaunching(_ aNotification: Notification) {
         launched = true;
+        bindApplicationMenuQuit()
         NSApplication.shared.activate(ignoringOtherApps: true);
     }
 }
