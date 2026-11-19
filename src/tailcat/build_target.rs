@@ -1,4 +1,16 @@
-use std::{ffi::OsStr, process::Command};
+use std::{ffi::OsStr, path::Path, process::Command};
+
+/// Cargo profile directory (`target/<triple?>/<profile>`) that Android and
+/// Windows packaging read. Cargo 1.100 inserts an extra `<pkg>/<hash>` level
+/// under `build/`, so `ancestors().nth(3)` lands on `build/` instead of the
+/// profile directory. Walk to the `build` directory instead of counting.
+pub(crate) fn sidecar_profile_dir(out_dir: &Path) -> Option<&Path> {
+    out_dir
+        .ancestors()
+        .find(|dir| dir.file_name() == Some(OsStr::new("build")))
+        .and_then(Path::parent)
+        .filter(|profile| profile.file_name().is_some())
+}
 
 pub(crate) fn library_format(target_os: &str) -> (&'static str, &'static str, &'static str) {
     if target_os == "android" {
@@ -67,6 +79,32 @@ pub(crate) fn configure(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sidecar_profile_dir_accepts_pre_1_100_and_1_100_out_dir() {
+        let legacy = Path::new(
+            "/work/target/aarch64-linux-android/release/build/sealdesk-9c04762e0410be5e/out",
+        );
+        let current = Path::new(
+            "/work/target/aarch64-linux-android/release/build/sealdesk/d1703f797afaf68f/out",
+        );
+        let host = Path::new("/work/target/release/build/sealdesk/d1703f797afaf68f/out");
+        let profile = Path::new("/work/target/aarch64-linux-android/release");
+        assert_eq!(sidecar_profile_dir(legacy), Some(profile));
+        assert_eq!(legacy.ancestors().nth(3), Some(profile));
+        assert_eq!(sidecar_profile_dir(current), Some(profile));
+        assert_eq!(
+            current.ancestors().nth(3),
+            Some(Path::new(
+                "/work/target/aarch64-linux-android/release/build"
+            ))
+        );
+        assert_eq!(
+            sidecar_profile_dir(host),
+            Some(Path::new("/work/target/release"))
+        );
+        assert_eq!(sidecar_profile_dir(Path::new("/tmp/out")), None);
+    }
 
     #[test]
     fn android_uses_shared_library_and_desktop_keeps_static_archive() {
