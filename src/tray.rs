@@ -273,11 +273,19 @@ pub(crate) fn quit_app() {
     std::process::exit(0);
 }
 
-/// macOS `applicationShouldTerminate` runs for Cmd+Q and for
-/// `NSApplication.terminate` from the platform channel (CM close, including
-/// the empty-client timer). Only the application menu is a global quit.
+/// Whether a platform-channel `NSApplication.terminate` is a global quit.
+/// It is not: CM close and the no-tray main-window fallback set that flag.
+/// This does not cover `quit_gui` (`NSApp terminate:` with the flag clear).
+/// `applicationShouldTerminate` uses [`macos_terminate_kills_siblings`].
 pub(crate) fn macos_quit_globally(from_platform_channel: bool) -> bool {
     !from_platform_channel
+}
+
+/// Sibling processes die only for an explicit application-menu Quit (Cmd+Q is
+/// that item). `quit_gui` after an update/relaunch, CM's `quit_gui` fallback,
+/// and session logout pass `false` and exit this process only.
+pub(crate) fn macos_terminate_kills_siblings(from_app_menu: bool) -> bool {
+    from_app_menu
 }
 
 fn terminate_other_instances() {
@@ -382,5 +390,12 @@ mod macos_quit_tests {
     fn app_menu_quits_globally_platform_channel_does_not() {
         assert!(macos_quit_globally(false));
         assert!(!macos_quit_globally(true));
+    }
+
+    #[test]
+    fn only_app_menu_terminate_kills_siblings() {
+        use super::macos_terminate_kills_siblings;
+        assert!(macos_terminate_kills_siblings(true));
+        assert!(!macos_terminate_kills_siblings(false));
     }
 }

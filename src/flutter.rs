@@ -174,10 +174,19 @@ pub extern "C" fn sealdesk_quit_from_app_menu() {
 
 /// `from_platform_channel != 0` is CM close (and the no-tray last-window
 /// fallback). Those must not kill the host or the main UI.
+/// Not used by `applicationShouldTerminate`: a false value is also `quit_gui`.
 #[cfg(target_os = "macos")]
 #[no_mangle]
 pub extern "C" fn sealdesk_macos_quit_globally(from_platform_channel: i32) -> i32 {
     i32::from(crate::tray::macos_quit_globally(from_platform_channel != 0))
+}
+
+/// `from_app_menu != 0` only after the application-menu Quit action.
+/// Updater `quit_gui`, relaunch, CM `quit_gui`, and logout pass 0.
+#[cfg(target_os = "macos")]
+#[no_mangle]
+pub extern "C" fn sealdesk_macos_terminate_kills_siblings(from_app_menu: i32) -> i32 {
+    i32::from(crate::tray::macos_terminate_kills_siblings(from_app_menu != 0))
 }
 
 #[cfg(windows)]
